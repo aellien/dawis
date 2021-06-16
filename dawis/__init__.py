@@ -11,3 +11,4 @@ from dawis.gif import *
 from dawis.exceptions import *
 from dawis.table_noise_stds import *
 from dawis.synthesis_by_analysis import *
+from dawis.test import *
