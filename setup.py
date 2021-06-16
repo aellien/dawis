@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='dawis',
-      version='0.0.1',
+      version='0.0.2',
       description='Detection Algorithm with Wavelet for Intracluster light Studies',
       url='https://github.com/aellien/dawis.git',
       author='Amaël Ellien',
@@ -17,5 +17,5 @@ setup(name='dawis',
           'ray'
       ],
       include_package_data=True,
-      package_data={'': ['gallery/*.fits']}
+      package_data={'': ['gallery/*.fits']},
       zip_safe=False)
