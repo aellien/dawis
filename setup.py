@@ -16,4 +16,6 @@ setup(name='dawis',
           'scikit-image',
           'ray'
       ],
+      include_package_data=True,
+      package_data={'': ['gallery/*.fits']}
       zip_safe=False)
