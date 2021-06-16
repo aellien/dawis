@@ -8,4 +8,12 @@ setup(name='dawis',
       author_email='a.r.j.ellien@uva.nl',
       license='GNU General Public License v3.0',
       packages=['dawis'],
+      install_requires=[
+          'numpy',
+          'matplotlib',
+          'scipy',
+          'astropy',
+          'scikit-image',
+          'ray'
+      ],
       zip_safe=False)
