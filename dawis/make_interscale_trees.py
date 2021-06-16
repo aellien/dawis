@@ -400,7 +400,7 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
         span_levels = np.size(np.unique([ x.level for x in connected_region_list ]))
 
         if span_levels < pmin_span :
-            log.info('Rejected : level = %d span = %d' %(interscale_maximum.level, span_levels))
+            #log.info('Rejected : level = %d span = %d' %(interscale_maximum.level, span_levels))
             n_rejected += 1
             continue
 
