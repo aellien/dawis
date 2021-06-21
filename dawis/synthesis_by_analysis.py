@@ -187,6 +187,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
 
 def load_iteration( it, outpath ):
     '''doc todo'''
+    
     wdc = wavelet_datacube.from_fits(''.join(( outpath, '.wdc.it%03d.fits' %(it)) ))
     ldc = label_datacube.from_fits( ''.join(( outpath, '.ldc.it%03d.fits' %(it) )))
     rl = read_regions_from_pickle( ''.join(( outpath, '.rl.it%03d.pkl' %(it) )))
