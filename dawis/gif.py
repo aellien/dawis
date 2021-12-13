@@ -40,7 +40,7 @@ def plot_frame( level, it, nobj, original_image, restored_image, residuals, atom
     cax.ax.tick_params(labelsize = 5)
     ax[0][0].set_title('Original')
 
-    axim = ax[0][1].imshow(residuals, norm = ImageNormalize( residuals, \
+    axim = ax[0][1].imshow(residuals, norm = ImageNormalize( original_image, \
                                       interval = ZScaleInterval(),
                                       stretch = LinearStretch()), \
                                       origin = 'lower', \
@@ -80,17 +80,24 @@ def make_gif( framerate, outpath ):
 
     '''doc to do'''
 
-    args_ffmpeg = [ 'ffmpeg', '-framerate', str(framerate), '-i', \
+    try:
+        args_ffmpeg = [ 'ffmpeg', '-framerate', str(framerate), '-i', \
                 ''.join(( outpath, '.frame.it%03d.png' )), \
                 ''.join(( outpath, '.run.avi' )) ]
 
-    run( args_ffmpeg )
-
-    args_ffmpeg = [ 'ffmpeg', '-framerate', str(framerate), '-i', \
+        run( args_ffmpeg )
+    except:
+        logging.info('Could not create frame gif')
+        
+    try:
+        args_ffmpeg = [ 'ffmpeg', '-framerate', str(framerate), '-i', \
                 ''.join(( outpath, '.hist.it%03d.png' )), \
                 ''.join(( outpath, '.hist.avi' )) ]
+    
+        run( args_ffmpeg )
 
-    run( args_ffmpeg )
+    except:
+        logging.info('Could not create noise hist gif')
 
     #args_rm = [ 'rm', ''.join(( outpath, '.frame*.png' )) ]
     #run( args_rm )

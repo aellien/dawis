@@ -206,31 +206,28 @@ def interlaced_atrous_congrid(image, n_levels, n_voices, filter, verbose = False
 
     #===========================================================================
     # Arrays
-    final_coarse_array = np.zeros((image_x_size, image_y_size, 2 * n_levels), dtype = np.float32)
-    final_wavelet_array = np.zeros((image_x_size, image_y_size, 2 * n_levels), dtype = np.float32)
+    final_coarse_array = np.zeros((image_x_size, image_y_size, 2 * n_levels  ), dtype = np.float32)
+    final_wavelet_array = np.zeros((image_x_size, image_y_size, 2 * n_levels ), dtype = np.float32)
 
     #===========================================================================
     # Convolution 0
 
-    anx, any = np.int(image_x_size * np.sqrt(2) / 2), \
-               np.int(image_y_size * np.sqrt(2) / 2)
+    anx, any = np.int(image_x_size / ( np.sqrt(2) / 2 )), \
+               np.int(image_y_size / ( np.sqrt(2) / 2 ))
+    print(anx, any)
+    coarse_array_1 = np.zeros((image_x_size, image_y_size, n_levels + 1 ), dtype = np.float32)
+    coarse_array_2 = np.zeros((image_x_size, image_y_size, n_levels ), dtype = np.float32)
 
-    coarse_array_1 = np.zeros((image_x_size, image_y_size, n_levels), dtype = np.float32)
-
-    coarse_array_2 = np.zeros((image_x_size, image_y_size, n_levels), dtype = np.float32)
     congrid_coarse_array = np.zeros((anx, \
-                                     anx, \
-                                     n_levels), dtype = np.float32)
+                                     any, \
+                                     n_levels + 1 ), dtype = np.float32)
 
     coarse_array_1[:,:,0] = np.copy(image)
-
     congrid_coarse_array[:,:,0] = congrid(image, (anx, any), method = 'spline')
-    #coarse_array_2[:,:,0] = gaussian_filter(image, sigma = 0.5 * np.sqrt(2))
-    coarse_array_2[:,:,0] = congrid(congrid_coarse_array[:,:,0], (image_x_size, image_y_size), method = 'spline')
 
     #===========================================================================
     # Convolution 1
-    for level in range(0, n_levels - 1):
+    for level in range(0, n_levels ):
 
         position_array_lvl = np.array(position_array) * np.power(2, level)
         position_array_lvl = position_array_lvl.astype(np.int)
@@ -247,7 +244,7 @@ def interlaced_atrous_congrid(image, n_levels, n_voices, filter, verbose = False
 
         elif filter.ndim == 1:
 
-            temporary_copy = np.copy(coarse_array_1[:,:,level + 1])
+            temporary_copy = np.zeros((image_x_size, image_y_size))
             # Over X axis
 
             for x in range(0, image_x_size ):
@@ -267,11 +264,10 @@ def interlaced_atrous_congrid(image, n_levels, n_voices, filter, verbose = False
                 coarse_array_1[:,y,level + 1] = np.matmul(np.array([filter]), temporary_copy[ :, position_array_coeff].T)[0]
 
     # Convolution 2
-    for level in range(0, n_levels - 1):
+    for level in range(0, n_levels ):
 
         position_array_lvl = np.array(position_array) * np.power(2, level)
         position_array_lvl = position_array_lvl.astype(np.int)
-        #print(position_array * np.power(2, level).astype(np.int) )
 
         if filter.ndim == 2:
             with np.nditer(coarse_array_2[:,:,level + 1], flags = ['multi_index'], op_flags = ['readwrite']) as it:
@@ -303,27 +299,29 @@ def interlaced_atrous_congrid(image, n_levels, n_voices, filter, verbose = False
 
                 congrid_coarse_array[:,y,level + 1] = np.matmul(np.array([filter]), temporary_copy[ :, position_array_coeff].T)[0]
 
-            coarse_array_2[:,:,level+1] = congrid(congrid_coarse_array[:,:,level + 1], (image_x_size, image_y_size), method = 'spline')
+            coarse_array_2[:,:,level] = congrid(congrid_coarse_array[:,:,level + 1], (image_x_size, image_y_size), method = 'spline')
+
+    # Correction for mean bias arror given by interpolation
+    for level in range(0, n_levels):
+
+        interpmean = ( np.mean( coarse_array_1[:,:,level + 1] ) + np.mean( coarse_array_1[:,:,level] ) ) / 2.
+        norm = interpmean - np.mean( coarse_array_2[:,:,level] )
+        coarse_array_2[:,:,level] += norm
 
     voice = 0
-    stds = []
-    for level in range(0, n_levels - 1):
+    for level in range(0, n_levels):
 
         final_wavelet_array[:,:,voice] = coarse_array_1[:,:,level] - coarse_array_2[:,:,level]
         final_coarse_array[:,:,voice] = coarse_array_1[:,:,level]
-        print(level, voice, np.mean(final_wavelet_array[:,:,voice]), np.std(final_wavelet_array[:,:,voice]))
-        stds.append(np.std(final_wavelet_array[:,:,voice]))
+        #print(level, voice, np.mean(final_wavelet_array[:,:,voice]), np.std(final_wavelet_array[:,:,voice]))
         voice += 1
 
         final_wavelet_array[:,:,voice] = coarse_array_2[:,:,level] - coarse_array_1[:,:,level+1]
         final_coarse_array[:,:,voice] = coarse_array_2[:,:,level]
-        print(level, voice, np.mean(final_wavelet_array[:,:,voice]), np.std(final_wavelet_array[:,:,voice]))
-        stds.append(np.std(final_wavelet_array[:,:,voice]))
+        #print(level, voice, np.mean(final_wavelet_array[:,:,voice]), np.std(final_wavelet_array[:,:,voice]))
         voice += 1
 
-    final_wavelet_array[:,:,-1] = np.copy(coarse_array_2[:,:,-1])
-
-    return final_coarse_array, final_wavelet_array, stds
+    return final_coarse_array, final_wavelet_array
 
 def interlaced_atrous_zeros(image, n_levels, n_voices, filter, verbose = False):
 
@@ -813,9 +811,11 @@ if __name__ == '__main__':
 
     from numpy.random import normal
     from astropy.io import fits
+    import sys
+    sys.path.append('/home/ellien/DAWIS/codes/')
     from DL_reconstruct import DL_atrou
 
-    im = normal(0, 1,(1024, 1024))
+    im = normal(0, 1,(2048, 2048))
     #im = np.zeros((1000, 1000))
     #im[500,500] = 1
 
@@ -825,28 +825,33 @@ if __name__ == '__main__':
     #nx, ny = np.shape(im)
     #anx, any = np.int(nx * np.sqrt(2) / 2), np.int(ny * np.sqrt(2) / 2)
     #im = congrid(im, (1024, 1024), method = 'spline')
-    n_levels = 10
+    n_levels = 11
 
     # spline lissés
     startTime = datetime.now()
-    cbspl_new, wbspl_new, stds_new = interlaced_spline(image = im, n_levels = n_levels, n_voices = 2)
+    bspl = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
+    cbspl_new, wbspl_new = interlaced_atrous_congrid(image = im, n_levels = n_levels, filter = bspl, n_voices = 2)
+    cbspl_new = np.delete(cbspl_new, obj = 1, axis = 2 ) # delete coarse scale 2^0.5
+    wbspl_new = np.delete(wbspl_new, obj = 0, axis = 2 ) # delete coarse scale 2^0.5
+    wbspl_new[:,:,0] = cbspl_new[:,:,0] - cbspl_new[:,:,1]
     print(datetime.now() - startTime)
 
     dcc_new = datacube(cbspl_new)
-    #dcc_new.waveplot(name = 'coarse', ncol = 7)
+    dcc_new.waveplot(name = 'coarse', ncol = 7)
     dcw_new = datacube(wbspl_new)
-    #dcw_new.waveplot(name = 'wav', ncol = 7, cmap = 'hot' )
+    dcw_new.waveplot(name = 'wav', ncol = 7, cmap = 'hot' )
 
     # a trous
     bspl = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
     startTime = datetime.now()
-    cbspl_old, wbspl_old, stds_old = atrous(image = im, n_levels = n_levels, filter = bspl)
+    cbspl_old, wbspl_old = atrous(image = im, n_levels = n_levels, filter = bspl)
+    stds_old = np.std(wbspl_old)
     print(datetime.now() - startTime)
 
     dcc_old = datacube(cbspl_old)
-    dcc_old.waveplot(name = 'coarse', ncol = 7, norm=matplotlib.colors.SymLogNorm(10**-5))
+    #dcc_old.waveplot(name = 'coarse', ncol = 7, norm=matplotlib.colors.SymLogNorm(10**-5))
     dcw_old = datacube(wbspl_old)
-    dcw_old.waveplot(name = 'wav', ncol = 7, cmap = 'hot', norm=matplotlib.colors.SymLogNorm(10**-5) )
+    #dcw_old.waveplot(name = 'wav', ncol = 7, cmap = 'hot', norm=matplotlib.colors.SymLogNorm(10**-5) )
 
     #ovwav
     startTime = datetime.now()
@@ -857,22 +862,47 @@ if __name__ == '__main__':
     # plots stds
     x_old = np.logspace(start = 0, stop = n_levels, num = n_levels + 1, base = 2)
     x_new = np.logspace(start = 0, stop = n_levels, num = 2 * n_levels + 1, base = 2)
+    x_new = np.delete(x_new, 1)
 
     plt.figure()
     plt.title('stds of coarse planes')
-    plt.plot(x_old[:-1], np.std(cbspl_old, axis = (0,1)), 'bo', linestyle = '-')
-    plt.plot(x_new[:-1], np.std(cbspl_new, axis = (0,1)), 'ro', linestyle = '-')
-    plt.plot(x_old[:-1], np.std(cbspl_ov, axis = (0,1)), 'go', linestyle = '-')
+    plt.plot(x_new[:-1], np.std(cbspl_new, axis = (0,1)), 'ro', linestyle = '-', label = 'interlaced à trous')
+    plt.plot(x_old, np.std(cbspl_old, axis = (0,1)), 'bo', linestyle = '-', label = 'regular à trous')
+    #plt.plot(x_old[:-1], np.std(cbspl_ov, axis = (0,1)), 'go', linestyle = '-')
     plt.xscale('log', basex = 2)
+    plt.yscale('log')
+    plt.legend()
     plt.show()
 
     plt.figure()
-    plt.title('stds of coarse planes')
-    plt.plot(x_old[:-2], np.std(wbspl_old, axis = (0,1)), 'bo', linestyle = '-')
-    plt.plot(x_new[:-2], np.std(wbspl_new, axis = (0,1)), 'ro', linestyle = '-')
-    plt.plot(x_old[:-2], np.std(wbspl_ov, axis = (0,1)), 'go', linestyle = '-')
+    plt.title('means of coarse planes')
+    plt.plot(x_new[:-1], np.mean(cbspl_new, axis = (0,1)), 'ro', linestyle = '-', label = 'interlaced à trous')
+    plt.plot(x_old, np.mean(cbspl_old, axis = (0,1)), 'bo', linestyle = '-', label = 'regular à trous')
+    #plt.plot(x_old[:-1], np.mean(cbspl_ov, axis = (0,1)), 'go', linestyle = '-')
     plt.xscale('log', basex = 2)
+    plt.legend()
     plt.show()
+
+    plt.figure()
+    plt.title('stds of wavelet planes')
+    plt.plot(x_new[:-1], np.std(wbspl_new, axis = (0,1)), 'ro', linestyle = '-', label = 'interlaced à trous')
+    plt.plot(x_old[:-1], np.std(wbspl_old, axis = (0,1)), 'bo', linestyle = '-', label = 'regular à trous')
+    #plt.plot(x_old[:-1], np.std(wbspl_ov, axis = (0,1)), 'go', linestyle = '-')
+    plt.xscale('log', basex = 2)
+    plt.yscale('log')
+    plt.legend()
+    plt.show()
+
+    plt.figure()
+    plt.title('means of wavelet planes')
+    plt.plot(x_new[:-1], np.mean(wbspl_new, axis = (0,1)), 'ro', linestyle = '-', label = 'interlaced à trous')
+    plt.plot(x_old[:-1], np.mean(wbspl_old, axis = (0,1)), 'bo', linestyle = '-', label = 'regular à trous')
+    #plt.plot(x_old[:-1], np.mean(wbspl_ov, axis = (0,1)), 'go', linestyle = '-')
+    plt.xscale('log', basex = 2)
+    plt.legend()
+    plt.show()
+
+    print(np.std(wbspl_new, axis = (0,1)))
 
     #bspl = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
     #startTime = datetime.now()

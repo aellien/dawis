@@ -45,7 +45,9 @@ def hard_threshold(wavelet_datacube, n_sigmas = 3, wavelet_type = None, keep_neg
         log = logging.getLogger(__name__)
         log.info('\ncreating support datacube : hard thresholding')
 
-    noise_pixels = sigmaclip(wavelet_datacube.array[:,:,0], low = n_sigmas, high = n_sigmas)[0]
+    noise_pixels = np.copy(wavelet_datacube.array[:,:,0]).flatten()
+    noise_pixels = np.delete(noise_pixels, np.where(noise_pixels == 0) )
+    noise_pixels = sigmaclip(noise_pixels, low = n_sigmas, high = n_sigmas)[0]
     sigma = np.std(noise_pixels)
 
     alpha = 1E-3
