@@ -18,11 +18,11 @@ import logging
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-def bspl_atrous(image, n_levels, fheader = None, verbose = False):
+def bspl_atrous(image, n_levels, fheader = None, conditions = 'loop', verbose = False):
     '''doc to do'''
 
     filter = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
-    coarse_array, wavelet_array = atrous(image = image, n_levels = n_levels, filter = filter)
+    coarse_array, wavelet_array = atrous(image = image, n_levels = n_levels, filter = filter, conditions = 'loop')
 
     coarse_dc = coarse_datacube(array = coarse_array, wavelet_type = 'BSPL', fheader = fheader)
     wavelet_dc = wavelet_datacube(array = wavelet_array, wavelet_type = 'BSPL', fheader = fheader)
@@ -33,7 +33,7 @@ def haar_atrous(image, n_levels, fheader = None, verbose = False):
     '''doc to do'''
 
     filter = 1 / 2. * np.array([ 1, 0, 1 ])
-    coarse_array, wavelet_array = atrous(image = image, n_levels = n_levels, filter = filter)
+    coarse_array, wavelet_array = atrous(image = image, n_levels = n_levels, filter = filter, conditions = 'loop')
 
     coarse_dc = coarse_datacube(array = coarse_array, wavelet_type = 'HAAR', fheader = fheader)
     wavelet_dc = wavelet_datacube(array = wavelet_array, wavelet_type = 'HAAR', fheader = fheader)
@@ -52,7 +52,7 @@ def icbspl_atrous(image, n_levels, n_voices, fheader = None, verbose = False):
 
     coarse_dc = coarse_datacube(array = coarse_array, wavelet_type = 'BSPL', fheader = fheader)
     wavelet_dc = wavelet_datacube(array = wavelet_array, wavelet_type = 'BSPL', fheader = fheader)
-    
+
     return coarse_dc, wavelet_dc
 
 

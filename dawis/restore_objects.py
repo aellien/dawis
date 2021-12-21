@@ -98,7 +98,7 @@ def restore_objects_default(interscale_tree_list, wavelet_datacube, label_datacu
                                                 tree.interscale_maximum.eccentricity) )
 
     else:
-        ray.init(num_cpus = 4)
+        ray.init(num_cpus = n_cpus)
         id_wdc = ray.put(wavelet_datacube)
         id_ldc = ray.put(label_datacube)
         id_extent_sep = ray.put(extent_sep)
