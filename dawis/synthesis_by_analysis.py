@@ -28,7 +28,7 @@ from dawis.gif import *
 
 def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2, tau = 0.8, n_levels = None,\
                                 gamma = 0.2, min_span = 2, max_span = 3, lvl_sep_big = 6, \
-                                extent_sep = 0.1, lvl_sep_lin = 2, ceps = 1E-3, \
+                                extent_sep = 0.1, lvl_sep_lin = 2, ceps = 1E-3, conditions = 'loop', \
                                 max_iter = 500, data_dump = True, gif = True):
 
     #===========================================================================
@@ -82,12 +82,12 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
 
             # Anscombe transform & thresholding
             aim = anscombe_transform(res, sigma, mean, gain)
-            acdc, awdc = bspl_atrous(aim, level, header)
+            acdc, awdc = bspl_atrous(aim, level, header, conditions)
             sdc = hard_threshold(awdc, n_sigmas = 5)
 
             # Labels & true wavelet coefficients
             ldc = label_regions(sdc)
-            cdc, wdc = bspl_atrous(res, level, header)
+            cdc, wdc = bspl_atrous(res, level, header, conditions)
 
             # Regions of significance
             rl = make_regions_full_props(wdc, ldc, verbose = True)
@@ -170,7 +170,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
     hdu_rec = fits.PrimaryHDU( rec, header = header )
     hdu_rec.writeto( ''.join(( outpath, '.restored.fits' )), overwrite = True )
     hdu_rec_lvl = fits.PrimaryHDU( rec_lvl, header = header )
-    hdu_rec_lvl.writeto( ''.join(( outpath, '.sclrestored.fits' )), overwrite = True )
+    hdu_rec_lvl.writeto( ''.join(( outpath, '.scl.restored.fits' )), overwrite = True )
 
     with open( ''.join(( outpath, '.cpar.txt' )), 'w+') as conv:
         conv.write('# level, it, window_normeps, normeps, eps, n_obj, time_it\n')
@@ -187,7 +187,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
 
 def load_iteration( it, outpath ):
     '''doc todo'''
-    
+
     wdc = wavelet_datacube.from_fits(''.join(( outpath, '.wdc.it%03d.fits' %(it)) ))
     ldc = label_datacube.from_fits( ''.join(( outpath, '.ldc.it%03d.fits' %(it) )))
     rl = read_regions_from_pickle( ''.join(( outpath, '.rl.it%03d.pkl' %(it) )))
