@@ -18,7 +18,7 @@ import logging
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-def boundary_conditions(position_array, sizes, condition = 'prolongation' ):
+def boundary_conditions(position_array, sizes, conditions = 'prolongation' ):
     '''
     Border conditions, doc to do
     '''
@@ -29,15 +29,15 @@ def boundary_conditions(position_array, sizes, condition = 'prolongation' ):
     if np.ndim(sizes) not in [0, 1]:
         raise DawisDimensionError('Wrong dimensions for array -->', np.ndim(sizes), [0, 1])
 
-    if type(condition) != str:
-        raise DawisWrongType('Wrong type -->', type(condition), 'str')
+    if type(conditions) != str:
+        raise DawisWrongType('Wrong type -->', type(conditions), 'str')
 
     allowed_conditions = ['mirror', 'prolongation', 'loop' ]
 
-    if condition not in allowed_conditions:
+    if conditions not in allowed_conditions:
         raise DawisValueError('Not an allowed condition -->', condition, allowed_conditions)
 
-    if condition == 'prolongation':
+    if conditions == 'prolongation':
 
         position_array[np.where(position_array < 0)] = 0
 
@@ -47,7 +47,7 @@ def boundary_conditions(position_array, sizes, condition = 'prolongation' ):
         else:
             position_array[np.where(position_array > sizes - 1)] = sizes - 1
 
-    if condition == 'mirror':
+    if conditions == 'mirror':
 
         position_array[np.where(position_array < 0)] -= 2 * position_array[np.where(position_array < 0)]
 
@@ -57,7 +57,7 @@ def boundary_conditions(position_array, sizes, condition = 'prolongation' ):
         else:
             position_array[np.where(position_array > sizes - 1)] -= sizes - ( position_array[np.where(position_array > sizes - 1 )] - sizes )
 
-    if condition == 'loop':
+    if conditions == 'loop':
 
         if ( np.ndim(position_array) == 3 ) & ( np.ndim(sizes) == 1 ):
             position_array[0][np.where(position_array[0,:] > sizes[0] - 1)] -= sizes[0]
