@@ -116,8 +116,12 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
             atom = np.zeros(res.shape)
             for object in ol:
                 x_min, y_min, x_max, y_max = object.bbox
-                atom[ x_min : x_max, y_min : y_max ] += object.image * gamma
-                rec_lvl[ x_min : x_max, y_min : y_max, object.level ] += object.image * gamma
+                if object.level >= lvl_sep_big:
+                    atom[ x_min : x_max, y_min : y_max ] += object.image
+                    rec_lvl[ x_min : x_max, y_min : y_max, object.level ] += object.image
+                else:
+                    atom[ x_min : x_max, y_min : y_max ] += object.image * gamma
+                    rec_lvl[ x_min : x_max, y_min : y_max, object.level ] += object.image * gamma
 
             # Update Residuals
             res -= atom
