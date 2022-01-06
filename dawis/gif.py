@@ -88,16 +88,16 @@ def make_gif( framerate, outpath ):
         run( args_ffmpeg )
     except:
         logging.info('Could not create frame gif')
-        
-    try:
-        args_ffmpeg = [ 'ffmpeg', '-framerate', str(framerate), '-i', \
-                ''.join(( outpath, '.hist.it%03d.png' )), \
-                ''.join(( outpath, '.hist.avi' )) ]
-    
-        run( args_ffmpeg )
 
-    except:
-        logging.info('Could not create noise hist gif')
+    #try:
+    #    args_ffmpeg = [ 'ffmpeg', '-framerate', str(framerate), '-i', \
+    #            ''.join(( outpath, '.hist.it%03d.png' )), \
+    #            ''.join(( outpath, '.hist.avi' )) ]
+
+    #    run( args_ffmpeg )
+
+    #except:
+    #    logging.info('Could not create noise hist gif')
 
     #args_rm = [ 'rm', ''.join(( outpath, '.frame*.png' )) ]
     #run( args_rm )
