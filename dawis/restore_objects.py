@@ -69,11 +69,11 @@ def restore_object( interscale_tree, wavelet_datacube, label_datacube, extent_se
     haar = 1 / 2. * np.array([ 1, 0, 1 ])
 
     if ( interscale_tree.extent < extent_sep ) & ( interscale_tree.interscale_maximum.level < lvl_sep_lin ) :
-        image = interscale_tree.SD_minimization( wavelet_datacube, label_datacube, filter = haar, \
+        image = interscale_tree.CG_minimization( wavelet_datacube, label_datacube, filter = haar, \
                                                         synthesis_operator = 'ADJOINT' )
 
     else:
-        image = interscale_tree.SD_minimization( wavelet_datacube, label_datacube, filter = bspl, \
+        image = interscale_tree.CG_minimization( wavelet_datacube, label_datacube, filter = bspl, \
                                                     synthesis_operator = 'ADJOINT' )
 
     return image
