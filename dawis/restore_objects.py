@@ -21,11 +21,12 @@ import logging
 class restored_object(object):
     """docstring for restored_object."""
 
-    def __init__(self, image, bbox, level, eccentricity):
+    def __init__(self, image, bbox, level, eccentricity, filter_kw):
         self.bbox = bbox
         self.image = image
         self.level = level
         self.eccentricity = eccentricity
+        self.filter = filter_kw
 
 def write_objects_to_pickle(object_list, filename, overwrite = True):
 
@@ -51,7 +52,7 @@ def restore_patch(interscale_tree_patch, wavelet_datacube, label_datacube, exten
     object_patch = []
     for tree in interscale_tree_patch:
 
-        image = restore_object( tree, \
+        image, filter_kw = restore_object( tree, \
                                 wavelet_datacube, \
                                 label_datacube, \
                                 extent_sep, \
@@ -59,7 +60,8 @@ def restore_patch(interscale_tree_patch, wavelet_datacube, label_datacube, exten
 
         object_patch.append(restored_object(image, tree.bbox, \
                                             tree.interscale_maximum.level, \
-                                            tree.interscale_maximum.eccentricity))
+                                            tree.interscale_maximum.eccentricity, \
+                                            filter_kw))
 
     return object_patch
 
@@ -71,12 +73,14 @@ def restore_object( interscale_tree, wavelet_datacube, label_datacube, extent_se
     if ( interscale_tree.extent < extent_sep ) & ( interscale_tree.interscale_maximum.level < lvl_sep_lin ) :
         image = interscale_tree.CG_minimization( wavelet_datacube, label_datacube, filter = haar, \
                                                         synthesis_operator = 'ADJOINT' )
+        filter_kw = 'HAAR'
 
     else:
         image = interscale_tree.CG_minimization( wavelet_datacube, label_datacube, filter = bspl, \
                                                     synthesis_operator = 'ADJOINT' )
+        filter_kw = 'BSPL'
 
-    return image
+    return image, filter_kw
 
 
 def restore_objects_default(interscale_tree_list, wavelet_datacube, label_datacube, lvl_sep_big, extent_sep, lvl_sep_lin, size_patch_small = 50, size_patch_big = 5, size_big_objects = 512, n_cpus = 1 ):
@@ -86,7 +90,7 @@ def restore_objects_default(interscale_tree_list, wavelet_datacube, label_datacu
         object_list = []
         bspl = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
         for tree in interscale_tree_list:
-            image = restore_object( tree, \
+            image, filter_kw = restore_object( tree, \
                                     wavelet_datacube, \
                                     label_datacube, \
                                     extent_sep, \
@@ -95,7 +99,8 @@ def restore_objects_default(interscale_tree_list, wavelet_datacube, label_datacu
 
             object_list.append( restored_object(image, tree.bbox, \
                                                 tree.interscale_maximum.level, \
-                                                tree.interscale_maximum.eccentricity) )
+                                                tree.interscale_maximum.eccentricity, \
+                                                filter_kw) )
 
     else:
         ray.init(num_cpus = n_cpus)
