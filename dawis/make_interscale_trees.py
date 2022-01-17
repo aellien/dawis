@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import pickle
 import numpy as np
 import logging
+import ultranest
 from matplotlib.colors import SymLogNorm
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -42,7 +43,7 @@ class interscale_tree(object):
         self.bbox = (x_min, y_min, x_max, y_max)
         extent_im = np.sum( self.tubes( wavelet_datacube, label_datacube )[1], axis = 2 )
         n_pix = np.size( np.where( extent_im != 0. )[0] )
-        self.extent = n_pix / ( x_max - x_min * y_max - y_min )
+        self.extent = n_pix / ( ( x_max - x_min ) * ( y_max - y_min ) )
 
         # Make vignet larger
         x_min -= np.int( ( x_max - x_min ) / 2. )
@@ -71,6 +72,11 @@ class interscale_tree(object):
         self.bbox = (x_min, y_min, x_max, y_max)
         self.x_size = x_max - x_min
         self.y_size = y_max - y_min
+
+        # Bayesian parameter bounds
+        self.lowb = 0.
+        self.highb = 2.
+
 
     def plot(self, wavelet_datacube, label_datacube, name = None, show = True, save_path = None, **kwargs):
 
@@ -206,6 +212,82 @@ class interscale_tree(object):
     def synthesis_sum( self, wavelet_tube ):
         return np.sum( wavelet_tube, axis = 2 )
 
+    def set_priors( self, cube ):
+        '''WIP
+        '''
+        params = cube.copy()
+
+        # All parameters have same unifor prios
+        for i, par in enumerate( params ):
+            par = cube[i] * (self.highb - self.lowb) + self.lowb
+
+        return params
+
+    def set_param_names( self, wavelet_tube ):
+        '''WIP
+        '''
+        n_levels = wavelet_tube.shape[2]
+
+        param_names = []
+        for i in range( n_levels ):
+            param_names.append( 'a%s' %(str(i)) )
+
+        for i in range( n_levels ):
+            param_names.append( 'b%s' %(str(i)) )
+
+        return param_names
+
+    def synthesis_likelihood( self, params ):
+        '''WIP
+        '''
+        n_levels = wt.shape[2]
+
+        smooth_coeff = np.zeros(wt.shape)
+        adjt = np.copy(smooth_coeff[:,:,0])
+
+        # Â(W) = SUM_i a_i * ( b_i * H(i) * ... * H(N - 1) * W(i))
+        for level in range(n_levels):
+            smooth_coeff[:, :, level] = atrous( wt[:, :, level], \
+                                                n_levels = level + 1, \
+                                                filter = bspl * params[ level + n_levels ], \
+                                                conditions = 'prolongation' )[0][:, :, level]
+
+        for level in range(n_levels):
+            adjt +=  params[ level ] * smooth_coeff[:, :, level]
+
+        r = adjt - im[self.bbox[0]:self.bbox[2], self.bbox[1]:self.bbox[3]]
+        #r[r < 0] = 0
+        covr = np.cov(r)
+        pdb.set_trace()
+
+        loglike = -0.5 * np.sum( r * np.linalg.inv(covr) )
+
+        wr = wt - atrous(r, n_levels = wavelet_tube.shape[2], \
+                                      filter = filter, \
+                                      conditions = 'prolongation' )[1] * support_tube
+
+
+        for level in range(n_levels):
+            covwr = np.cov(wr[:,:,level])
+            loglike += -0.5 * np.sum( wr[:,:,level] * np.linalg.inv(covwr) )
+
+        return loglike
+
+    def bayesian_minimization( self, original_image, wavelet_datacube, label_datacube, filter, verbose = False ):
+        '''WIP
+        '''
+        wavelet_tube, support_tube, label_tube = self.tubes(wavelet_datacube, label_datacube)
+        param_names = self.set_param_names( wavelet_tube )
+
+        sampler = ultranest.ReactiveNestedSampler(param_names, \
+                                                  self.synthesis_likelihood, \
+                                                  self.set_priors,\
+                                                  log_dir = None )
+        result = sampler.run()
+        sampler.print_results()
+
+        return None
+
     def SD_minimization( self, wavelet_datacube, label_datacube, filter, \
                             synthesis_operator = 'ADJOINT', sigma_flux = 1E-3, \
                             max_iter = 200, verbose = False):
@@ -288,7 +370,7 @@ class interscale_tree(object):
         total_flux = 1.0
         while iter <= max_iter:
 
-            iter += 1
+            iter = iter + 1
 
             norm_wr = np.linalg.norm(wr)
             if norm_wr == 0:
@@ -441,27 +523,33 @@ if __name__ == '__main__':
     rl = make_regions_full_props(wdc, ldc, verbose = False)
     lit = make_interscale_trees(rl, wdc, ldc, tau = 0.8, verbose = False)
 
-    for it in lit:
+    for it in lit[1:]:
 
-        it.plot(wdc, ldc)
-        print(it.extent)
+        #it.plot(wdc, ldc)
+        #print(it.extent)
 
-        #bspl = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
-        #haar = 1 / 2. * np.array([ 1, 0, 1 ])
+        bspl = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
+        haar = 1 / 2. * np.array([ 1, 0, 1 ])
 
         #sim = im[it.bbox[0]:it.bbox[2], it.bbox[1]:it.bbox[3]]
         #scores = []
         #ssims = []
-        #startTime = datetime.now()
-        #rima = it.CG_minimization( wdc, ldc, filter = bspl, synthesis_operator = 'ADJOINT', step_size = 'FR' )
+        startTime = datetime.now()
+        rima = it.CG_minimization( wdc, ldc, filter = bspl, synthesis_operator = 'ADJOINT', step_size = 'FR' )
         #scores.append(20 * np.log10(  np.sum(np.sqrt(sim**2)) / ( np.sum(np.sqrt((rima - sim)**2)) ) ))
         #ssims.append( ssim(rima, sim) )
-        #print(datetime.now() - startTime)
+        print(datetime.now() - startTime)
 
+        startTime = datetime.now()
+        numba_rima = it.CG_minimization( wdc, ldc, filter = bspl, synthesis_operator = 'ADJOINT', step_size = 'FR' )
         #startTime = datetime.now()
         #rimb = it.CG_minimization( wdc, ldc, filter = bspl, synthesis_operator = 'SUM', step_size = 'FR' )
         #scores.append(20 * np.log10(  np.sum(np.sqrt(sim**2)) / ( np.sum(np.sqrt((rimb - sim)**2)) ) ))
         #ssims.append( ssim(rimb, sim) )
+
+        #print(it.x_size, it.y_size, it.bbox)
+        #wt, st, lt = it.tubes(wdc, ldc)
+        #it.bayesian_minimization( im, wdc, ldc, bspl, verbose = True )
 
         #print(datetime.now() - startTime)
         #startTime = datetime.now()
