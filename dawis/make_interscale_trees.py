@@ -17,6 +17,10 @@ import numpy as np
 import logging
 import ultranest
 from matplotlib.colors import SymLogNorm
+from skimage.feature import peak_local_max
+from scipy import ndimage as ndi
+from skimage.segmentation import watershed
+from skimage.measure import label, regionprops
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -438,7 +442,61 @@ def read_interscale_trees_from_pickle(filename):
 
     return interscale_tree_list
 
-def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0.8, min_span = 3, max_span = 3, lvl_sep_big = 6, min_reg_size = 4, verbose = False):
+def enforce_monomodality(interscale_maximum, wavelet_datacube, label_datacube):
+
+    # Label clip of interscale maximum region
+    label_clip = np.copy( label_datacube.array[ :, :, interscale_maximum.level ])
+    label_clip[ np.where(label_clip != interscale_maximum.label) ] = 0.
+
+    # Wavelet clip of interscale maximum region
+    wavelet_clip = np.copy( wavelet_datacube.array[ :, :, interscale_maximum.level ])
+    wavelet_clip[ np.where( label_clip == 0 ) ] = 0.
+
+    # Find secondary local wavelet maxima
+    local_maxima_coo = peak_local_max( wavelet_clip, exclude_border = False )
+    if len(local_maxima_coo) > 1:
+
+        # Make mask image of local wavelet maxima
+        local_maxima_clip = np.zeros_like( label_clip )
+        local_maxima_clip[ tuple(local_maxima_coo.T) ] = 1
+
+        # Create new labels for each local maxima, called markers
+        marker_clip = label(local_maxima_clip)
+
+        # Watershed algorithm to segment the interscale maximum into different regions
+        # corresponding to local maxima
+        segmented_label_clip = watershed( - wavelet_clip, markers = marker_clip, mask = label_clip )
+
+        # Find which local maximum is interscale maximum
+        local_label_max = segmented_label_clip[ interscale_maximum.x_max, interscale_maximum.y_max ]
+
+        # Update global label datacube by setting to zero pixels not covered by
+        # new region
+        updated_labels = np.copy(label_datacube.array[ :, :, interscale_maximum.level ])
+        updated_labels[  np.where( (label_datacube.array[ :, :, interscale_maximum.level ] == interscale_maximum.label) \
+                                            & (segmented_label_clip != local_label_max) )] = 0.
+
+        label_datacube.array[ :, :, interscale_maximum.level ] = updated_labels
+
+        # Measure new region properties
+        segmented_label_clip[ segmented_label_clip != local_label_max ] = 0.
+        props_skimage = regionprops(segmented_label_clip, wavelet_clip)
+
+        # Update interscale maximum properties that were modified by segmentation
+        interscale_maximum.area = props_skimage[0].area
+        interscale_maximum.bbox = props_skimage[0].bbox
+        interscale_maximum.bbox_area = props_skimage[0].bbox_area
+        interscale_maximum.centroid = props_skimage[0].centroid
+        interscale_maximum.local_centroid = props_skimage[0].local_centroid
+        interscale_maximum.coords = props_skimage[0].coords
+        interscale_maximum.extent = props_skimage[0].extent
+        interscale_maximum.eccentricity = props_skimage[0].eccentricity
+        interscale_maximum.max_intensity = props_skimage[0].max_intensity
+        interscale_maximum.min_intensity = props_skimage[0].min_intensity
+
+    return interscale_maximum, label_datacube
+
+def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0.8, min_span = 3, max_span = 3, lvl_sep_big = 6, monomodality = False, min_reg_size = 4, verbose = False):
 
     interscale_tree_list = []
 
@@ -466,6 +524,9 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
         if interscale_maximum.level >= lvl_sep_big :
             pmax_span = 1
             pmin_span = 1
+            if monomodality == True:
+                interscale_maximum, label_datacube = enforce_monomodality( interscale_maximum, wavelet_datacube, label_datacube )
+
         elif interscale_maximum.level < lvl_sep_big :
             pmax_span = max_span
             pmin_span = min_span

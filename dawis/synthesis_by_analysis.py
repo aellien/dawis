@@ -27,7 +27,7 @@ from dawis.restore_objects import *
 from dawis.gif import *
 
 def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2, tau = 0.8, n_levels = None,\
-                                gamma = 0.2, min_span = 2, max_span = 3, lvl_sep_big = 6, \
+                                gamma = 0.2, min_span = 2, max_span = 3, lvl_sep_big = 6, monomodality = False, \
                                 extent_sep = 0.1, lvl_sep_lin = 2, ceps = 1E-3, conditions = 'loop', \
                                 max_iter = 500, data_dump = True, gif = True):
 
@@ -99,6 +99,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                                                       min_span = min_span, \
                                                       max_span = max_span, \
                                                       lvl_sep_big = lvl_sep_big, \
+                                                      monomodality = monomodality, \
                                                       verbose = True)
             if not itl:
                 break
