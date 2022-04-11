@@ -81,7 +81,7 @@ def make_gif( framerate, outpath ):
     '''doc to do'''
 
     try:
-        args_ffmpeg = [ 'ffmpeg', '-framerate', str(framerate), '-i', \
+        args_ffmpeg = [ 'ffmpeg', '-framerate', str(framerate), '-y', '-i', \
                 ''.join(( outpath, '.frame.it%03d.png' )), \
                 ''.join(( outpath, '.run.avi' )) ]
 

@@ -94,7 +94,7 @@ def restore_object( interscale_tree, wavelet_datacube, label_datacube, extent_se
 
 def restore_objects_default(interscale_tree_list, wavelet_datacube, label_datacube, lvl_sep_big, extent_sep, lvl_sep_lin, size_patch_small = 50, size_patch_big = 5, size_big_objects = 512, n_cpus = 1 ):
 
-    if len(interscale_tree_list) < size_patch_big:
+    if (len(interscale_tree_list) < size_patch_big) or (n_cpus == 1):
         # params_minimization = strategy(tree)
         object_list = []
         bspl = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
