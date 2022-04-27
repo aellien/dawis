@@ -29,7 +29,7 @@ from dawis.gif import *
 def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2, tau = 0.8, n_levels = None,\
                                 gamma = 0.2, min_span = 2, max_span = 3, lvl_sep_big = 6, monomodality = False, \
                                 extent_sep = 0.1, lvl_sep_lin = 2, ceps = 1E-3, conditions = 'loop', \
-                                max_iter = 500, data_dump = True, gif = True):
+                                max_iter = 500, data_dump = True, gif = True, resume = True):
 
     #===========================================================================
     # Check infile extension
@@ -80,38 +80,45 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
             logging.info('\n\n[ %s ] Level = %d Iteration = %d' %(datetime.now(), level, it))
             res[ res < 0. ] = 0.
 
-            # Anscombe transform & thresholding
-            aim = anscombe_transform(res, sigma, mean, gain)
-            acdc, awdc = bspl_atrous(aim, level, header, conditions)
-            sdc = hard_threshold(awdc, n_sigmas = 5)
+            if ( os.path.exists(''.join(( outpath, '.ol.it%03d.pkl' %(it)))) ) & resume == True:
 
-            # Labels & true wavelet coefficients
-            ldc = label_regions(sdc)
-            cdc, wdc = bspl_atrous(res, level, header, conditions)
+                logging.info('`nFound %s --> resuming iteration' %(''.join(( outpath, '.ol.it%03d.pkl' %(it)))))
+                ol = read_objects_from_pickle(''.join(( outpath, '.ol.it%03d.pkl' %(it))))
 
-            # Regions of significance
-            rl = make_regions_full_props(wdc, ldc, verbose = True)
-            if not rl:
-                break
+            else:
 
-            # Interscale trees
-            itl = make_interscale_trees(rl, wdc, ldc, tau = tau, \
-                                                      min_span = min_span, \
-                                                      max_span = max_span, \
-                                                      lvl_sep_big = lvl_sep_big, \
-                                                      monomodality = monomodality, \
-                                                      verbose = True)
-            if not itl:
-                break
+                # Anscombe transform & thresholding
+                aim = anscombe_transform(res, sigma, mean, gain)
+                acdc, awdc = bspl_atrous(aim, level, header, conditions)
+                sdc = hard_threshold(awdc, n_sigmas = 5)
 
-            # Restoration of detected objects
-            ol = restore_objects_default(itl, wdc,ldc, size_patch_small = 50, \
-                                               extent_sep = extent_sep, \
-                                               lvl_sep_lin = lvl_sep_lin, \
-                                               lvl_sep_big = lvl_sep_big, \
-                                               size_patch_big = 5, \
-                                               size_big_objects = 512, \
-                                               n_cpus = n_cpus )
+                # Labels & true wavelet coefficients
+                ldc = label_regions(sdc)
+                cdc, wdc = bspl_atrous(res, level, header, conditions)
+
+                # Regions of significance
+                rl = make_regions_full_props(wdc, ldc, verbose = True)
+                if not rl:
+                    break
+
+                # Interscale trees
+                itl = make_interscale_trees(rl, wdc, ldc, tau = tau, \
+                                                          min_span = min_span, \
+                                                          max_span = max_span, \
+                                                          lvl_sep_big = lvl_sep_big, \
+                                                          monomodality = monomodality, \
+                                                          verbose = True)
+                if not itl:
+                    break
+
+                # Restoration of detected objects
+                ol = restore_objects_default(itl, wdc,ldc, size_patch_small = 50, \
+                                                   extent_sep = extent_sep, \
+                                                   lvl_sep_lin = lvl_sep_lin, \
+                                                   lvl_sep_big = lvl_sep_big, \
+                                                   size_patch_big = 5, \
+                                                   size_big_objects = 512, \
+                                                   n_cpus = n_cpus )
 
             # Atom
             atom = np.zeros(res.shape)
@@ -143,22 +150,26 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
             logging.info('Number Objects = %d, Normalized Epsilon = %f, Window Normalized Epsilon = %f' %( len(ol), normeps, avnormeps ))
 
             # Data Dump
-            if data_dump:
-                logging.info('Dumping data in %s' %(outdir) )
-                wdc.to_fits( ''.join(( outpath, '.wdc.it%03d.fits' %(it)) ), overwrite = True)
-                ldc.to_fits( ''.join(( outpath, '.ldc.it%03d.fits' %(it) )), overwrite = True)
-                write_regions_to_pickle( rl, ''.join(( outpath, '.rl.it%03d.pkl' %(it) )), overwrite = True)
-                write_interscale_trees_to_pickle( itl, ''.join(( outpath, '.itl.it%03d.pkl' %(it) )), overwrite = True)
-                write_objects_to_pickle( ol, ''.join(( outpath, '.ol.it%03d.pkl' %(it) )), overwrite = True)
+            if ( os.path.exists(''.join(( outpath, '.ol.it%03d.pkl' %(it)))) ) & resume == True:
+                it += 1
+                continue
+            else:
+                if data_dump:
+                    logging.info('Dumping data in %s' %(outdir) )
+                    wdc.to_fits( ''.join(( outpath, '.wdc.it%03d.fits' %(it)) ), overwrite = True)
+                    ldc.to_fits( ''.join(( outpath, '.ldc.it%03d.fits' %(it) )), overwrite = True)
+                    write_regions_to_pickle( rl, ''.join(( outpath, '.rl.it%03d.pkl' %(it) )), overwrite = True)
+                    write_interscale_trees_to_pickle( itl, ''.join(( outpath, '.itl.it%03d.pkl' %(it) )), overwrite = True)
+                    write_objects_to_pickle( ol, ''.join(( outpath, '.ol.it%03d.pkl' %(it) )), overwrite = True)
 
-            if gif:
-                sdc.histogram_noise( name = 'Noise histogram (lvl = 0)\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.hist.it%03d.png' %(it))))
-                plot_frame( level = level, it = it, nobj = len(ol), \
-                                                    original_image = im, \
-                                                    restored_image = rec, \
-                                                    residuals = res, \
-                                                    atom = atom, \
-                                                    outpath = outpath )
+                if gif:
+                    sdc.histogram_noise( name = 'Noise histogram (lvl = 0)\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.hist.it%03d.png' %(it))))
+                    plot_frame( level = level, it = it, nobj = len(ol), \
+                                                        original_image = im, \
+                                                        restored_image = rec, \
+                                                        residuals = res, \
+                                                        atom = atom, \
+                                                        outpath = outpath )
 
             it += 1
             if it > max_iter:
