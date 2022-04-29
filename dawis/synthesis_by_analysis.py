@@ -82,7 +82,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
 
             if ( os.path.exists(''.join(( outpath, '.ol.it%03d.pkl' %(it)))) ) & resume == True:
 
-                logging.info('`nFound %s --> resuming iteration' %(''.join(( outpath, '.ol.it%03d.pkl' %(it)))))
+                logging.info('\nFound %s --> resuming iteration' %(''.join(( outpath, '.ol.it%03d.pkl' %(it)))))
                 ol = read_objects_from_pickle(''.join(( outpath, '.ol.it%03d.pkl' %(it))))
 
             else:
