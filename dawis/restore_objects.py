@@ -103,10 +103,7 @@ def restore_objects_default(interscale_tree_list, wavelet_datacube, label_datacu
         object_list = []
         bspl = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
         logging.info('Size tree patch (%d) lower than %d, not parallelizing.'%(len(interscale_tree_list),size_patch_big ))
-        m = 0
         for tree in interscale_tree_list:
-            m += 1
-            logging.info('Restoring tree n°%d'%m)
             image, filter_kw, flag_convergence = restore_object( tree, \
                                                     wavelet_datacube, \
                                                     label_datacube, \
