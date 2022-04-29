@@ -75,11 +75,15 @@ def restore_object( interscale_tree, wavelet_datacube, label_datacube, extent_se
     flag_convergence = True
 
     if ( interscale_tree.extent < extent_sep ) & ( interscale_tree.interscale_maximum.level < lvl_sep_lin ) :
+        if verbose == True:
+            logging.info('filter_kw = %s' %(HAAR))
         image = interscale_tree.CG_minimization( wavelet_datacube, label_datacube, filter = haar, \
                                                         synthesis_operator = 'ADJOINT', verbose = verbose )
         filter_kw = 'HAAR'
 
     else:
+        if verbose == True:
+            logging.info('filter_kw = %s' %(BSPL))
         image = interscale_tree.CG_minimization( wavelet_datacube, label_datacube, filter = bspl, \
                                                     synthesis_operator = 'ADJOINT', verbose = verbose )
         filter_kw = 'BSPL'
