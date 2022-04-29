@@ -67,7 +67,7 @@ def restore_patch(interscale_tree_patch, wavelet_datacube, label_datacube, exten
 
     return object_patch
 
-def restore_object( interscale_tree, wavelet_datacube, label_datacube, extent_sep, lvl_sep_lin, lvl_sep_big ):
+def restore_object( interscale_tree, wavelet_datacube, label_datacube, extent_sep, lvl_sep_lin, lvl_sep_big, verbose = False ):
 
     bspl = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
     haar = 1 / 2. * np.array([ 1, 0, 1 ])
@@ -76,12 +76,12 @@ def restore_object( interscale_tree, wavelet_datacube, label_datacube, extent_se
 
     if ( interscale_tree.extent < extent_sep ) & ( interscale_tree.interscale_maximum.level < lvl_sep_lin ) :
         image = interscale_tree.CG_minimization( wavelet_datacube, label_datacube, filter = haar, \
-                                                        synthesis_operator = 'ADJOINT' )
+                                                        synthesis_operator = 'ADJOINT', verbose = verbose )
         filter_kw = 'HAAR'
 
     else:
         image = interscale_tree.CG_minimization( wavelet_datacube, label_datacube, filter = bspl, \
-                                                    synthesis_operator = 'ADJOINT' )
+                                                    synthesis_operator = 'ADJOINT', verbose = verbose )
         filter_kw = 'BSPL'
 
     # Security
@@ -99,12 +99,14 @@ def restore_objects_default(interscale_tree_list, wavelet_datacube, label_datacu
         object_list = []
         bspl = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
         for tree in interscale_tree_list:
+
             image, filter_kw, flag_convergence = restore_object( tree, \
                                                     wavelet_datacube, \
                                                     label_datacube, \
                                                     extent_sep, \
-                                                    lvl_sep_lin,
-                                                    lvl_sep_big )
+                                                    lvl_sep_lin, \
+                                                    lvl_sep_big, \
+                                                    verbose = True )
 
             object_list.append( restored_object(image, tree.bbox, \
                                                 tree.interscale_maximum.level, \
