@@ -107,6 +107,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                                                           max_span = max_span, \
                                                           lvl_sep_big = lvl_sep_big, \
                                                           monomodality = monomodality, \
+                                                          n_cpus = n_cpus, \
                                                           verbose = True)
                 if not itl:
                     break
