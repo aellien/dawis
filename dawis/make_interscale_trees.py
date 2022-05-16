@@ -532,12 +532,6 @@ def interscale_connectivity( interscale_maximum_list, region_list, wavelet_datac
 
         interscale_tree_list.append(interscale_tree(interscale_maximum, connected_region_list, wavelet_datacube, label_datacube))
 
-    log = logging.getLogger(__name__)
-    if verbose == True:
-        log.info('%d rejected.' %(n_rejected))
-    if not interscale_tree_list:
-        log.info("No interscale maximum found. Please consider lowering parameters 'tau' or 'min_span' if this keeps happening at every level. ")
-
     return interscale_tree_list
 
 def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0.8, min_span = 3, max_span = 3, lvl_sep_big = 6, monomodality = False, min_reg_size = 4, size_patch = 100, n_cpus = 1, verbose = False):
@@ -561,13 +555,6 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
     if verbose == True:
         log = logging.getLogger(__name__)
         log.info('Estimating global interscale maxima: %d found.' %(len(interscale_maximum_list)))
-
-    #if len(interscale_maximum_list) > max_number_of_imax:
-    #    interscale_maximum_list = interscale_maximum_list [:max_number_of_imax]
-    #    if verbose == True:
-    #        log = logging.getLogger(__name__)
-    #        log.info('Too many interscale maxima, cuting down to %d.' %(max_number_of_imax))
-
 
     if len(interscale_maximum_list) <= size_patch:
 
@@ -621,6 +608,12 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
             interscale_tree_list = interscale_tree_list + patch
 
     ray.shutdown()
+
+    if verbose == True:
+        log.info('%d rejected.' %(len(interscale_maximum_list) - len(interscale_tree_list)))
+    if not interscale_tree_list:
+        log.info("No interscale maximum found. Please consider lowering parameters 'tau' or 'min_span' if this keeps happening at every level. ")
+
     return interscale_tree_list
 
 if __name__ == '__main__':
