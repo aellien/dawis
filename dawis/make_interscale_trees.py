@@ -516,13 +516,13 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
                                                      ( x.area >= min_reg_size ), region_list))
     if verbose == True:
         log = logging.getLogger(__name__)
-        log.info('Estimating global interscale maximas: %d found.' %(len(interscale_maximum_list)))
+        log.info('Estimating global interscale maxima: %d found.' %(len(interscale_maximum_list)))
 
     if len(interscale_maximum_list) > max_number_of_imax:
         interscale_maximum_list = interscale_maximum_list [:max_number_of_imax]
         if verbose == True:
             log = logging.getLogger(__name__)
-            log.info('Too many interscale maxima, cuting down to %d' %(max_number_of_imax))
+            log.info('Too many interscale maxima, cuting down to %d.' %(max_number_of_imax))
 
     n_rejected = 0
     for interscale_maximum in interscale_maximum_list:
