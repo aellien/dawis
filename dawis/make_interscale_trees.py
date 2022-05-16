@@ -16,6 +16,7 @@ import pickle
 import numpy as np
 import logging
 import ultranest
+import ray
 from matplotlib.colors import SymLogNorm
 from skimage.feature import peak_local_max
 from scipy import ndimage as ndi
@@ -496,34 +497,10 @@ def enforce_monomodality(interscale_maximum, wavelet_datacube, label_datacube):
 
     return interscale_maximum, label_datacube
 
-def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0.8, min_span = 3, max_span = 3, lvl_sep_big = 6, monomodality = False, min_reg_size = 4, max_number_of_imax = 5000, verbose = False):
+@ray.remote
+def interscale_connectivity( interscale_maximum_list, region_list, wavelet_datacube, label_datacube, level_maximum, min_span = 3, max_span = 3, lvl_sep_big = 6, min_reg_size = 4, verbose = False):
 
     interscale_tree_list = []
-
-    region_list.sort(key = lambda x: x.norm_max_intensity, reverse = True)
-
-    i = 0
-    levels_rejected = [ 0, label_datacube.z_size ]
-    threshold_maximum = region_list[0].norm_max_intensity * tau
-    level_maximum = region_list[0].level
-    while region_list[i].level in levels_rejected :
-        i += 1
-        threshold_maximum = region_list[i].norm_max_intensity * tau
-        level_maximum = region_list[i].level
-
-    interscale_maximum_list = list(filter( lambda x: ( x.norm_max_intensity >= tau * threshold_maximum ) & \
-                                                     ( x.level == level_maximum ) & \
-                                                     ( x.area >= min_reg_size ), region_list))
-    if verbose == True:
-        log = logging.getLogger(__name__)
-        log.info('Estimating global interscale maxima: %d found.' %(len(interscale_maximum_list)))
-
-    if len(interscale_maximum_list) > max_number_of_imax:
-        interscale_maximum_list = interscale_maximum_list [:max_number_of_imax]
-        if verbose == True:
-            log = logging.getLogger(__name__)
-            log.info('Too many interscale maxima, cuting down to %d.' %(max_number_of_imax))
-
     n_rejected = 0
     for interscale_maximum in interscale_maximum_list:
 
@@ -555,10 +532,95 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
 
         interscale_tree_list.append(interscale_tree(interscale_maximum, connected_region_list, wavelet_datacube, label_datacube))
 
+    log = logging.getLogger(__name__)
     if verbose == True:
         log.info('%d rejected.' %(n_rejected))
     if not interscale_tree_list:
         log.info("No interscale maximum found. Please consider lowering parameters 'tau' or 'min_span' if this keeps happening at every level. ")
+
+    return interscale_tree_list
+
+def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0.8, min_span = 3, max_span = 3, lvl_sep_big = 6, monomodality = False, min_reg_size = 4, size_patch = 100, n_cpus = 1, verbose = False):
+
+    interscale_tree_list = []
+
+    region_list.sort(key = lambda x: x.norm_max_intensity, reverse = True)
+
+    i = 0
+    levels_rejected = [ 0, label_datacube.z_size ]
+    threshold_maximum = region_list[0].norm_max_intensity * tau
+    level_maximum = region_list[0].level
+    while region_list[i].level in levels_rejected :
+        i += 1
+        threshold_maximum = region_list[i].norm_max_intensity * tau
+        level_maximum = region_list[i].level
+
+    interscale_maximum_list = list(filter( lambda x: ( x.norm_max_intensity >= tau * threshold_maximum ) & \
+                                                     ( x.level == level_maximum ) & \
+                                                     ( x.area >= min_reg_size ), region_list))
+    if verbose == True:
+        log = logging.getLogger(__name__)
+        log.info('Estimating global interscale maxima: %d found.' %(len(interscale_maximum_list)))
+
+    #if len(interscale_maximum_list) > max_number_of_imax:
+    #    interscale_maximum_list = interscale_maximum_list [:max_number_of_imax]
+    #    if verbose == True:
+    #        log = logging.getLogger(__name__)
+    #        log.info('Too many interscale maxima, cuting down to %d.' %(max_number_of_imax))
+
+
+    if len(interscale_maximum_list) <= size_patch:
+
+        interscale_tree_list = interscale_connectivity( interscale_maximum_list = interscale_maximum_list,  \
+                                                        region_list = region_list,  \
+                                                        wavelet_datacube = wavelet_datacube,  \
+                                                        label_datacube = label_datacube,  \
+                                                        level_maximum = level_maximum,  \
+                                                        min_span = min_span,  \
+                                                        max_span = max_span,  \
+                                                        lvl_sep_big = lvl_sep_big, \
+                                                        min_reg_size = min_reg_size, \
+                                                        verbose = verbose )
+
+    else:
+
+        logging.info('Size interscale maximum patch (%d) greater than %d, activating Ray store.'%( len(interscale_maximum_list), size_patch ))
+        ray.init(num_cpus = n_cpus)
+        id_rl = ray.put(region_list)
+        id_wdc = ray.put(wavelet_datacube)
+        id_ldc = ray.put(label_datacube)
+        id_level_maximum = ray.put(level_maximum)
+        id_min_span = ray.put(min_span)
+        id_max_span = ray.put(max_span)
+        id_lvl_sep_big = ray.put(lvl_sep_big)
+        id_min_reg_size = ray.put(min_reg_size)
+        id_verbose = ray.put(verbose)
+
+
+        interscale_maximum_patch = []
+        interscale_tree_patch = []
+
+        for interscale_maximum in interscale_maximum_list:
+
+            interscale_maximum_patch.append(interscale_maximum)
+            if len(interscale_maximum_patch) >= size_patch:
+                interscale_tree_patch.append( interscale_connectivity.remote( interscale_maximum_list = interscale_maximum_patch,  \
+                                                                              region_list = id_rl,  \
+                                                                              wavelet_datacube = id_wdc,  \
+                                                                              label_datacube = id_ldc,  \
+                                                                              level_maximum = id_level_maximum,  \
+                                                                              min_span = id_min_span,  \
+                                                                              max_span = id_max_span,  \
+                                                                              lvl_sep_big = id_lvl_sep_big, \
+                                                                              min_reg_size = id_min_reg_size, \
+                                                                              verbose = id_verbose ) )
+                interscale_maximum_patch = []
+
+        for id_patch in interscale_tree_patch:
+            patch = ray.get( id_patch )
+            interscale_tree_list = interscale_tree_list + patch
+
+    ray.shutdown()
     return interscale_tree_list
 
 if __name__ == '__main__':
