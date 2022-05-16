@@ -496,7 +496,7 @@ def enforce_monomodality(interscale_maximum, wavelet_datacube, label_datacube):
 
     return interscale_maximum, label_datacube
 
-def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0.8, min_span = 3, max_span = 3, lvl_sep_big = 6, monomodality = False, min_reg_size = 4, verbose = False):
+def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0.8, min_span = 3, max_span = 3, lvl_sep_big = 6, monomodality = False, min_reg_size = 4, max_number_of_imax = 5000, verbose = False):
 
     interscale_tree_list = []
 
@@ -517,6 +517,12 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
     if verbose == True:
         log = logging.getLogger(__name__)
         log.info('Estimating global interscale maximas: %d found.' %(len(interscale_maximum_list)))
+
+    if len(interscale_maximum_list) > max_number_of_imax:
+        interscale_maximum_list = interscale_maximum_list [:max_number_of_imax]
+        if verbose == True:
+            log = logging.getLogger(__name__)
+            log.info('Too many interscale maxima, cuting down to %d' %(len(max_number_of_imax)))
 
     n_rejected = 0
     for interscale_maximum in interscale_maximum_list:
