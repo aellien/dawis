@@ -498,7 +498,7 @@ def enforce_monomodality(interscale_maximum, wavelet_datacube, label_datacube):
     return interscale_maximum, label_datacube
 
 @ray.remote
-def interscale_connectivity_para( interscale_maximum_list, region_list, wavelet_datacube, label_datacube, level_maximum, min_span = 3, max_span = 3, lvl_sep_big = 6, min_reg_size = 4, verbose = False):
+def interscale_connectivity_para( interscale_maximum_list, region_list, wavelet_datacube, label_datacube, level_maximum, min_span = 3, max_span = 3, lvl_sep_big = 6, monomodality = False, min_reg_size = 4, verbose = False):
 
     interscale_tree_list = []
     n_rejected = 0
@@ -534,7 +534,7 @@ def interscale_connectivity_para( interscale_maximum_list, region_list, wavelet_
 
     return interscale_tree_list
 
-def interscale_connectivity_serial( interscale_maximum_list, region_list, wavelet_datacube, label_datacube, level_maximum, min_span = 3, max_span = 3, lvl_sep_big = 6, min_reg_size = 4, verbose = False):
+def interscale_connectivity_serial( interscale_maximum_list, region_list, wavelet_datacube, label_datacube, level_maximum, min_span = 3, max_span = 3, lvl_sep_big = 6, monomodality = False, min_reg_size = 4, verbose = False):
 
     interscale_tree_list = []
     n_rejected = 0
@@ -603,6 +603,7 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
                                                                min_span = min_span,  \
                                                                max_span = max_span,  \
                                                                lvl_sep_big = lvl_sep_big, \
+                                                               monomodality = monomodality, \
                                                                min_reg_size = min_reg_size, \
                                                                verbose = verbose )
 
@@ -619,7 +620,7 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
         id_lvl_sep_big = ray.put(lvl_sep_big)
         id_min_reg_size = ray.put(min_reg_size)
         id_verbose = ray.put(verbose)
-
+        id_monomodality = ray.put(monomodality)
 
         interscale_maximum_patch = []
         interscale_tree_patch = []
@@ -636,6 +637,7 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
                                                                                    min_span = id_min_span,  \
                                                                                    max_span = id_max_span,  \
                                                                                    lvl_sep_big = id_lvl_sep_big, \
+                                                                                   monomodality = id_monomodality, \
                                                                                    min_reg_size = id_min_reg_size, \
                                                                                    verbose = id_verbose ) )
                 interscale_maximum_patch = []
