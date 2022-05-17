@@ -498,7 +498,7 @@ def enforce_monomodality(interscale_maximum, wavelet_datacube, label_datacube):
     return interscale_maximum, label_datacube
 
 @ray.remote
-def interscale_connectivity( interscale_maximum_list, region_list, wavelet_datacube, label_datacube, level_maximum, min_span = 3, max_span = 3, lvl_sep_big = 6, min_reg_size = 4, verbose = False):
+def interscale_connectivity_para( interscale_maximum_list, region_list, wavelet_datacube, label_datacube, level_maximum, min_span = 3, max_span = 3, lvl_sep_big = 6, min_reg_size = 4, verbose = False):
 
     interscale_tree_list = []
     n_rejected = 0
@@ -534,6 +534,43 @@ def interscale_connectivity( interscale_maximum_list, region_list, wavelet_datac
 
     return interscale_tree_list
 
+def interscale_connectivity_serial( interscale_maximum_list, region_list, wavelet_datacube, label_datacube, level_maximum, min_span = 3, max_span = 3, lvl_sep_big = 6, min_reg_size = 4, verbose = False):
+
+    interscale_tree_list = []
+    n_rejected = 0
+    for interscale_maximum in interscale_maximum_list:
+
+        if interscale_maximum.level >= lvl_sep_big :
+            pmax_span = 1
+            pmin_span = 1
+            if monomodality == True:
+                interscale_maximum, label_datacube = enforce_monomodality( interscale_maximum, wavelet_datacube, label_datacube )
+
+        elif interscale_maximum.level < lvl_sep_big :
+            pmax_span = max_span
+            pmin_span = min_span
+
+        tube = label_datacube.array[interscale_maximum.coords[:,0], interscale_maximum.coords[:,1], :level_maximum + 1]
+        covered_label_list = list(np.unique(tube))
+        covered_region_list = list(filter( lambda x: x.label in covered_label_list, region_list ))
+
+        connected_region_list = list(filter( lambda x: (x.label in covered_label_list) & \
+                                                       ( [x.x_max, x.y_max] in interscale_maximum.coords ) & \
+                                                       ( x.area >= min_reg_size) & \
+                                                       ( interscale_maximum.level - x.level <= pmax_span - 1 ), region_list ))
+
+        span_levels = np.size(np.unique([ x.level for x in connected_region_list ]))
+
+        if span_levels < pmin_span :
+            #log.info('Rejected : level = %d span = %d' %(interscale_maximum.level, span_levels))
+            n_rejected += 1
+            continue
+
+        interscale_tree_list.append(interscale_tree(interscale_maximum, connected_region_list, wavelet_datacube, label_datacube))
+
+    return interscale_tree_list
+
+
 def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0.8, min_span = 3, max_span = 3, lvl_sep_big = 6, monomodality = False, min_reg_size = 4, size_patch = 100, n_cpus = 1, verbose = False):
 
     interscale_tree_list = []
@@ -558,16 +595,16 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
 
     if len(interscale_maximum_list) <= size_patch:
 
-        interscale_tree_list = interscale_connectivity( interscale_maximum_list = interscale_maximum_list,  \
-                                                        region_list = region_list,  \
-                                                        wavelet_datacube = wavelet_datacube,  \
-                                                        label_datacube = label_datacube,  \
-                                                        level_maximum = level_maximum,  \
-                                                        min_span = min_span,  \
-                                                        max_span = max_span,  \
-                                                        lvl_sep_big = lvl_sep_big, \
-                                                        min_reg_size = min_reg_size, \
-                                                        verbose = verbose )
+        interscale_tree_list = interscale_connectivity_serial( interscale_maximum_list = interscale_maximum_list,  \
+                                                               region_list = region_list,  \
+                                                               wavelet_datacube = wavelet_datacube,  \
+                                                               label_datacube = label_datacube,  \
+                                                               level_maximum = level_maximum,  \
+                                                               min_span = min_span,  \
+                                                               max_span = max_span,  \
+                                                               lvl_sep_big = lvl_sep_big, \
+                                                               min_reg_size = min_reg_size, \
+                                                               verbose = verbose )
 
     else:
 
@@ -591,16 +628,16 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
 
             interscale_maximum_patch.append(interscale_maximum)
             if len(interscale_maximum_patch) >= size_patch:
-                interscale_tree_patch.append( interscale_connectivity.remote( interscale_maximum_list = interscale_maximum_patch,  \
-                                                                              region_list = id_rl,  \
-                                                                              wavelet_datacube = id_wdc,  \
-                                                                              label_datacube = id_ldc,  \
-                                                                              level_maximum = id_level_maximum,  \
-                                                                              min_span = id_min_span,  \
-                                                                              max_span = id_max_span,  \
-                                                                              lvl_sep_big = id_lvl_sep_big, \
-                                                                              min_reg_size = id_min_reg_size, \
-                                                                              verbose = id_verbose ) )
+                interscale_tree_patch.append( interscale_connectivity_para.remote( interscale_maximum_list = interscale_maximum_patch,  \
+                                                                                   region_list = id_rl,  \
+                                                                                   wavelet_datacube = id_wdc,  \
+                                                                                   label_datacube = id_ldc,  \
+                                                                                   level_maximum = id_level_maximum,  \
+                                                                                   min_span = id_min_span,  \
+                                                                                   max_span = id_max_span,  \
+                                                                                   lvl_sep_big = id_lvl_sep_big, \
+                                                                                   min_reg_size = id_min_reg_size, \
+                                                                                   verbose = id_verbose ) )
                 interscale_maximum_patch = []
 
         for id_patch in interscale_tree_patch:
