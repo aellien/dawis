@@ -55,17 +55,19 @@ def restore_patch(interscale_tree_patch, wavelet_datacube, label_datacube, exten
     object_patch = []
     for tree in interscale_tree_patch:
 
-        image, filter_kw, flag_convergence = restore_object( tree, \
-                                wavelet_datacube, \
-                                label_datacube, \
-                                extent_sep, \
-                                lvl_sep_lin, lvl_sep_big )
+        image, filter_kw, flag_convergence, sum_wr, norm_wr = restore_object( tree, \
+                                                                              wavelet_datacube, \
+                                                                              label_datacube, \
+                                                                              extent_sep, \
+                                                                              lvl_sep_lin, lvl_sep_big )
 
         object_patch.append(restored_object(image, tree.bbox, \
                                             tree.interscale_maximum.level, \
                                             tree.interscale_maximum.eccentricity, \
                                             filter_kw, \
-                                            flag_convergence ))
+                                            flag_convergence, \
+                                            sum_wr, \
+                                            norm_wr ))
 
     return object_patch
 
@@ -114,7 +116,9 @@ def restore_objects_default(interscale_tree_list, wavelet_datacube, label_datacu
                                                 tree.interscale_maximum.level, \
                                                 tree.interscale_maximum.eccentricity, \
                                                 filter_kw, \
-                                                flag_convergence ))
+                                                flag_convergence, \
+                                                sum_wr, \
+                                                norm_wr ))
 
     else:
         logging.info('Size tree patch (%d) greater than %d, activating Ray store.'%(len(interscale_tree_list),size_patch_big ))
