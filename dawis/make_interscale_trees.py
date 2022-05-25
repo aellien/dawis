@@ -669,7 +669,7 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
     if not interscale_tree_list:
         log.info("No interscale maximum found. Please consider lowering parameters 'tau' or 'min_span' if this keeps happening at every level. ")
 
-    return interscale_tree_list
+    return interscale_tree_list, label_datacube
 
 if __name__ == '__main__':
 
