@@ -21,13 +21,15 @@ import logging
 class restored_object(object):
     """docstring for restored_object."""
 
-    def __init__(self, image, bbox, level, eccentricity, filter_kw, flag_convergence):
+    def __init__(self, image, bbox, level, eccentricity, filter_kw, flag_convergence, sum_wr, norm_wr):
         self.bbox = bbox
         self.image = image
         self.level = level
         self.eccentricity = eccentricity
         self.filter = filter_kw
         self.flag_convergence = flag_convergence
+        self.sum_wr = sum_wr
+        self.norm_wr = norm_wr
 
 def write_objects_to_pickle(object_list, filename, overwrite = True):
 
@@ -75,12 +77,12 @@ def restore_object( interscale_tree, wavelet_datacube, label_datacube, extent_se
     flag_convergence = True
 
     if ( interscale_tree.extent < extent_sep ) & ( interscale_tree.interscale_maximum.level < lvl_sep_lin ) :
-        image = interscale_tree.CG_minimization( wavelet_datacube, label_datacube, filter = haar, \
+        image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_datacube, label_datacube, filter = haar, \
                                                         synthesis_operator = 'ADJOINT', verbose = verbose )
         filter_kw = 'HAAR'
 
     else:
-        image = interscale_tree.CG_minimization( wavelet_datacube, label_datacube, filter = bspl, \
+        image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_datacube, label_datacube, filter = bspl, \
                                                     synthesis_operator = 'ADJOINT', verbose = verbose )
         filter_kw = 'BSPL'
 
@@ -89,7 +91,7 @@ def restore_object( interscale_tree, wavelet_datacube, label_datacube, extent_se
         image = np.zeros( image.shape )
         flag_convergence = False
 
-    return image, filter_kw, flag_convergence
+    return image, filter_kw, flag_convergence, sum_wr, norm_wr
 
 
 def restore_objects_default(interscale_tree_list, wavelet_datacube, label_datacube, lvl_sep_big, extent_sep, lvl_sep_lin, size_patch_small = 50, size_patch_big = 5, size_big_objects = 512, n_cpus = 1 ):
@@ -100,13 +102,13 @@ def restore_objects_default(interscale_tree_list, wavelet_datacube, label_datacu
         bspl = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
         logging.info('Size tree patch (%d) lower than %d, not parallelizing.'%(len(interscale_tree_list),size_patch_big ))
         for tree in interscale_tree_list:
-            image, filter_kw, flag_convergence = restore_object( tree, \
-                                                    wavelet_datacube, \
-                                                    label_datacube, \
-                                                    extent_sep, \
-                                                    lvl_sep_lin, \
-                                                    lvl_sep_big, \
-                                                    verbose = True )
+            image, filter_kw, flag_convergence, sum_wr, norm_wr = restore_object( tree, \
+                                                                                  wavelet_datacube, \
+                                                                                  label_datacube, \
+                                                                                  extent_sep, \
+                                                                                  lvl_sep_lin, \
+                                                                                  lvl_sep_big, \
+                                                                                  verbose = True )
 
             object_list.append( restored_object(image, tree.bbox, \
                                                 tree.interscale_maximum.level, \

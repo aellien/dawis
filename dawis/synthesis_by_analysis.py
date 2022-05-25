@@ -27,7 +27,7 @@ from dawis.restore_objects import *
 from dawis.gif import *
 
 def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2, tau = 0.8, n_levels = None,\
-                                gamma = 0.2, min_span = 2, max_span = 3, lvl_sep_big = 6, monomodality = False, \
+                                gamma = 0.2, min_span = 2, max_span = 3, lvl_sep_big = 6, rm_gamma_for_big = False, monomodality = False, \
                                 extent_sep = 0.1, lvl_sep_lin = 2, ceps = 1E-3, conditions = 'loop', \
                                 max_iter = 500, data_dump = True, gif = True, resume = True):
 
@@ -125,7 +125,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
             atom = np.zeros(res.shape)
             for object in ol:
                 x_min, y_min, x_max, y_max = object.bbox
-                if object.level >= lvl_sep_big:
+                if (rm_gamma_for_big == True) & (object.level >= lvl_sep_big):
                     atom[ x_min : x_max, y_min : y_max ] += object.image
                     rec_lvl[ x_min : x_max, y_min : y_max, object.level ] += object.image
                 else:

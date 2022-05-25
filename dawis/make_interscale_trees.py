@@ -343,7 +343,14 @@ class interscale_tree(object):
                     print( "flux convergence", np.max(reconstructed), np.shape(reconstructed) )
                 break
 
-        return reconstructed
+        wr = wavelet_tube - atrous(reconstructed, n_levels = wavelet_tube.shape[2], \
+                                                      filter = filter, \
+                                                      conditions = 'prolongation' )[1] * support_tube
+
+        norm_wr = np.sqrt( np.sum( wr**2 ) )
+        sum_wr = np.sum( wr )
+
+        return reconstructed, sum_wr, norm_wr
 
     def CG_minimization(self, wavelet_datacube, label_datacube, filter, \
                             synthesis_operator = 'ADJOINT', step_size = 'FR', \
@@ -424,7 +431,14 @@ class interscale_tree(object):
                         beta = np.linalg.norm( fr )**2 / np.sum( v * old_fr )
                 v = fr + beta * old_fr
 
-        return reconstructed
+        wr = wavelet_tube - atrous(reconstructed, n_levels = wavelet_tube.shape[2], \
+                                                      filter = filter, \
+                                                      conditions = 'prolongation' )[1] * support_tube
+
+        norm_wr = np.sqrt( np.sum( wr**2 ) )
+        sum_wr = np.sum( wr )
+
+        return reconstructed, sum_wr, norm_wr
 
 def write_interscale_trees_to_pickle(interscale_tree_list, filename, overwrite = True):
 
