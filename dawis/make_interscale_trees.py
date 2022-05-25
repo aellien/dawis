@@ -521,8 +521,6 @@ def interscale_connectivity_para( interscale_maximum_list, region_list, wavelet_
         if interscale_maximum.level >= lvl_sep_big :
             pmax_span = 1
             pmin_span = 1
-            if monomodality == True:
-                interscale_maximum, label_datacube = enforce_monomodality( interscale_maximum, wavelet_datacube, label_datacube )
 
         elif interscale_maximum.level < lvl_sep_big :
             pmax_span = max_span
@@ -557,8 +555,6 @@ def interscale_connectivity_serial( interscale_maximum_list, region_list, wavele
         if interscale_maximum.level >= lvl_sep_big :
             pmax_span = 1
             pmin_span = 1
-            if monomodality == True:
-                interscale_maximum, label_datacube = enforce_monomodality( interscale_maximum, wavelet_datacube, label_datacube )
 
         elif interscale_maximum.level < lvl_sep_big :
             pmax_span = max_span
@@ -606,6 +602,12 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
     if verbose == True:
         log = logging.getLogger(__name__)
         log.info('Estimating global interscale maxima: %d found.' %(len(interscale_maximum_list)))
+
+
+    for interscale_maximum in interscale_maximum_list:
+        if interscale_maximum.level >= lvl_sep_big :
+            if monomodality == True:
+                interscale_maximum, label_datacube = enforce_monomodality( interscale_maximum, wavelet_datacube, label_datacube )
 
     if len(interscale_maximum_list) <= size_patch:
 
