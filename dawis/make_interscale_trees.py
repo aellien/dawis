@@ -609,7 +609,7 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
             if monomodality == True:
                 interscale_maximum, label_datacube = enforce_monomodality( interscale_maximum, wavelet_datacube, label_datacube )
 
-    if len(interscale_maximum_list) <= size_patch:
+    if (len(interscale_maximum_list) <= size_patch) or (n_cpus == 1):
 
         interscale_tree_list = interscale_connectivity_serial( interscale_maximum_list = interscale_maximum_list,  \
                                                                region_list = region_list,  \

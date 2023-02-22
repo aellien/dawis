@@ -155,6 +155,8 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                 it += 1
                 continue
             else:
+                write_interscale_trees_to_pickle( itl, ''.join(( outpath, '.itl.it%03d.pkl' %(it) )), overwrite = True)
+                write_objects_to_pickle( ol, ''.join(( outpath, '.ol.it%03d.pkl' %(it) )), overwrite = True)
                 if data_dump:
                     logging.info('Dumping data in %s' %(outdir) )
                     wdc.to_fits( ''.join(( outpath, '.wdc.it%03d.fits' %(it)) ), overwrite = True)
