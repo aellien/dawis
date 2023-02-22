@@ -162,8 +162,6 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                     wdc.to_fits( ''.join(( outpath, '.wdc.it%03d.fits' %(it)) ), overwrite = True)
                     ldc.to_fits( ''.join(( outpath, '.ldc.it%03d.fits' %(it) )), overwrite = True)
                     write_regions_to_pickle( rl, ''.join(( outpath, '.rl.it%03d.pkl' %(it) )), overwrite = True)
-                    write_interscale_trees_to_pickle( itl, ''.join(( outpath, '.itl.it%03d.pkl' %(it) )), overwrite = True)
-                    write_objects_to_pickle( ol, ''.join(( outpath, '.ol.it%03d.pkl' %(it) )), overwrite = True)
 
                 if gif:
                     sdc.histogram_noise( name = 'Noise histogram (lvl = 0)\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.hist.it%03d.png' %(it))))
