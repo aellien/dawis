@@ -28,7 +28,7 @@ from dawis.gif import *
 
 def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2, tau = 0.8, n_levels = None,\
                                 gamma = 0.2, min_span = 2, max_span = 3, lvl_sep_big = 6, rm_gamma_for_big = False, monomodality = False, \
-                                extent_sep = 0.1, lvl_sep_lin = 2, ceps = 1E-3, conditions = 'loop', \
+                                extent_sep = 0.1, ecc_sep = 0.95, lvl_sep_lin = 2, ceps = 1E-3, conditions = 'loop', \
                                 max_iter = 500, data_dump = True, gif = True, resume = True):
 
     #===========================================================================
@@ -115,6 +115,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                 # Restoration of detected objects
                 ol = restore_objects_default(itl, wdc,ldc, size_patch_small = 50, \
                                                    extent_sep = extent_sep, \
+                                                   ecc_sep = ecc_sep, \
                                                    lvl_sep_lin = lvl_sep_lin, \
                                                    lvl_sep_big = lvl_sep_big, \
                                                    size_patch_big = 5, \

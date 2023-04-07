@@ -35,6 +35,7 @@ class interscale_tree(object):
         self.n_regions = len(region_list)
         self.span_levels = np.size(np.unique([ x.level for x in region_list ]))
         self.clip = clip
+        self.eccentricity = self.interscale_maximum.eccentricity
 
         x_min = np.min([ x.bbox[0] for x in self.region_list ])
         y_min = np.min([ x.bbox[1] for x in self.region_list ])
