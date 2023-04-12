@@ -606,9 +606,9 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
 
 
     for interscale_maximum in interscale_maximum_list:
-        if interscale_maximum.level >= lvl_sep_big :
-            if monomodality == True:
-                interscale_maximum, label_datacube = enforce_monomodality( interscale_maximum, wavelet_datacube, label_datacube )
+        #if interscale_maximum.level >= lvl_sep_big :
+        if monomodality == True:
+            interscale_maximum, label_datacube = enforce_monomodality( interscale_maximum, wavelet_datacube, label_datacube )
 
     if (len(interscale_maximum_list) <= size_patch) or (n_cpus == 1):
 
