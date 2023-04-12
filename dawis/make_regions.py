@@ -25,11 +25,13 @@ class region(object):
 
     def __init__(self, **kwargs):
 
-        allowed_keys = set(['label', 'area', \
+        allowed_keys = set(['label', 'area', 'axis_major_length', 'axis_minor_length', \
                         'bbox', 'bbox_area', 'centroid', 'local_centroid', 'coords', 'extent', \
                         'eccentricity', 'max_intensity', 'min_intensity', \
                         'norm_max_intensity', 'norm_min_intensity', 'x_max', 'y_max', \
-                        'level', 'x_min', 'y_min'])
+                        'level', 'x_min', 'y_min', 'moments', 'moments_central', \
+                        'moments_hu', 'moments_normalized', 'moments_weighted', 'moments_weighted_central', \
+                        'moments_weighted_hu', 'moments_weighted_normalized', 'orientation', 'perimeter' ])
         # initialize all allowed keys to false
         self.__dict__.update((key, False) for key in allowed_keys)
         # and update the given keys by their given values

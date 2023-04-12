@@ -7,7 +7,6 @@
 # LAST MODIFICATION : 07/2021
 #
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
 import os
 import numpy as np
 import logging
@@ -25,6 +24,7 @@ from dawis.make_regions import *
 from dawis.make_interscale_trees import *
 from dawis.restore_objects import *
 from dawis.gif import *
+
 
 def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2, tau = 0.8, n_levels = None,\
                                 gamma = 0.2, min_span = 2, max_span = 3, lvl_sep_big = 6, rm_gamma_for_big = False, monomodality = False, \
