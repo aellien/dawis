@@ -82,7 +82,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
             # inpaint bad reconstruction pixels and NaN pixels with noise draws
             mask = np.zeros(res.shape)
             mask[ res < -abs(mean + 5 * sigma) ] = 1.
-            mask[np.isnan(res)] = 1.
+            mask[np.where(np.isnan(res) == True)] = 1.
             draws = np.random.normal(mean, sigma, res.shape)
             mask *= draws
             res[ res < -abs(mean + 5 * sigma) ] = 0.
