@@ -86,6 +86,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
             draws = np.random.normal(mean, sigma, res.shape)
             mask *= draws
             res[ res < -abs(mean + 5 * sigma) ] = 0.
+            res[ np.where(np.isnan(res) == True)] = 0.
             res += mask
 
             if ( os.path.exists(''.join(( outpath, '.ol.it%03d.pkl' %(it)))) ) & resume == True:
