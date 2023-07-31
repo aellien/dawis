@@ -13,7 +13,7 @@
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 import numpy as np
-from scipy.stats import sigmaclip
+from astropy.stats import sigma_clip
 import logging
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -23,7 +23,7 @@ def pg_noise_bissection(image, max_err = 1E-6, n_sigmas = 3, verbose = False):
     doc tot do    '''
 
     noise_pts = np.copy(image)
-    noise_pixels = sigmaclip(image, low = n_sigmas, high = n_sigmas)[0] # the max parameters are given
+    noise_pixels = sigma_clip(image, sigma = n_sigmas, sigma_lower = n_sigmas, masked = False) # the max parameters are given
 
     sigma_max = np.nanstd(noise_pixels)           # by the parameters of a gaussian
     mean_max = np.nanmean(noise_pixels)              # noise estimation on the input
@@ -46,8 +46,8 @@ def pg_noise_bissection(image, max_err = 1E-6, n_sigmas = 3, verbose = False):
         mean = ( mean_min + mean_max ) / 2.0    # iteration are the mean of max
         gain = ( gain_min + gain_max ) / 2.0    # and min noise parameters.
 
-        sigma_ansc = np.nanstd(sigmaclip(anscombe_transform(noise_pts, sigma = sigma, mean = mean, gain = gain), \
-                                        low = n_sigmas, high = n_sigmas)[0])
+        sigma_ansc = np.nanstd(sigma_clip(anscombe_transform(noise_pts, sigma = sigma, mean = mean, gain = gain), \
+                                        sigma = n_sigmas, sigma_lower = n_sigmas, masked = False))
 
         if sigma_ansc <= 1.0:  # gaussian distribution countepart
             sigma_max = sigma  # overestimated.
