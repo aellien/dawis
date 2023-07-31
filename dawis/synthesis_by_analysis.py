@@ -58,7 +58,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
 
     # Noise properties
     sigma, mean, gain = pg_noise_bissection(im, max_err = 1E-3, n_sigmas = 3)
-    logging.info('Noise properties: sigma = %.6f, mean = %.6f, gain = %.6f\n' %(sigma, mean, gain))
+    logging.info('Noise properties: sigma = %1.3e, mean = %1.3e, gain = %1.3e\n' %(sigma, mean, gain))
 
     #===========================================================================
 
@@ -78,7 +78,14 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
 
             start_time_it = datetime.now()
             logging.info('\n\n[ %s ] Level = %d Iteration = %d' %(datetime.now(), level, it))
-            res[ res < 0. ] = 0.
+
+            # inpaint bad reconstruction pixels
+            mask = np.zeros(res.shape)
+            mask[ res < -abs(mean + 5 * sigma) ] = 1.
+            draws = np.random.normal(mean, sigma, res.shape)
+            mask *= draws
+            res[ res < -abs(mean + 5 * sigma) ] = 0.
+            res += mask
 
             if ( os.path.exists(''.join(( outpath, '.ol.it%03d.pkl' %(it)))) ) & resume == True:
 

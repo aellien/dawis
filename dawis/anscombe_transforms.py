@@ -25,9 +25,9 @@ def pg_noise_bissection(image, max_err = 1E-6, n_sigmas = 3, verbose = False):
     noise_pts = np.copy(image)
     noise_pixels = sigmaclip(image, low = n_sigmas, high = n_sigmas)[0] # the max parameters are given
 
-    sigma_max = np.std(noise_pixels)           # by the parameters of a gaussian
-    mean_max = np.mean(noise_pixels)              # noise estimation on the input
-    gain_max = np.max(noise_pixels) - np.min(noise_pixels)              # image.
+    sigma_max = np.nanstd(noise_pixels)           # by the parameters of a gaussian
+    mean_max = np.nanmean(noise_pixels)              # noise estimation on the input
+    gain_max = np.nanmax(noise_pixels) - np.nanmin(noise_pixels)              # image.
 
     sigma_min = 0.0          # the min parameters are given
     mean_min = 0.0           # by 0.
@@ -46,7 +46,7 @@ def pg_noise_bissection(image, max_err = 1E-6, n_sigmas = 3, verbose = False):
         mean = ( mean_min + mean_max ) / 2.0    # iteration are the mean of max
         gain = ( gain_min + gain_max ) / 2.0    # and min noise parameters.
 
-        sigma_ansc = np.std(sigmaclip(anscombe_transform(noise_pts, sigma = sigma, mean = mean, gain = gain), \
+        sigma_ansc = np.nanstd(sigmaclip(anscombe_transform(noise_pts, sigma = sigma, mean = mean, gain = gain), \
                                         low = n_sigmas, high = n_sigmas)[0])
 
         if sigma_ansc <= 1.0:  # gaussian distribution countepart
@@ -79,7 +79,6 @@ def anscombe_transform(image, sigma = 0.0, mean = 0.0, gain = 1.0):
     out_image = ( 2.0 / gain ) * np.sqrt( gain * out_image + ( 3. / 8. ) \
                         * ( gain ** 2 ) + ( sigma ** 2 ) - gain * mean )
     out_image[ np.where( np.isnan( out_image ) == True ) ] = 0.0
-
     return out_image
 
 if __name__ == '__main__':
