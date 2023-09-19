@@ -238,9 +238,14 @@ class datacube(object):
             for j in range(ncol):
                 lvl += 1
                 if lvl > self.z_size:
-                    grid[i][j].set_frame_on(False)
-                    grid[i][j].get_xaxis().set_ticks([])
-                    grid[i][j].get_yaxis().set_ticks([])
+                    if nline == 1:
+                        grid[j].set_frame_on(False)
+                        grid[j].get_xaxis().set_ticks([])
+                        grid[j].get_yaxis().set_ticks([])
+                    else:
+                        grid[i][j].set_frame_on(False)
+                        grid[i][j].get_xaxis().set_ticks([])
+                        grid[i][j].get_yaxis().set_ticks([])
                 else:
                     if nline == 1:
                         ax = grid[j]
@@ -262,7 +267,7 @@ class datacube(object):
         if save_path != None:
             plt.savefig(save_path, format = 'pdf')
 
-        #plt.tight_layout()
+        plt.tight_layout()
         if show == True:
             plt.show()
         else:
