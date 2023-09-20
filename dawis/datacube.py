@@ -265,7 +265,7 @@ class datacube(object):
                         ax.get_xaxis().set_ticks([])
 
         if save_path != None:
-            plt.savefig(save_path, format = 'pdf')
+            plt.savefig(save_path, format = 'png')
 
         plt.tight_layout()
         if show == True:
