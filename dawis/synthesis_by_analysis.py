@@ -171,6 +171,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                     logging.info('Dumping data in %s' %(outdir) )
                     wdc.to_fits( ''.join(( outpath, '.wdc.it%03d.fits' %(it)) ), overwrite = True)
                     ldc.to_fits( ''.join(( outpath, '.ldc.it%03d.fits' %(it) )), overwrite = True)
+                    sdc.to_fits( ''.join(( outpath, '.sdc.it%03d.fits' %(it) )), overwrite = True)
                     write_regions_to_pickle( rl, ''.join(( outpath, '.rl.it%03d.pkl' %(it) )), overwrite = True)
 
                 if gif:
