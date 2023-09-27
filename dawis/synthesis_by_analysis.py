@@ -177,6 +177,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                 if gif:
                     wdc.waveplot( name = 'Wavelet Planes\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.wdc.it%03d.png' %(it))), origin = 'lower')
                     sdc.waveplot( name = 'Multiscale Suport\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.sdc.it%03d.png' %(it))), origin = 'lower')
+                    ldc.waveplot( name = 'Multiscale Suport\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.ldc.it%03d.png' %(it))), origin = 'lower')
                     sdc.histogram_noise( name = 'Noise histogram (lvl = 0)\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.hist.it%03d.png' %(it))))
                     plot_frame( level = level, it = it, nobj = len(ol), \
                                                         original_image = im, \
