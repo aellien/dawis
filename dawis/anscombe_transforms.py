@@ -69,7 +69,7 @@ def pg_noise_bissection(image, max_err = 1E-6, n_sigmas = 3, verbose = False):
     return sigma, mean, gain
 
 
-def anscombe_transform(image, sigma = 0.0, mean = 0.0, gain = 1.0):
+def anscombe_transform(image, sigma = 0.0, mean = 0.0, gain = 1.0, n_sigmas_clip = 3):
 
     '''
     apply anscombe transform to input data. doc to do
@@ -78,7 +78,16 @@ def anscombe_transform(image, sigma = 0.0, mean = 0.0, gain = 1.0):
     out_image = np.copy( image )
     out_image = ( 2.0 / gain ) * np.sqrt( gain * out_image + ( 3. / 8. ) \
                         * ( gain ** 2 ) + ( sigma ** 2 ) - gain * mean )
+    clip_ans = sigma_clip(out_image, sigma = n_sigmas_clip, sigma_lower = n_sigmas_clip, masked = False)
+    std_ans = np.nanstd(clip_ans)
+    mean_ans = np.nanmean(clip_ans)
+    mask = np.zeros(out_image.shape)
+    mask[ np.where( np.isnan( out_image ) == True ) ] = 1
+    draws = np.random.normal(mean_ans, std_ans, mask.shape)
+    mask *= draws
     out_image[ np.where( np.isnan( out_image ) == True ) ] = 0.0
+    out_image += mask
+
     return out_image
 
 if __name__ == '__main__':

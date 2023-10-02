@@ -57,7 +57,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                                 %(im.shape[0], im.shape[1], n_levels, 2**n_levels) )
 
     # Noise properties
-    sigma, mean, gain = pg_noise_bissection(im, max_err = 1E-3, n_sigmas = 3)
+    sigma, mean, gain = pg_noise_bissection(im, max_err = 1E-4, n_sigmas = 3)
     logging.info('Noise properties: sigma = %1.3e, mean = %1.3e, gain = %1.3e\n' %(sigma, mean, gain))
 
     #===========================================================================
@@ -175,9 +175,10 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                     write_regions_to_pickle( rl, ''.join(( outpath, '.rl.it%03d.pkl' %(it) )), overwrite = True)
 
                 if gif:
+                    awdc.waveplot( name = 'Anscombe modified\nWavelet Planes\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.awdc.it%03d.png' %(it))), origin = 'lower')
                     wdc.waveplot( name = 'Wavelet Planes\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.wdc.it%03d.png' %(it))), origin = 'lower')
                     sdc.waveplot( name = 'Multiscale Suport\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.sdc.it%03d.png' %(it))), origin = 'lower')
-                    ldc.waveplot( name = 'Multiscale Suport\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.ldc.it%03d.png' %(it))), origin = 'lower')
+                    ldc.waveplot( name = 'Multiscale label\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.ldc.it%03d.png' %(it))), origin = 'lower')
                     sdc.histogram_noise( name = 'Noise histogram (lvl = 0)\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.hist.it%03d.png' %(it))))
                     plot_frame( level = level, it = it, nobj = len(ol), \
                                                         original_image = im, \
