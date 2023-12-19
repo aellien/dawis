@@ -221,7 +221,7 @@ class datacube(object):
 
         # Plot make-up.
         if self.z_size > ncol:
-            nline = np.int( np.ceil(self.z_size / ncol) )
+            nline = int( np.ceil(self.z_size / ncol) )
         else:
             nline = 1
 
@@ -338,7 +338,7 @@ class wavelet_datacube(datacube):
 
         # Plot make-up.
         if self.z_size > ncol:
-            nline = np.int( np.ceil(self.z_size / ncol) )
+            nline = int( np.ceil(self.z_size / ncol) )
         else:
             nline = 1
             ncol = self.z_size

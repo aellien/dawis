@@ -52,13 +52,13 @@ class interscale_tree(object):
         self.extent = n_pix / ( ( x_max - x_min ) * ( y_max - y_min ) )
 
         # Make vignet larger
-        x_min -= np.int( ( x_max - x_min ) / 2. )
-        x_max += np.int( ( x_max - x_min ) / 2. )
+        x_min -= int( ( x_max - x_min ) / 2. )
+        x_max += int( ( x_max - x_min ) / 2. )
         if x_min < 0: x_min = 0
         if x_max > label_datacube.x_size: x_max = label_datacube.x_size
 
-        y_min -= np.int( ( y_max - y_min ) / 2. )
-        y_max += np.int( ( y_max - y_min ) / 2. )
+        y_min -= int( ( y_max - y_min ) / 2. )
+        y_max += int( ( y_max - y_min ) / 2. )
         if y_min < 0: y_min = 0
         if y_max > label_datacube.y_size: y_max = label_datacube.y_size
 
@@ -135,7 +135,7 @@ class interscale_tree(object):
 
             clip = np.copy(label_datacube.array[ self.bbox[0]:self.bbox[2], \
                                                  self.bbox[1]:self.bbox[3], \
-                                                 np.int(region.level) ])
+                                                 int(region.level) ])
 
             clip[np.where(clip != region.label)] = 0.
 
@@ -469,7 +469,7 @@ def enforce_monomodality(interscale_maximum, wavelet_datacube, label_datacube):
     wavelet_clip[ np.where( label_clip == 0 ) ] = 0.
 
     # Find secondary local wavelet maxima
-    local_maxima_coo = peak_local_max( wavelet_clip, exclude_border = False )
+    local_maxima_coo = peak_local_max( wavelet_clip, min_distance = 5, exclude_border = False, threshold_rel = 0.05)
     if len(local_maxima_coo) > 1:
 
         # Make mask image of local wavelet maxima
@@ -608,8 +608,9 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
     for interscale_maximum in interscale_maximum_list:
         #if interscale_maximum.level >= lvl_sep_big :
         if monomodality == True:
+            print('coucou1')
             interscale_maximum, label_datacube = enforce_monomodality( interscale_maximum, wavelet_datacube, label_datacube )
-
+            print('coucou2')
     if (len(interscale_maximum_list) <= size_patch) or (n_cpus == 1):
 
         interscale_tree_list = interscale_connectivity_serial( interscale_maximum_list = interscale_maximum_list,  \
@@ -688,7 +689,7 @@ if __name__ == '__main__':
     hdu = fits.open('/home/ellien/devd/gallery/A1365.rebin.fits')
     im = hdu[0].data
     header = hdu[0].header
-    n_levels = np.int(np.min(np.floor(np.log2(im.shape))))
+    n_levels = int(np.min(np.floor(np.log2(im.shape))))
     print(im.shape, n_levels, 2**n_levels)
     n_levels = 3
 

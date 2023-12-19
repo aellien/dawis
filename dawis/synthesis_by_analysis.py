@@ -52,7 +52,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
     im  = hdu[0].data
     header = hdu[0].header
     if not n_levels:
-        n_levels = np.int(np.min(np.floor(np.log2(im.shape))))
+        n_levels = int(np.min(np.floor(np.log2(im.shape))))
     logging.info('Image of size %d x %d\n--> n_levels = %d, corresponding to maximum size %d\n' \
                                 %(im.shape[0], im.shape[1], n_levels, 2**n_levels) )
 

@@ -56,7 +56,7 @@ class region(object):
 
         plt.imshow( wavelet_datacube.array[ self.bbox[0]:self.bbox[2], \
                                             self.bbox[1]:self.bbox[3], \
-                                            np.int(self.level) ], \
+                                            int(self.level) ], \
                     extent = ( self.bbox[1], self.bbox[3], \
                                self.bbox[0], self.bbox[2] ), \
                     origin = 'lower', \
@@ -74,7 +74,7 @@ class region(object):
         try:
             clip = label_datacube.array[ self.bbox[0]:self.bbox[2], \
                                            self.bbox[1]:self.bbox[3], \
-                                           np.int(self.level) ]
+                                           int(self.level) ]
             clip[np.where(clip != self.label)] = 0.
             plt.contour( clip, \
                     self.label, \
@@ -151,7 +151,7 @@ def make_regions_crucial_props(wavelet_datacube, label_datacube, n_cpus = 1, ver
     conv_table = table_noise_stds(wavelet_datacube.z_size, wavelet_type = wavelet_datacube.wavelet_type)
 
     region_list = []
-    region_tab = np.zeros((np.int(np.sum(label_datacube.lab_counts)), 12), order = 'F')
+    region_tab = np.zeros((int(np.sum(label_datacube.lab_counts)), 12), order = 'F')
     wavelet_array = np.copy(wavelet_datacube.array, order='F')
     label_array = np.copy(label_datacube.array, order='F')
 
@@ -168,7 +168,7 @@ def make_regions_crucial_props(wavelet_datacube, label_datacube, n_cpus = 1, ver
 
     for i in range(region_tab.shape[0]):
 
-        norm_max_intensity = region_tab[i, 6] / conv_table[np.int(region_tab[i, 2])]
+        norm_max_intensity = region_tab[i, 6] / conv_table[int(region_tab[i, 2])]
         label = i + 1
         region_list.append( region( label = label, \
                                     area = region_tab[i, 11], \

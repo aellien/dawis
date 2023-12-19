@@ -192,7 +192,7 @@ if __name__ == '__main__':
     hdu = fits.open('/home/ellien/devd/gallery/A1365.rebin.fits')
     im = hdu[0].data
     header = hdu[0].header
-    n_levels = np.int(np.min(np.floor(np.log2(im.shape))))
+    n_levels = int(np.min(np.floor(np.log2(im.shape))))
     print(im.shape, n_levels, 2**n_levels)
     n_levels = 3
 
