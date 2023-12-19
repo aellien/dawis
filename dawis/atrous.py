@@ -122,7 +122,7 @@ def atrous(image, n_levels, filter, conditions = 'loop', verbose = False):
     for level in range(0, n_levels):
 
         position_array_lvl = np.array(position_array) * np.power(2, level)
-        position_array_lvl = position_array_lvl.astype(np.int)
+        position_array_lvl = position_array_lvl.astype(int)
 
         if filter.ndim == 2:
             with np.nditer(coarse_array[:,:,level + 1], flags = ['multi_index'], op_flags = ['readwrite']) as it:
@@ -212,8 +212,8 @@ def interlaced_atrous_congrid(image, n_levels, n_voices, filter, verbose = False
     #===========================================================================
     # Convolution 0
 
-    anx, any = np.int(image_x_size / ( np.sqrt(2) / 2 )), \
-               np.int(image_y_size / ( np.sqrt(2) / 2 ))
+    anx, any = int(image_x_size / ( np.sqrt(2) / 2 )), \
+               int(image_y_size / ( np.sqrt(2) / 2 ))
     print(anx, any)
     coarse_array_1 = np.zeros((image_x_size, image_y_size, n_levels + 1 ), dtype = np.float32)
     coarse_array_2 = np.zeros((image_x_size, image_y_size, n_levels ), dtype = np.float32)
@@ -230,7 +230,7 @@ def interlaced_atrous_congrid(image, n_levels, n_voices, filter, verbose = False
     for level in range(0, n_levels ):
 
         position_array_lvl = np.array(position_array) * np.power(2, level)
-        position_array_lvl = position_array_lvl.astype(np.int)
+        position_array_lvl = position_array_lvl.astype(int)
 
         if filter.ndim == 2:
             with np.nditer(coarse_array_1[:,:,level + 1], flags = ['multi_index'], op_flags = ['readwrite']) as it:
@@ -267,7 +267,7 @@ def interlaced_atrous_congrid(image, n_levels, n_voices, filter, verbose = False
     for level in range(0, n_levels ):
 
         position_array_lvl = np.array(position_array) * np.power(2, level)
-        position_array_lvl = position_array_lvl.astype(np.int)
+        position_array_lvl = position_array_lvl.astype(int)
 
         if filter.ndim == 2:
             with np.nditer(coarse_array_2[:,:,level + 1], flags = ['multi_index'], op_flags = ['readwrite']) as it:
@@ -381,7 +381,7 @@ def interlaced_atrous_zeros(image, n_levels, n_voices, filter, verbose = False):
     for level in range(0, n_levels - 1):
 
         position_array_lvl = np.array(position_array) * np.power(2, level)
-        position_array_lvl = position_array_lvl.astype(np.int)
+        position_array_lvl = position_array_lvl.astype(int)
 
         if filter.ndim == 2:
             with np.nditer(coarse_array_1[:,:,level + 1], flags = ['multi_index'], op_flags = ['readwrite']) as it:
@@ -418,8 +418,8 @@ def interlaced_atrous_zeros(image, n_levels, n_voices, filter, verbose = False):
     for level in range(0, n_levels - 1):
 
         position_array_lvl = np.array(position_array) * np.power(2, level + 0.5)
-        position_array_lvl_ceil = np.ceil(position_array_lvl).astype(np.int)
-        position_array_lvl_floor = np.floor(position_array_lvl).astype(np.int)
+        position_array_lvl_ceil = np.ceil(position_array_lvl).astype(int)
+        position_array_lvl_floor = np.floor(position_array_lvl).astype(int)
 
         if filter.ndim == 2:
             with np.nditer(coarse_array_2[:,:,level + 1], flags = ['multi_index'], op_flags = ['readwrite']) as it:
@@ -545,7 +545,7 @@ def interlaced_atrous_filter(image, n_levels, n_voices, filter, verbose = False)
     for level in range(0, n_levels - 1):
 
         position_array_lvl = np.array(position_array) * np.power(2, level)
-        position_array_lvl = position_array_lvl.astype(np.int)
+        position_array_lvl = position_array_lvl.astype(int)
 
         if filter.ndim == 2:
             with np.nditer(coarse_array_1[:,:,level + 1], flags = ['multi_index'], op_flags = ['readwrite']) as it:
@@ -582,8 +582,8 @@ def interlaced_atrous_filter(image, n_levels, n_voices, filter, verbose = False)
     for level in range(0, n_levels - 1):
 
         position_array_lvl = np.array(position_array) * np.power(2, level)
-        position_array_lvl_ceil = np.ceil(position_array_lvl).astype(np.int)
-        position_array_lvl_floor = np.floor(position_array_lvl).astype(np.int)
+        position_array_lvl_ceil = np.ceil(position_array_lvl).astype(int)
+        position_array_lvl_floor = np.floor(position_array_lvl).astype(int)
 
         if filter.ndim == 2:
             with np.nditer(coarse_array_2[:,:,level + 1], flags = ['multi_index'], op_flags = ['readwrite']) as it:
@@ -823,7 +823,7 @@ if __name__ == '__main__':
     #im = fits.getdata('/home/ellien/wavelets/A1365.rebin.fits')
     #im = fits.getdata('/home/ellien/devd/tests/cat_gal_004_z_0.1_Ficl_0.4_Re_050_noise_megacam.fits')
     #nx, ny = np.shape(im)
-    #anx, any = np.int(nx * np.sqrt(2) / 2), np.int(ny * np.sqrt(2) / 2)
+    #anx, any = int(nx * np.sqrt(2) / 2), int(ny * np.sqrt(2) / 2)
     #im = congrid(im, (1024, 1024), method = 'spline')
     n_levels = 11
 
