@@ -29,7 +29,7 @@ from dawis.gif import *
 def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2, tau = 0.8, n_levels = None, n_sigmas = 5,\
                                 gamma = 0.2, min_span = 2, max_span = 3, lvl_sep_big = 6, rm_gamma_for_big = False, monomodality = False, threshold_rel = 0.05, \
                                 extent_sep = 0.1, ecc_sep = 0.95, lvl_sep_lin = 2, ceps = 1E-3, scale_lvl_eps = 1, conditions = 'loop', \
-                                max_iter = 500, data_dump = True, gif = True, resume = True):
+                                max_iter = 500, size_patch = 100, data_dump = True, gif = True, resume = True):
 
     #===========================================================================
     # Check infile extension
@@ -53,7 +53,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
     header = hdu[0].header
     if not n_levels:
         n_levels = int(np.min(np.floor(np.log2(im.shape))))
-    logging.info('Image of size %d x %d\n--> n_levels = %d, corresponding to maximum size %d\n' \
+    logging.info('Image of size %d x %d\n--> n_levels = %d, corresponding to maximum size %d pixels\n' \
                                 %(im.shape[0], im.shape[1], n_levels, 2**n_levels) )
 
     # Noise properties
@@ -77,7 +77,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
         while avnormeps > ceps :
 
             start_time_it = datetime.now()
-            logging.info('\n\n[ %s ] Level = %d Iteration = %d' %(datetime.now(), level, it))
+            logging.info('[ %s ] Level = %d Iteration = %d' %(datetime.now(), level, it))
 
             # inpaint bad reconstruction pixels and NaN pixels with noise draws
             mask = np.zeros(res.shape)
@@ -97,6 +97,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
             else:
 
                 # Anscombe transform & thresholding
+                logging.info('[ %s ] Start wavelet transform and detection'%datetime.now())
                 aim = anscombe_transform(res, sigma, mean, gain)
                 acdc, awdc = bspl_atrous(aim, level, header, conditions)
                 sdc = hard_threshold(awdc, n_sigmas = n_sigmas)
@@ -111,18 +112,21 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                     break
 
                 # Interscale trees
+                logging.info('[ %s ] Start interscale trees'%datetime.now())
                 itl, ldc = make_interscale_trees(rl, wdc, ldc, tau = tau, \
                                                                min_span = min_span, \
                                                                max_span = max_span, \
                                                                lvl_sep_big = lvl_sep_big, \
                                                                monomodality = monomodality, \
                                                                n_cpus = n_cpus, \
+                                                               size_patch = size_patch, \
                                                                threshold_rel= threshold_rel, \
                                                                verbose = True)
                 if not itl:
                     break
 
                 # Restoration of detected objects
+                logging.info('[ %s ] Start object restoration'%datetime.now())
                 ol = restore_objects_default(itl, wdc,ldc, size_patch_small = 50, \
                                                    extent_sep = extent_sep, \
                                                    ecc_sep = ecc_sep, \
@@ -133,6 +137,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                                                    n_cpus = n_cpus )
 
             # Atom
+            logging.info('[ %s ] Add atoms to restored images.'%datetime.now())
             atom = np.zeros(res.shape)
             for object in ol:
                 x_min, y_min, x_max, y_max = object.bbox
@@ -150,7 +155,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
             # Convergence
             flux_res = 1 - ( np.abs(np.sum(atom) - np.sum(np.sqrt(res**2)))) / np.sum(np.sqrt(res**2))
             flux_rec = 1 - ( np.abs(np.sum(atom) - np.sum(np.sqrt(rec**2)))) / np.sum(np.sqrt(rec**2))
-            logging.info('Convergence : \nres = %f rec = %f' %( flux_res, flux_rec ))
+            logging.info('[ %s ] Convergence : res = %f rec = %f' %( datetime.now(), flux_res, flux_rec ))
             old_std = std
             std = np.std(res)
             eps = np.sqrt( ( old_std - std )**2 ) / np.sqrt( old_std**2 )
@@ -159,7 +164,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
             if len(window) > 5:window.pop(0)
             avnormeps = np.mean(window)
             cparl.append([ str(level), str(it), str(avnormeps), str(normeps), str(eps), str(flux_rec), str(flux_res), str(len(ol)), str( datetime.now() - start_time_it ) ])
-            logging.info('Number Objects = %d, Normalized Epsilon = %f, Window Normalized Epsilon = %f' %( len(ol), normeps, avnormeps ))
+            logging.info('[ %s ] Number Objects = %d, Normalized Epsilon = %f, Window Normalized Epsilon = %f' %( datetime.now(), len(ol), normeps, avnormeps ))
 
             # Data Dump
             if ( os.path.exists(''.join(( outpath, '.ol.it%03d.pkl' %(it)))) ) & resume == True:
@@ -169,10 +174,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                 write_interscale_trees_to_pickle( itl, ''.join(( outpath, '.itl.it%03d.pkl' %(it) )), overwrite = True)
                 write_objects_to_pickle( ol, ''.join(( outpath, '.ol.it%03d.pkl' %(it) )), overwrite = True)
                 if data_dump:
-                    logging.info('Dumping data in %s' %(outdir) )
-                    wdc.to_fits( ''.join(( outpath, '.wdc.it%03d.fits' %(it)) ), overwrite = True)
-                    ldc.to_fits( ''.join(( outpath, '.ldc.it%03d.fits' %(it) )), overwrite = True)
-                    sdc.to_fits( ''.join(( outpath, '.sdc.it%03d.fits' %(it) )), overwrite = True)
+                    logging.info('[ %s ] Dumping data in %s' %(datetime.now(), outdir) )
                     write_regions_to_pickle( rl, ''.join(( outpath, '.rl.it%03d.pkl' %(it) )), overwrite = True)
 
                 if gif:
@@ -187,7 +189,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                                                         residuals = res, \
                                                         atom = atom, \
                                                         outpath = outpath )
-
+            logging.info('[ %s ]End of iteration (time: %s).\n\n'%(datetime.now(), datetime.now() - start_time_it ))
             it += 1
             if it > max_iter:
                 break

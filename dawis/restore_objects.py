@@ -103,7 +103,7 @@ def restore_objects_default(interscale_tree_list, wavelet_datacube, label_datacu
         # params_minimization = strategy(tree)
         object_list = []
         bspl = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
-        logging.info('Size tree patch (%d) lower than %d, not parallelizing.'%(len(interscale_tree_list),size_patch_big ))
+        logging.info('Not parallelizing - %d Objects.'%(len(interscale_tree_list)))
         for tree in interscale_tree_list:
             image, filter_kw, flag_convergence, sum_wr, norm_wr = restore_object( tree, \
                                                                                   wavelet_datacube, \
@@ -123,7 +123,7 @@ def restore_objects_default(interscale_tree_list, wavelet_datacube, label_datacu
                                                 norm_wr ))
 
     else:
-        logging.info('Size tree patch (%d) greater than %d, activating Ray store.'%(len(interscale_tree_list),size_patch_big ))
+        logging.info('Size tree patch (%d) greater than %d, activating Ray store.'%(len(interscale_tree_list), size_patch_small ))
         ray.init(num_cpus = n_cpus)
         id_wdc = ray.put(wavelet_datacube)
         id_ldc = ray.put(label_datacube)
