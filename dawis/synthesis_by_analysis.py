@@ -27,7 +27,7 @@ from dawis.gif import *
 
 
 def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2, tau = 0.8, n_levels = None, n_sigmas = 5,\
-                                gamma = 0.2, min_span = 2, max_span = 3, lvl_sep_big = 6, rm_gamma_for_big = False, monomodality = False, \
+                                gamma = 0.2, min_span = 2, max_span = 3, lvl_sep_big = 6, rm_gamma_for_big = False, monomodality = False, threshold_rel = 0.05, \
                                 extent_sep = 0.1, ecc_sep = 0.95, lvl_sep_lin = 2, ceps = 1E-3, scale_lvl_eps = 1, conditions = 'loop', \
                                 max_iter = 500, data_dump = True, gif = True, resume = True):
 
@@ -117,6 +117,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                                                                lvl_sep_big = lvl_sep_big, \
                                                                monomodality = monomodality, \
                                                                n_cpus = n_cpus, \
+                                                               threshold_rel= threshold_rel, \
                                                                verbose = True)
                 if not itl:
                     break

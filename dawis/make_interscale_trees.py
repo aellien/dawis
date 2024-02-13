@@ -458,7 +458,7 @@ def read_interscale_trees_from_pickle(filename):
 
     return interscale_tree_list
 
-def enforce_monomodality(interscale_maximum, wavelet_datacube, label_datacube):
+def enforce_monomodality(interscale_maximum, wavelet_datacube, label_datacube, threshold_rel = 0.05):
 
     # Label clip of interscale maximum region
     label_clip = np.copy( label_datacube.array[ :, :, interscale_maximum.level ])
@@ -469,7 +469,7 @@ def enforce_monomodality(interscale_maximum, wavelet_datacube, label_datacube):
     wavelet_clip[ np.where( label_clip == 0 ) ] = 0.
 
     # Find secondary local wavelet maxima
-    local_maxima_coo = peak_local_max( wavelet_clip, min_distance = 5, exclude_border = False, threshold_rel = 0.05)
+    local_maxima_coo = peak_local_max( wavelet_clip, min_distance = 5, exclude_border = False, threshold_rel = threshold_rel)
     if len(local_maxima_coo) > 1:
 
         # Make mask image of local wavelet maxima
@@ -582,7 +582,7 @@ def interscale_connectivity_serial( interscale_maximum_list, region_list, wavele
     return interscale_tree_list
 
 
-def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0.8, min_span = 3, max_span = 3, lvl_sep_big = 6, monomodality = False, min_reg_size = 4, size_patch = 100, n_cpus = 1, verbose = False):
+def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0.8, min_span = 3, max_span = 3, lvl_sep_big = 6, monomodality = False, min_reg_size = 4, size_patch = 100, n_cpus = 1, threshold_rel = 0.05, verbose = False):
 
     interscale_tree_list = []
 
@@ -592,14 +592,39 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
     levels_rejected = [ 0, label_datacube.z_size ]
     threshold_maximum = region_list[0].norm_max_intensity * tau
     level_maximum = region_list[0].level
+    
     while region_list[i].level in levels_rejected :
         i += 1
         threshold_maximum = region_list[i].norm_max_intensity * tau
         level_maximum = region_list[i].level
 
-    interscale_maximum_list = list(filter( lambda x: ( x.norm_max_intensity >= tau * threshold_maximum ) & \
+    '''start = datetime.now()
+    interscale_maximum_list1 = list(filter( lambda x: ( x.norm_max_intensity >= threshold_maximum ) & \
                                                      ( x.level == level_maximum ) & \
                                                      ( x.area >= min_reg_size ), region_list))
+    print('old :', datetime.now()-start)'''
+    
+    start = datetime.now()
+    interscale_maximum_list = [x for x in region_list if 
+                           x.norm_max_intensity >= threshold_maximum and
+                           x.level == level_maximum and
+                           x.area >= min_reg_size]
+    print('list comprehension :', datetime.now()-start)
+    
+    '''
+    start = datetime.now()
+    # Generator version of list filtering, should be faster.
+    interscale_maximum_generator = (x for x in region_list if 
+                                x.norm_max_intensity >= threshold_maximum and
+                                x.level == level_maximum and
+                                x.area >= min_reg_size)
+
+    # Convert generator to list
+    interscale_maximum_list3 = list(interscale_maximum_generator)
+
+    print('generator :', datetime.now()-start)
+    '''    
+    
     if verbose == True:
         log = logging.getLogger(__name__)
         log.info('Estimating global interscale maxima: %d found.' %(len(interscale_maximum_list)))
@@ -608,9 +633,8 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
     for interscale_maximum in interscale_maximum_list:
         #if interscale_maximum.level >= lvl_sep_big :
         if monomodality == True:
-            print('coucou1')
-            interscale_maximum, label_datacube = enforce_monomodality( interscale_maximum, wavelet_datacube, label_datacube )
-            print('coucou2')
+            interscale_maximum, label_datacube = enforce_monomodality( interscale_maximum, wavelet_datacube, label_datacube,  )
+            
     if (len(interscale_maximum_list) <= size_patch) or (n_cpus == 1):
 
         interscale_tree_list = interscale_connectivity_serial( interscale_maximum_list = interscale_maximum_list,  \
@@ -686,7 +710,8 @@ if __name__ == '__main__':
     from anscombe_transforms import *
     from skimage.metrics import structural_similarity as ssim
 
-    hdu = fits.open('/home/ellien/devd/gallery/A1365.rebin.fits')
+    #hdu = fits.open('/home/aellien/dawis/dawis/gallery/tidal_group_f814w_sci.fits')
+    hdu = fits.open('/home/aellien/Euclid_ERO/data/Euclid-NISP-Stack-ERO-Abell2390.DR3/Euclid-NISP-H-ERO-Abell2390-LSB.DR3.crop.fits')
     im = hdu[0].data
     header = hdu[0].header
     n_levels = int(np.min(np.floor(np.log2(im.shape))))
@@ -700,7 +725,8 @@ if __name__ == '__main__':
     ldc = label_regions(sdc)
     cdc, wdc = bspl_atrous(im, n_levels, header)
     rl = make_regions_full_props(wdc, ldc, verbose = False)
-    lit = make_interscale_trees(rl, wdc, ldc, tau = 0.8, verbose = False)
+    print(len(rl))
+    lit = make_interscale_trees(rl, wdc, ldc, tau = 0.1, verbose = False)
 
     for it in lit[1:]:
 

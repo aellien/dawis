@@ -102,7 +102,7 @@ def make_regions_full_props(wavelet_datacube, label_datacube, verbose = False):
     for level in range(0, label_datacube.z_size):
 
         props_skimage = regionprops(label_datacube.array[:,:,level].astype(int), wavelet_datacube.array[:,:,level])
-
+        
         for region_skimage in props_skimage:
 
             x_max, y_max = region_skimage.coords[np.where(\
