@@ -32,6 +32,8 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                                 max_iter = 500, size_patch = 100, data_dump = True, gif = True, resume = True):
 
     #===========================================================================
+    ray.init()
+    
     # Check infile extension
     if infile[-5:] != '.fits':
         raise DawisWrongType('Incorrect file extension -->', infile[:-5], '.fits')
@@ -91,7 +93,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
 
             if ( os.path.exists(''.join(( outpath, '.ol.it%03d.pkl' %(it)))) ) & resume == True:
 
-                logging.info('\nFound %s --> resuming iteration' %(''.join(( outpath, '.ol.it%03d.pkl' %(it)))))
+                logging.info('\n\nFound %s --> resuming iteration' %(''.join(( outpath, '.ol.it%03d.pkl' %(it)))))
                 ol = read_objects_from_pickle(''.join(( outpath, '.ol.it%03d.pkl' %(it))))
 
             else:
@@ -196,7 +198,8 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
 
         if it > max_iter:
             break
-
+    
+    ray.shutdown()
     #===========================================================================
     # Write results to disk
     logging.info('Finished iterating.\nWriting results to disk in %s' %(outdir) )

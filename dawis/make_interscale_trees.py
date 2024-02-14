@@ -26,7 +26,10 @@ from skimage.measure import label, regionprops
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 class interscale_tree(object):
-    """docstring for ."""
+    """Base class for interscale trees. Interscale trees are composed of wavelet 
+    coefficient regions that are connected throughout the wavelet planes. Usually
+    they are build from a master region called "interscale_maximum".
+    """
 
     def __init__(self, interscale_maximum, region_list, wavelet_datacube, label_datacube, clip = 30):
 
@@ -458,7 +461,7 @@ def read_interscale_trees_from_pickle(filename):
 
     return interscale_tree_list
 
-def enforce_monomodality_serial(interscale_maximum, wavelet_datacube, label_datacube, threshold_rel = 0.05):
+def enforce_monomodality(interscale_maximum, wavelet_datacube, label_datacube, threshold_rel = 0.05):
 
     x_bbox_min, y_bbox_min, x_bbox_max, y_bbox_max = interscale_maximum.bbox
     
@@ -500,9 +503,11 @@ def enforce_monomodality_serial(interscale_maximum, wavelet_datacube, label_data
         label_datacube.array[ :, :, interscale_maximum.level ] = updated_labels'''
 
         # Measure new region properties
-        segmented_label_clip[ segmented_label_clip != local_label_max ] = 0.
-        segmented_label_clip[ segmented_label_clip == local_label_max ] = interscale_maximum.label
-        props_skimage = regionprops(segmented_label_clip, wavelet_clip)
+        segmented_label_clip[ segmented_label_clip != local_label_max ] = 0
+        segmented_label_clip[ segmented_label_clip == local_label_max ] = int(interscale_maximum.label)
+        proxy_label = np.zeros((label_datacube.shape[0], label_datacube.shape[1])) # Necessary to get new regions props in global label coordinates
+        proxy_label[x_bbox_min:x_bbox_max, y_bbox_min:y_bbox_max] = segmented_label_clip
+        props_skimage = regionprops(proxy_label.astype(int), wavelet_datacube.array)
 
         # Update interscale maximum properties that were modified by segmentation
         interscale_maximum.area = props_skimage[0].area
@@ -521,11 +526,13 @@ def enforce_monomodality_serial(interscale_maximum, wavelet_datacube, label_data
     else:
         return interscale_maximum, label_clip
 
+
 @ray.remote
 def interscale_connectivity_para( interscale_maximum_list, region_list, wavelet_datacube, label_datacube, level_maximum, min_span = 3, max_span = 3, lvl_sep_big = 6, monomodality = False, threshold_rel = 0.05, min_reg_size = 4, verbose = False):
 
     interscale_tree_list = []
     segmented_label_clip_list = []
+    presegmented_bbox_list = []
     n_rejected = 0
     for interscale_maximum in interscale_maximum_list:
 
@@ -543,10 +550,11 @@ def interscale_connectivity_para( interscale_maximum_list, region_list, wavelet_
 
         # Enforce monomodality
         if monomodality == True:
-            interscale_maximum, segmented_label_clip = enforce_monomodality_serial( interscale_maximum, wavelet_datacube, label_datacube, threshold_rel = threshold_rel  )
+            interscale_maximum, segmented_label_clip = enforce_monomodality( interscale_maximum, wavelet_datacube, label_datacube, threshold_rel = threshold_rel  )
             label_clip_cube[:,:,interscale_maximum.level] = segmented_label_clip
 
-        covered_label_list = list(np.unique(label_clip_cube))
+        tube = label_datacube.array[interscale_maximum.coords[:,0], interscale_maximum.coords[:,1], :level_maximum + 1]
+        covered_label_list = list(np.unique(tube))
 
         covered_region_list = [x for x in region_list if x.label in covered_label_list]
 
@@ -566,13 +574,19 @@ def interscale_connectivity_para( interscale_maximum_list, region_list, wavelet_
         # Output list of interscale tree and their clipped segmented label array
         interscale_tree_list.append(interscale_tree(interscale_maximum, connected_region_list, wavelet_datacube, label_datacube))
         segmented_label_clip_list.append(segmented_label_clip)
+        presegmented_bbox_list.append((x_min, y_min, x_max, y_max))
 
-    return interscale_tree_list, segmented_label_clip_list
+    return interscale_tree_list, segmented_label_clip_list, presegmented_bbox_list
 
 def interscale_connectivity_serial( interscale_maximum_list, region_list, wavelet_datacube, label_datacube, level_maximum, min_span = 3, max_span = 3, lvl_sep_big = 6, monomodality = False, threshold_rel = 0.05, min_reg_size = 4, verbose = False):
 
     interscale_tree_list = []
+    segmented_label_clip_list = []
+    presegmented_bbox_list = []
+
     n_rejected = 0
+    #if len(interscale_maximum_list) < 5:
+    #    import pdb;pdb.set_trace()   
     for interscale_maximum in interscale_maximum_list:
         
         if interscale_maximum.level >= lvl_sep_big :
@@ -586,13 +600,15 @@ def interscale_connectivity_serial( interscale_maximum_list, region_list, wavele
         # Work with label clip only
         x_min, y_min, x_max, y_max = interscale_maximum.bbox
         label_clip_cube = np.copy( label_datacube.array[ x_min:x_max, y_min:y_max, :])
-
+        
         # Enforce monomodality
         if monomodality == True:
-            interscale_maximum, segmented_label_clip = enforce_monomodality_serial( interscale_maximum, wavelet_datacube, label_datacube, threshold_rel = threshold_rel  )
+            
+            interscale_maximum, segmented_label_clip = enforce_monomodality( interscale_maximum, wavelet_datacube, label_datacube, threshold_rel = threshold_rel  )
             label_clip_cube[:,:,interscale_maximum.level] = segmented_label_clip
 
-        covered_label_list = list(np.unique(label_clip_cube))
+        tube = label_datacube.array[interscale_maximum.coords[:,0], interscale_maximum.coords[:,1], :level_maximum + 1]
+        covered_label_list = list(np.unique(tube))
         
         covered_region_list = [x for x in region_list if x.label in covered_label_list]
 
@@ -609,9 +625,12 @@ def interscale_connectivity_serial( interscale_maximum_list, region_list, wavele
             n_rejected += 1
             continue
 
+        # Output list of interscale tree and their clipped segmented label array
         interscale_tree_list.append(interscale_tree(interscale_maximum, connected_region_list, wavelet_datacube, label_datacube))
-
-    return interscale_tree_list, segmented_label_clip
+        segmented_label_clip_list.append(segmented_label_clip)
+        presegmented_bbox_list.append((x_min, y_min, x_max, y_max))
+        
+    return interscale_tree_list, segmented_label_clip_list, presegmented_bbox_list
 
 def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0.8, min_span = 3, max_span = 3, lvl_sep_big = 6, monomodality = False, threshold_rel = 0.05, min_reg_size = 4, size_patch = 100, n_cpus = 1, verbose = False):
 
@@ -651,17 +670,11 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
     if verbose == True:
         log = logging.getLogger(__name__)
         log.info('Estimating global interscale maxima: %d found.' %(len(interscale_maximum_list)))
-
-              
+       
     if (len(interscale_maximum_list) <= size_patch) or (n_cpus == 1):
-        
-        '''for interscale_maximum in interscale_maximum_list:
-            if monomodality == True:
-                interscale_maximum, label_datacube = enforce_monomodality_serial( interscale_maximum, wavelet_datacube, label_datacube,  )
-                '''
                 
         # Connectivity
-        interscale_tree_list, segmented_label_clip = interscale_connectivity_serial( interscale_maximum_list = interscale_maximum_list,  \
+        interscale_tree_list, segmented_label_clip_list, presegmented_bbox_list = interscale_connectivity_serial( interscale_maximum_list = interscale_maximum_list,  \
                                                                region_list = region_list,  \
                                                                wavelet_datacube = wavelet_datacube, \
                                                                label_datacube = label_datacube,  \
@@ -673,10 +686,21 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
                                                                min_reg_size = min_reg_size, \
                                                                verbose = verbose )
 
+        for interscale_tree, segmented_label_clip, (x_min, y_min, x_max, y_max) in zip(interscale_tree_list, segmented_label_clip_list, presegmented_bbox_list):
+            lvl = interscale_tree.interscale_maximum.level
+            label = interscale_tree.interscale_maximum.label
+            
+            try:
+                temp = np.copy(label_datacube.array[x_min:x_max, y_min:y_max, lvl])
+                temp[ np.where( (temp == label)  & (segmented_label_clip == 0.)) ] = 0.
+                label_datacube.array[x_min:x_max, y_min:y_max, lvl] = temp
+            except:
+                import pdb;pdb.set_trace()
+
     else:
 
         logging.info('Size interscale maximum patch (%d) greater than %d, activating Ray store.'%( len(interscale_maximum_list), size_patch ))
-        ray.init(num_cpus = n_cpus)
+        #ray.init(num_cpus = n_cpus)
         id_rl = ray.put(region_list)
         id_wdc = ray.put(wavelet_datacube)
         id_ldc = ray.put(label_datacube)
@@ -714,8 +738,7 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
         for id_patch in interscale_tree_patch:
             patch = ray.get( id_patch )
             interscale_tree_list = interscale_tree_list + patch[0]
-            for interscale_tree, segmented_label_clip in zip(patch[0], patch[1]):
-                x_min, y_min, x_max, y_max = interscale_tree.interscale_maximum.bbox
+            for interscale_tree, segmented_label_clip, (x_min, y_min, x_max, y_max) in zip(patch[0], patch[1], patch[2]):
                 lvl = interscale_tree.interscale_maximum.level
                 label = interscale_tree.interscale_maximum.label
                 
@@ -725,7 +748,7 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
                     label_datacube.array[x_min:x_max, y_min:y_max, lvl] = temp
                 except:
                     import pdb;pdb.set_trace()
-    ray.shutdown()
+    #ray.shutdown()
 
     if verbose == True:
         log.info('%d rejected.' %(len(interscale_maximum_list) - len(interscale_tree_list)))

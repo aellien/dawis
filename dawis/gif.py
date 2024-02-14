@@ -28,7 +28,7 @@ def plot_frame( level, it, nobj, original_image, restored_image, residuals, atom
     fig = plt.figure(dpi = 500)
     ax = fig.subplots(2, 2, sharex = True, sharey = True, \
                                 gridspec_kw = { 'hspace': 0.1, 'wspace': 0.1 })
-    fig.suptitle('Level %d\nIteration %d\n%d objects' %(level, it, nobj))
+    fig.suptitle('Level %d\nIteration %d\n%d objects' %(level, it, nobj), fontsize = 10)
 
     axim = ax[0][0].imshow(original_image,  norm = ImageNormalize( original_image, \
                                             interval = ZScaleInterval(), \
@@ -38,7 +38,7 @@ def plot_frame( level, it, nobj, original_image, restored_image, residuals, atom
     cax = plt.colorbar(axim, ax = ax[0][0], aspect = 10, pad = 0, \
                                     orientation = 'vertical')
     cax.ax.tick_params(labelsize = 5)
-    ax[0][0].set_title('Original')
+    ax[0][0].set_title('Original', fontsize = 8)
 
     axim = ax[0][1].imshow(residuals, norm = ImageNormalize( original_image, \
                                       interval = ZScaleInterval(),
@@ -49,7 +49,7 @@ def plot_frame( level, it, nobj, original_image, restored_image, residuals, atom
     cax = plt.colorbar(axim, ax = ax[0][1], aspect = 10, pad = 0, \
                                     orientation = 'vertical')
     cax.ax.tick_params(labelsize = 5)
-    ax[0][1].set_title('Residuals')
+    ax[0][1].set_title('Residuals', fontsize = 8)
 
     axim = ax[1][0].imshow(restored_image,  norm = ImageNormalize( original_image, \
                                             interval = ZScaleInterval(),
@@ -60,7 +60,7 @@ def plot_frame( level, it, nobj, original_image, restored_image, residuals, atom
     cax = plt.colorbar(axim, ax = ax[1][0], aspect = 10, pad = 0, \
                                     orientation = 'vertical')
     cax.ax.tick_params(labelsize = 5)
-    ax[1][0].set_title('Restored')
+    ax[1][0].set_title('Restored', fontsize = 8)
 
     axim = ax[1][1].imshow(atom, norm = ImageNormalize( atom, \
                                  interval = MinMaxInterval(),
@@ -71,7 +71,7 @@ def plot_frame( level, it, nobj, original_image, restored_image, residuals, atom
     cax = plt.colorbar(axim, ax = ax[1][1], aspect = 10, pad = 0, \
                                     orientation = 'vertical')
     cax.ax.tick_params(labelsize = 5)
-    ax[1][1].set_title('Atom')
+    ax[1][1].set_title('Atom', fontsize = 8)
 
     plt.savefig(''.join(( outpath, '.frame.it%03d.png' %(it) )), format = 'png' )
     plt.close()
