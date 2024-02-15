@@ -13,7 +13,7 @@ from scipy.ndimage import gaussian_filter
 from scipy.signal import convolve2d
 from scipy.signal import bspline
 import matplotlib.pyplot as plt
-from numba import jit, njit
+#from numba import jit, njit
 from dawis.congrid import congrid
 import logging
 
@@ -324,7 +324,7 @@ def interlaced_atrous_congrid(image, n_levels, n_voices, filter, verbose = False
 
     return final_coarse_array, final_wavelet_array
 
-@njit(parallel = True, cache = True)
+#@njit(parallel = True, cache = True)
 def DL_atrou(IMAGE,N_LEVELS=11,WAV_TYPE='BSPL',WAV_COEFF=True,VERBOSE=False, DISPLAY=False):
     '''
     Wavelet convolution of a 2D image. Here we use an interpolation method for B-spline wavelets, in order to gain calculus time. The output data are a 3D table, containing the wavelets coefficients for each wavelet plane.
