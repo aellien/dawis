@@ -141,15 +141,17 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
             # Atom
             logging.info('[ %s ] Add atoms to restored images.'%datetime.now())
             atom = np.zeros(res.shape)
-            for object in ol:
-                x_min, y_min, x_max, y_max = object.bbox
-                if (rm_gamma_for_big == True) & (object.level >= lvl_sep_big):
-                    atom[ x_min : x_max, y_min : y_max ] += object.image
-                    rec_lvl[ x_min : x_max, y_min : y_max, object.level ] += object.image
+            
+            for o in ol:
+                                
+                x_min, y_min, x_max, y_max = o.bbox
+                if (rm_gamma_for_big == True) & (o.level >= lvl_sep_big):
+                    atom[ x_min : x_max, y_min : y_max ] += o.image
+                    rec_lvl[ x_min : x_max, y_min : y_max, o.level ] += o.image
                 else:
-                    atom[ x_min : x_max, y_min : y_max ] += object.image * gamma
-                    rec_lvl[ x_min : x_max, y_min : y_max, object.level ] += object.image * gamma
-
+                    atom[ x_min : x_max, y_min : y_max ] += o.image * gamma
+                    rec_lvl[ x_min : x_max, y_min : y_max, o.level ] += o.image * gamma
+            
             # Update Residuals
             res -= atom
             rec += atom
@@ -224,7 +226,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
 
 
 def load_iteration( it, outpath ):
-    '''doc todo'''
+    '''deprecated'''
 
     wdc = wavelet_datacube.from_fits(''.join(( outpath, '.wdc.it%03d.fits' %(it)) ))
     ldc = label_datacube.from_fits( ''.join(( outpath, '.ldc.it%03d.fits' %(it) )))

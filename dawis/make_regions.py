@@ -25,7 +25,7 @@ class region(object):
 
     def __init__(self, **kwargs):
 
-        allowed_keys = set(['label', 'area', 'axis_major_length', 'axis_minor_length', \
+        allowed_keys = set(['segmented','label', 'area', 'axis_major_length', 'axis_minor_length', \
                         'bbox', 'bbox_area', 'centroid', 'local_centroid', 'coords', 'extent', \
                         'eccentricity', 'max_intensity', 'min_intensity', \
                         'norm_max_intensity', 'norm_min_intensity', 'x_max', 'y_max', \
@@ -36,6 +36,8 @@ class region(object):
         self.__dict__.update((key, False) for key in allowed_keys)
         # and update the given keys by their given values
         self.__dict__.update((key, value) for key, value in kwargs.items() if key in allowed_keys)
+
+    
 
     def plot(self, wavelet_datacube, label_datacube, name = None, show = True, save_path = None, **kwargs):
 

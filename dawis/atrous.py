@@ -13,6 +13,7 @@ from scipy.ndimage import gaussian_filter
 from scipy.signal import convolve2d
 from scipy.signal import bspline
 import matplotlib.pyplot as plt
+from numba import jit, njit
 from dawis.congrid import congrid
 import logging
 
@@ -322,6 +323,60 @@ def interlaced_atrous_congrid(image, n_levels, n_voices, filter, verbose = False
         voice += 1
 
     return final_coarse_array, final_wavelet_array
+
+@njit(parallel = True, cache = True)
+def DL_atrou(IMAGE,N_LEVELS=11,WAV_TYPE='BSPL',WAV_COEFF=True,VERBOSE=False, DISPLAY=False):
+    '''
+    Wavelet convolution of a 2D image. Here we use an interpolation method for B-spline wavelets, in order to gain calculus time. The output data are a 3D table, containing the wavelets coefficients for each wavelet plane.
+    '''
+    
+    IMAGE_SHAPE=np.shape(IMAGE) # Test if data are a 2D image.
+            
+    X_SIZE=IMAGE_SHAPE[0]
+    Y_SIZE=IMAGE_SHAPE[1]
+    WAV_PLANES=np.zeros((X_SIZE,Y_SIZE,N_LEVELS),dtype=np.float64)
+    WAV_PLANES[:,:,0]=IMAGE # Initialisation of the wavelet planes.
+    TEMP_TAB=np.zeros((X_SIZE,Y_SIZE),dtype=np.float64) # Needed to compute
+                                                            # the 2D convolution.
+                                                            
+    for LEVEL in range(0,N_LEVELS-1):
+                
+        if WAV_TYPE=='BSPL':
+            
+            # Position vector for B-spline wavelets.                
+            POS_VECT=np.array([-2*(2**LEVEL),-2**LEVEL,0,2**LEVEL,2*(2**LEVEL)])
+            
+            # The actual convolution for the X-axis for B-spline wavelets.
+            for X in range(0,X_SIZE):
+                X_VECT=POS_VECT+X
+                X_VECT[np.where(X_VECT<0)]=0
+                X_VECT[np.where(X_VECT>(X_SIZE-1))]=X_SIZE-1
+                TEMP_TAB[X,:]=(WAV_PLANES[X_VECT[0],:,LEVEL]\
+                                  +WAV_PLANES[X_VECT[4],:,LEVEL])*0.0625\
+                                  +(WAV_PLANES[X_VECT[1],:,LEVEL]\
+                                  +WAV_PLANES[X_VECT[3],:,LEVEL])*0.2500\
+                                  +WAV_PLANES[X_VECT[2],:,LEVEL]*0.3750
+                  
+            # The actual convolution for the Y-axis for B-spline wavelets. 
+            for Y in range(0,Y_SIZE):
+                Y_VECT=POS_VECT+Y
+                Y_VECT[np.where(Y_VECT<0)]=0
+                Y_VECT[np.where(Y_VECT>(Y_SIZE-1))]=Y_SIZE-1
+                WAV_PLANES[:,Y,LEVEL+1]=(TEMP_TAB[:,Y_VECT[0]]\
+                                            +TEMP_TAB[:,Y_VECT[4]])*0.0625\
+                                            +(TEMP_TAB[:,Y_VECT[1]]\
+                                            +TEMP_TAB[:,Y_VECT[3]])*0.2500\
+                                            +TEMP_TAB[:,Y_VECT[2]]*0.3750
+
+    if WAV_COEFF==True:
+        
+        for LEVEL in range(0,N_LEVELS-1): # Create wavelet coefficients.
+            
+            WAV_PLANES[:,:,LEVEL]=WAV_PLANES[:,:,LEVEL]\
+                                        -WAV_PLANES[:,:,LEVEL+1]
+            
+
+    return WAV_PLANES
 
 def interlaced_atrous_zeros(image, n_levels, n_voices, filter, verbose = False):
 
@@ -812,10 +867,8 @@ if __name__ == '__main__':
     from numpy.random import normal
     from astropy.io import fits
     import sys
-    sys.path.append('/home/ellien/DAWIS/codes/')
-    from DL_reconstruct import DL_atrou
 
-    im = normal(0, 1,(2048, 2048))
+    im = normal(0, 1,(4000, 4000))
     #im = np.zeros((1000, 1000))
     #im[500,500] = 1
 
@@ -826,7 +879,7 @@ if __name__ == '__main__':
     #anx, any = int(nx * np.sqrt(2) / 2), int(ny * np.sqrt(2) / 2)
     #im = congrid(im, (1024, 1024), method = 'spline')
     n_levels = 11
-
+    '''
     # spline lissés
     startTime = datetime.now()
     bspl = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
@@ -837,27 +890,34 @@ if __name__ == '__main__':
     print(datetime.now() - startTime)
 
     dcc_new = datacube(cbspl_new)
-    dcc_new.waveplot(name = 'coarse', ncol = 7)
+    #dcc_new.waveplot(name = 'coarse', ncol = 7)
     dcw_new = datacube(wbspl_new)
-    dcw_new.waveplot(name = 'wav', ncol = 7, cmap = 'hot' )
-
+    #dcw_new.waveplot(name = 'wav', ncol = 7, cmap = 'hot' )
+    '''
     # a trous
     bspl = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
     startTime = datetime.now()
     cbspl_old, wbspl_old = atrous(image = im, n_levels = n_levels, filter = bspl)
     stds_old = np.std(wbspl_old)
-    print(datetime.now() - startTime)
-
-    dcc_old = datacube(cbspl_old)
-    #dcc_old.waveplot(name = 'coarse', ncol = 7, norm=matplotlib.colors.SymLogNorm(10**-5))
-    dcw_old = datacube(wbspl_old)
-    #dcw_old.waveplot(name = 'wav', ncol = 7, cmap = 'hot', norm=matplotlib.colors.SymLogNorm(10**-5) )
-
+    print('a trous', datetime.now() - startTime)
+    
     #ovwav
     startTime = datetime.now()
     cbspl_ov = DL_atrou(im, n_levels, WAV_COEFF = False)
     wbspl_ov = DL_atrou(im, n_levels, WAV_COEFF = True)
-    print(datetime.now() - startTime)
+    print('ov_wav', datetime.now() - startTime)
+    
+    #ovwav
+    startTime = datetime.now()
+    cbspl_ov = DL_atrou(im, n_levels, WAV_COEFF = False)
+    wbspl_ov = DL_atrou(im, n_levels, WAV_COEFF = True)
+    print('ov_wav', datetime.now() - startTime)
+
+    '''
+    dcc_old = datacube(cbspl_old)
+    #dcc_old.waveplot(name = 'coarse', ncol = 7, norm=matplotlib.colors.SymLogNorm(10**-5))
+    dcw_old = datacube(wbspl_old)
+    #dcw_old.waveplot(name = 'wav', ncol = 7, cmap = 'hot', norm=matplotlib.colors.SymLogNorm(10**-5) )
 
     # plots stds
     x_old = np.logspace(start = 0, stop = n_levels, num = n_levels + 1, base = 2)
@@ -869,7 +929,7 @@ if __name__ == '__main__':
     plt.plot(x_new[:-1], np.std(cbspl_new, axis = (0,1)), 'ro', linestyle = '-', label = 'interlaced à trous')
     plt.plot(x_old, np.std(cbspl_old, axis = (0,1)), 'bo', linestyle = '-', label = 'regular à trous')
     #plt.plot(x_old[:-1], np.std(cbspl_ov, axis = (0,1)), 'go', linestyle = '-')
-    plt.xscale('log', basex = 2)
+    plt.xscale('log', base = 2)
     plt.yscale('log')
     plt.legend()
     plt.show()
@@ -879,7 +939,7 @@ if __name__ == '__main__':
     plt.plot(x_new[:-1], np.mean(cbspl_new, axis = (0,1)), 'ro', linestyle = '-', label = 'interlaced à trous')
     plt.plot(x_old, np.mean(cbspl_old, axis = (0,1)), 'bo', linestyle = '-', label = 'regular à trous')
     #plt.plot(x_old[:-1], np.mean(cbspl_ov, axis = (0,1)), 'go', linestyle = '-')
-    plt.xscale('log', basex = 2)
+    plt.xscale('log', base = 2)
     plt.legend()
     plt.show()
 
@@ -888,7 +948,7 @@ if __name__ == '__main__':
     plt.plot(x_new[:-1], np.std(wbspl_new, axis = (0,1)), 'ro', linestyle = '-', label = 'interlaced à trous')
     plt.plot(x_old[:-1], np.std(wbspl_old, axis = (0,1)), 'bo', linestyle = '-', label = 'regular à trous')
     #plt.plot(x_old[:-1], np.std(wbspl_ov, axis = (0,1)), 'go', linestyle = '-')
-    plt.xscale('log', basex = 2)
+    plt.xscale('log', base = 2)
     plt.yscale('log')
     plt.legend()
     plt.show()
@@ -898,7 +958,7 @@ if __name__ == '__main__':
     plt.plot(x_new[:-1], np.mean(wbspl_new, axis = (0,1)), 'ro', linestyle = '-', label = 'interlaced à trous')
     plt.plot(x_old[:-1], np.mean(wbspl_old, axis = (0,1)), 'bo', linestyle = '-', label = 'regular à trous')
     #plt.plot(x_old[:-1], np.mean(wbspl_ov, axis = (0,1)), 'go', linestyle = '-')
-    plt.xscale('log', basex = 2)
+    plt.xscale('log', base = 2)
     plt.legend()
     plt.show()
 
@@ -942,3 +1002,4 @@ if __name__ == '__main__':
 
     # diff_bspl_haar = datacube(whaar - wbspl)
     # diff_bspl_haar.waveplot(name = 'Diff btw haar and bspl', save_path = '/home/ellien/devd/tests/diff_bspl_haar.pdf')
+    '''

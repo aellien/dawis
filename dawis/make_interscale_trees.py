@@ -520,6 +520,7 @@ def enforce_monomodality(interscale_maximum, wavelet_datacube, label_datacube, t
         interscale_maximum.eccentricity = props_skimage[0].eccentricity
         interscale_maximum.max_intensity = props_skimage[0].max_intensity
         interscale_maximum.min_intensity = props_skimage[0].min_intensity
+        interscale_maximum.segmented = True
 
         return interscale_maximum, segmented_label_clip
 
@@ -563,6 +564,8 @@ def interscale_connectivity_para( interscale_maximum_list, region_list, wavelet_
                          [x.x_max, x.y_max] in interscale_maximum.coords and
                          x.area >= min_reg_size and
                          interscale_maximum.level - x.level <= pmax_span - 1]
+        
+        connected_region_list[0] = interscale_maximum # in case interscale_maximum was segmented
         
         span_levels = np.size(np.unique([ x.level for x in connected_region_list ]))
 
