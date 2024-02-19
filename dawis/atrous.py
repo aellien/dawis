@@ -13,9 +13,11 @@ from scipy.ndimage import gaussian_filter
 from scipy.signal import convolve2d
 from scipy.signal import bspline
 import matplotlib.pyplot as plt
-#from numba import jit, njit
+from numba import jit, njit
 from dawis.congrid import congrid
 import logging
+import multiprocessing as mp
+import ctypes
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -324,7 +326,7 @@ def interlaced_atrous_congrid(image, n_levels, n_voices, filter, verbose = False
 
     return final_coarse_array, final_wavelet_array
 
-#@njit(parallel = True, cache = True)
+#@jit(nopython=True, cache = True)
 def DL_atrou(IMAGE,N_LEVELS=11,WAV_TYPE='BSPL',WAV_COEFF=True,VERBOSE=False, DISPLAY=False):
     '''
     Wavelet convolution of a 2D image. Here we use an interpolation method for B-spline wavelets, in order to gain calculus time. The output data are a 3D table, containing the wavelets coefficients for each wavelet plane.
@@ -377,6 +379,249 @@ def DL_atrou(IMAGE,N_LEVELS=11,WAV_TYPE='BSPL',WAV_COEFF=True,VERBOSE=False, DIS
             
 
     return WAV_PLANES
+
+#@jit(cache = True)
+def ser_a_trous(C0, filter, scale):
+    """
+    The following is a serial implementation of the a trous algorithm. Accepts the following parameters:
+
+    INPUTS:
+    filter      (no default):   The filter-bank which is applied to the components of the transform.
+    C0          (no default):   The current array on which filtering is to be performed.
+    scale       (no default):   The scale for which the decomposition is being carried out.
+
+    OUTPUTS:
+    C1                          The result of applying the a trous algorithm to the input.
+    """
+    tmp = filter[2]*C0
+
+    tmp[(2**(scale+1)):,:] += filter[0]*C0[:-(2**(scale+1)),:]
+    tmp[:(2**(scale+1)),:] += filter[0]*C0[(2**(scale+1))-1::-1,:]
+
+    tmp[(2**scale):,:] += filter[1]*C0[:-(2**scale),:]
+    tmp[:(2**scale),:] += filter[1]*C0[(2**scale)-1::-1,:]
+
+    tmp[:-(2**scale),:] += filter[3]*C0[(2**scale):,:]
+    tmp[-(2**scale):,:] += filter[3]*C0[:-(2**scale)-1:-1,:]
+
+    tmp[:-(2**(scale+1)),:] += filter[4]*C0[(2**(scale+1)):,:]
+    tmp[-(2**(scale+1)):,:] += filter[4]*C0[:-(2**(scale+1))-1:-1,:]
+
+    C1 = filter[2]*tmp
+
+    C1[:,(2**(scale+1)):] += filter[0]*tmp[:,:-(2**(scale+1))]
+    C1[:,:(2**(scale+1))] += filter[0]*tmp[:,(2**(scale+1))-1::-1]
+
+    C1[:,(2**scale):] += filter[1]*tmp[:,:-(2**scale)]
+    C1[:,:(2**scale)] += filter[1]*tmp[:,(2**scale)-1::-1]
+
+    C1[:,:-(2**scale)] += filter[3]*tmp[:,(2**scale):]
+    C1[:,-(2**scale):] += filter[3]*tmp[:,:-(2**scale)-1:-1]
+
+    C1[:,:-(2**(scale+1))] += filter[4]*tmp[:,(2**(scale+1)):]
+    C1[:,-(2**(scale+1)):] += filter[4]*tmp[:,:-(2**(scale+1))-1:-1]
+
+    return C1
+
+def ser_iuwt_decomposition(in1, scale_count, scale_adjust, store_smoothed):
+    """
+    This function calls the a trous algorithm code to decompose the input into its wavelet coefficients. This is
+    the isotropic undecimated wavelet transform implemented for a single CPU core.
+
+    INPUTS:
+    in1                 (no default):   Array on which the decomposition is to be performed.
+    scale_count         (no default):   Maximum scale to be considered.
+    scale_adjust        (default=0):    Adjustment to scale value if first scales are of no interest.
+    store_smoothed      (default=False):Boolean specifier for whether the smoothed image is stored or not.
+
+    OUTPUTS:
+    detail_coeffs                       Array containing the detail coefficients.
+    C0                  (optional):     Array containing the smoothest version of the input.
+    """
+
+    wavelet_filter = (1./16)*np.array([1,4,6,4,1])      # Filter-bank for use in the a trous algorithm.
+
+    # Initialises an empty array to store the coefficients.
+
+    detail_coeffs = np.empty([scale_count-scale_adjust, in1.shape[0], in1.shape[1]])
+
+    C0 = in1    # Sets the initial value to be the input array.
+
+    # The following loop, which iterates up to scale_adjust, applies the a trous algorithm to the scales which are
+    # considered insignificant. This is important as each set of wavelet coefficients depends on the last smoothed
+    # version of the input.
+
+    if scale_adjust>0:
+        for i in range(0, scale_adjust):
+            C0 = ser_a_trous(C0, wavelet_filter, i)
+
+    # The meat of the algorithm - two sequential applications fo the a trous followed by determination and storing of
+    # the detail coefficients. C0 is reassigned the value of C on each loop - C0 is always the smoothest version of the
+    # input image.
+
+    for i in range(scale_adjust,scale_count):
+        C = ser_a_trous(C0, wavelet_filter, i)                                  # Approximation coefficients.
+        C1 = ser_a_trous(C, wavelet_filter, i)                                  # Approximation coefficients.
+        detail_coeffs[i-scale_adjust,:,:] = C0 - C1                             # Detail coefficients.
+        C0 = C
+
+    if store_smoothed:
+        return detail_coeffs, C0
+    else:
+        return detail_coeffs
+
+def mp_a_trous(C0, wavelet_filter, scale, core_count):
+    """
+    This is a reimplementation of the a trous filter which makes use of multiprocessing. In particular,
+    it divides the input array of dimensions NxN into M smaller arrays of dimensions (N/M)xN, where M is the
+    number of cores which are to be used.
+
+    INPUTS:
+    C0              (no default):   The current array which is to be decomposed.
+    wavelet_filter  (no default):   The filter-bank which is applied to the components of the transform.
+    scale           (no default):   The scale at which decomposition is to be carried out.
+    core_count      (no default):   The number of CPU cores over which the task should be divided.
+
+    OUTPUTS:
+    shared_array                    The decomposed array.
+    """
+
+    # Creates an array which may be accessed by multiple processes.
+
+    shared_array_base = mp.Array(ctypes.c_float, C0.shape[0]**2, lock=False)
+    shared_array = np.frombuffer(shared_array_base, dtype=ctypes.c_float)
+    shared_array = shared_array.reshape(C0.shape)
+    shared_array[:,:] = C0
+
+    # Division of the problem and allocation of processes to cores.
+
+    processes = []
+
+    for i in range(core_count):
+        process = mp.Process(target = mp_a_trous_kernel, args = (shared_array, wavelet_filter, scale, i,
+                                                     C0.shape[0]//core_count, 'row',))
+        process.start()
+        processes.append(process)
+
+    for i in processes:
+        i.join()
+
+    processes = []
+
+    for i in range(core_count):
+        process = mp.Process(target = mp_a_trous_kernel, args = (shared_array, wavelet_filter, scale, i,
+                                                     C0.shape[1]//core_count, 'col',))
+        process.start()
+        processes.append(process)
+
+    for i in processes:
+        i.join()
+
+    return shared_array
+
+def mp_iuwt_decomposition(in1, scale_count, scale_adjust, store_smoothed, core_count):
+    """
+    This function calls the a trous algorithm code to decompose the input into its wavelet coefficients. This is
+    the isotropic undecimated wavelet transform implemented for multiple CPU cores. NOTE: Python is not well suited
+    to multiprocessing - this may not improve execution speed.
+
+    INPUTS:
+    in1                 (no default):   Array on which the decomposition is to be performed.
+    scale_count         (no default):   Maximum scale to be considered.
+    scale_adjust        (default=0):    Adjustment to scale value if first scales are of no interest.
+    store_smoothed      (default=False):Boolean specifier for whether the smoothed image is stored or not.
+    core_count          (no default):   Indicates the number of cores to be used.
+
+    OUTPUTS:
+    detail_coeffs                       Array containing the detail coefficients.
+    C0                  (optional):     Array containing the smoothest version of the input.
+    """
+
+    wavelet_filter = (1./16)*np.array([1,4,6,4,1])      # Filter-bank for use in the a trous algorithm.
+
+    C0 = in1                                            # Sets the initial value to be the input array.
+
+    # Initialises a zero array to store the coefficients.
+
+    detail_coeffs = np.empty([scale_count-scale_adjust, in1.shape[0], in1.shape[1]])
+
+    # The following loop, which iterates up to scale_adjust, applies the a trous algorithm to the scales which are
+    # considered insignificant. This is important as each set of wavelet coefficients depends on the last smoothed
+    # version of the input.
+
+    if scale_adjust>0:
+        for i in range(0, scale_adjust):
+            C0 = mp_a_trous(C0, wavelet_filter, i, core_count)
+
+    # The meat of the algorithm - two sequential applications fo the a trous followed by determination and storing of
+    # the detail coefficients. C0 is reassigned the value of C on each loop - C0 is always the smoothest version of the
+    # input image.
+
+    for i in range(scale_adjust,scale_count):
+        C = mp_a_trous(C0, wavelet_filter, i, core_count)                   # Approximation coefficients.
+        C1 = mp_a_trous(C, wavelet_filter, i, core_count)                   # Approximation coefficients.
+        detail_coeffs[i-scale_adjust,:,:] = C0 - C1                         # Detail coefficients.
+        C0 = C
+
+    if store_smoothed:
+        return detail_coeffs, C0
+    else:
+        return detail_coeffs
+
+
+def mp_a_trous_kernel(C0, wavelet_filter, scale, slice_ind, slice_width, r_or_c="row"):
+    """
+    This is the convolution step of the a trous algorithm.
+
+    INPUTS:
+    C0              (no default):       The current array which is to be decomposed.
+    wavelet_filter  (no default):       The filter-bank which is applied to the elements of the transform.
+    scale           (no default):       The scale at which decomposition is to be carried out.
+    slice_ind       (no default):       The index of the particular slice in which the decomposition is being performed.
+    slice_width     (no default):       The number of elements of the shorter dimension of the array for decomposition.
+    r_or_c          (default = "row"):  Indicates whether strips are rows or columns.
+
+    OUTPUTS:
+    NONE - C0 is a mutable array which this function alters. No value is returned.
+
+    """
+
+    lower_bound = slice_ind*slice_width
+    upper_bound = (slice_ind+1)*slice_width
+
+    if r_or_c == "row":
+        row_conv = wavelet_filter[2]*C0[:,lower_bound:upper_bound]
+
+        row_conv[(2**(scale+1)):,:] += wavelet_filter[0]*C0[:-(2**(scale+1)),lower_bound:upper_bound]
+        row_conv[:(2**(scale+1)),:] += wavelet_filter[0]*C0[(2**(scale+1))-1::-1,lower_bound:upper_bound]
+
+        row_conv[(2**scale):,:] += wavelet_filter[1]*C0[:-(2**scale),lower_bound:upper_bound]
+        row_conv[:(2**scale),:] += wavelet_filter[1]*C0[(2**scale)-1::-1,lower_bound:upper_bound]
+
+        row_conv[:-(2**scale),:] += wavelet_filter[3]*C0[(2**scale):,lower_bound:upper_bound]
+        row_conv[-(2**scale):,:] += wavelet_filter[3]*C0[:-(2**scale)-1:-1,lower_bound:upper_bound]
+
+        row_conv[:-(2**(scale+1)),:] += wavelet_filter[4]*C0[(2**(scale+1)):,lower_bound:upper_bound]
+        row_conv[-(2**(scale+1)):,:] += wavelet_filter[4]*C0[:-(2**(scale+1))-1:-1,lower_bound:upper_bound]
+
+        C0[:,lower_bound:upper_bound] = row_conv
+
+    elif r_or_c == "col":
+        col_conv = wavelet_filter[2]*C0[lower_bound:upper_bound,:]
+
+        col_conv[:,(2**(scale+1)):] += wavelet_filter[0]*C0[lower_bound:upper_bound,:-(2**(scale+1))]
+        col_conv[:,:(2**(scale+1))] += wavelet_filter[0]*C0[lower_bound:upper_bound,(2**(scale+1))-1::-1]
+
+        col_conv[:,(2**scale):] += wavelet_filter[1]*C0[lower_bound:upper_bound,:-(2**scale)]
+        col_conv[:,:(2**scale)] += wavelet_filter[1]*C0[lower_bound:upper_bound,(2**scale)-1::-1]
+
+        col_conv[:,:-(2**scale)] += wavelet_filter[3]*C0[lower_bound:upper_bound,(2**scale):]
+        col_conv[:,-(2**scale):] += wavelet_filter[3]*C0[lower_bound:upper_bound,:-(2**scale)-1:-1]
+
+        col_conv[:,:-(2**(scale+1))] += wavelet_filter[4]*C0[lower_bound:upper_bound,(2**(scale+1)):]
+        col_conv[:,-(2**(scale+1)):] += wavelet_filter[4]*C0[lower_bound:upper_bound,:-(2**(scale+1))-1:-1]
+
+        C0[lower_bound:upper_bound,:] = col_conv
 
 def interlaced_atrous_zeros(image, n_levels, n_voices, filter, verbose = False):
 
@@ -868,7 +1113,7 @@ if __name__ == '__main__':
     from astropy.io import fits
     import sys
 
-    im = normal(0, 1,(4000, 4000))
+    im = normal(0, 1,(7500, 7500))
     #im = np.zeros((1000, 1000))
     #im[500,500] = 1
 
@@ -878,7 +1123,7 @@ if __name__ == '__main__':
     #nx, ny = np.shape(im)
     #anx, any = int(nx * np.sqrt(2) / 2), int(ny * np.sqrt(2) / 2)
     #im = congrid(im, (1024, 1024), method = 'spline')
-    n_levels = 11
+    n_levels = 5
     '''
     # spline lissés
     startTime = datetime.now()
@@ -900,7 +1145,7 @@ if __name__ == '__main__':
     cbspl_old, wbspl_old = atrous(image = im, n_levels = n_levels, filter = bspl)
     stds_old = np.std(wbspl_old)
     print('a trous', datetime.now() - startTime)
-    
+    '''
     #ovwav
     startTime = datetime.now()
     cbspl_ov = DL_atrou(im, n_levels, WAV_COEFF = False)
@@ -912,6 +1157,17 @@ if __name__ == '__main__':
     cbspl_ov = DL_atrou(im, n_levels, WAV_COEFF = False)
     wbspl_ov = DL_atrou(im, n_levels, WAV_COEFF = True)
     print('ov_wav', datetime.now() - startTime)
+    '''
+    # pyMOresane
+    startTime = datetime.now()
+    wbspl_ov, cbspl_mor = ser_iuwt_decomposition(im, scale_count = n_levels, scale_adjust = 0, store_smoothed = True)
+    print('ser pyMOresane', datetime.now() - startTime)
+
+    # pyMOresane
+    startTime = datetime.now()
+    wbspl_ov, cbspl_mor = mp_iuwt_decomposition(im, scale_count = n_levels, scale_adjust = 0, store_smoothed = True, core_count = 8)
+    print('mp pyMOresane', datetime.now() - startTime)
+    
 
     '''
     dcc_old = datacube(cbspl_old)

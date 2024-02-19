@@ -29,9 +29,9 @@ def pg_noise_bissection(image, max_err = 1E-6, n_sigmas = 3, verbose = False):
     mean_max = np.nanmean(noise_pixels)              # noise estimation on the input
     gain_max = np.nanmax(noise_pixels) - np.nanmin(noise_pixels)              # image.
 
-    sigma_min = 0.0          # the min parameters are given
-    mean_min = 0.0           # by 0.
-    gain_min = 0.0           #
+    sigma_min = 0
+    mean_min = np.nanmin(noise_pixels) 
+    gain_min = 0.
 
     error = 1.0    # initial parameters for the
     step = 0       # bissection-like method.

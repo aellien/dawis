@@ -59,12 +59,15 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                                 %(im.shape[0], im.shape[1], n_levels, 2**n_levels) )
 
     # Noise properties
+    C = np.nanmin(im) 
+    im -= C # Minimum pixel value must be 0 for Anscombe transform
     sigma, mean, gain = pg_noise_bissection(im, max_err = 1E-4, n_sigmas = 3)
     logging.info('Noise properties: sigma = %1.3e, mean = %1.3e, gain = %1.3e\n' %(sigma, mean, gain))
 
     #===========================================================================
 
     res = np.copy(im)
+    print(np.nanmin(res), np.max(res))
     rec = np.zeros(im.shape)
     rec_lvl = np.zeros((im.shape[0], im.shape[1], n_levels))
     cparl = []
@@ -130,27 +133,26 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                 # Restoration of detected objects
                 logging.info('[ %s ] Start object restoration'%datetime.now())
                 ol = restore_objects_default(itl, wdc,ldc, size_patch_small = 50, \
+                                                   gamma = gamma, \
+                                                   C = C, \
                                                    extent_sep = extent_sep, \
                                                    ecc_sep = ecc_sep, \
                                                    lvl_sep_lin = lvl_sep_lin, \
                                                    lvl_sep_big = lvl_sep_big, \
+                                                   rm_gamma_for_big = rm_gamma_for_big, \
                                                    size_patch_big = 5, \
                                                    size_big_objects = 512, \
-                                                   n_cpus = n_cpus )
+                                                   n_cpus = n_cpus ) # objects in original image pixel value range
 
             # Atom
             logging.info('[ %s ] Add atoms to restored images.'%datetime.now())
             atom = np.zeros(res.shape)
             
             for o in ol:
-                                
                 x_min, y_min, x_max, y_max = o.bbox
-                if (rm_gamma_for_big == True) & (o.level >= lvl_sep_big):
-                    atom[ x_min : x_max, y_min : y_max ] += o.image
-                    rec_lvl[ x_min : x_max, y_min : y_max, o.level ] += o.image
-                else:
-                    atom[ x_min : x_max, y_min : y_max ] += o.image * gamma
-                    rec_lvl[ x_min : x_max, y_min : y_max, o.level ] += o.image * gamma
+                atom[ x_min : x_max, y_min : y_max ] += (o.image - C)
+                rec_lvl[ x_min : x_max, y_min : y_max, o.level ] += (o.image - C) # compute residuals and restored image in DAWIS working pixel value range
+
             
             # Update Residuals
             res -= atom
