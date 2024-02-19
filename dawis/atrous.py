@@ -13,7 +13,7 @@ from scipy.ndimage import gaussian_filter
 from scipy.signal import convolve2d
 from scipy.signal import bspline
 import matplotlib.pyplot as plt
-from numba import jit, njit
+#from numba import jit, njit
 from dawis.congrid import congrid
 import logging
 import multiprocessing as mp
