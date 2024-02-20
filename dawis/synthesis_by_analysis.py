@@ -134,7 +134,6 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                 logging.info('[ %s ] Start object restoration'%datetime.now())
                 ol = restore_objects_default(itl, wdc,ldc, size_patch_small = 50, \
                                                    gamma = gamma, \
-                                                   C = C, \
                                                    extent_sep = extent_sep, \
                                                    ecc_sep = ecc_sep, \
                                                    lvl_sep_lin = lvl_sep_lin, \
@@ -150,8 +149,8 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
             
             for o in ol:
                 x_min, y_min, x_max, y_max = o.bbox
-                atom[ x_min : x_max, y_min : y_max ] += (o.image - C)
-                rec_lvl[ x_min : x_max, y_min : y_max, o.level ] += (o.image - C) # compute residuals and restored image in DAWIS working pixel value range
+                atom[ x_min : x_max, y_min : y_max ] += o.image
+                rec_lvl[ x_min : x_max, y_min : y_max, o.level ] += o.image # compute residuals and restored image in DAWIS working pixel value range
 
             
             # Update Residuals
