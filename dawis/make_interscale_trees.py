@@ -527,7 +527,6 @@ def enforce_monomodality(interscale_maximum, wavelet_datacube, label_datacube, t
     else:
         return interscale_maximum, label_clip
 
-
 @ray.remote
 def interscale_connectivity_para( interscale_maximum_list, region_list, wavelet_datacube, label_datacube, level_maximum, min_span = 3, max_span = 3, lvl_sep_big = 6, monomodality = False, threshold_rel = 0.05, min_reg_size = 4, verbose = False):
 

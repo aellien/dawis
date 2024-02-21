@@ -17,6 +17,15 @@ from astropy.stats import sigma_clip
 import logging
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+def sample_noise( image, n_sigmas = 3 ):
+    '''Return array with noise values obtained from sigma clip.
+    '''
+    noise_pixels = sigma_clip(image, sigma = n_sigmas, sigma_lower = n_sigmas, masked = False)
+    mean = np.mean(noise_pixels)
+    noise_pixels = noise_pixels[ noise_pixels <= mean ]
+    noise_pixels = np.append( noise_pixels, noise_pixels + 2 * ( mean - noise_pixels ) )
+    return noise_pixels
+
 
 def pg_noise_bissection(image, max_err = 1E-6, n_sigmas = 3, verbose = False):
     '''
@@ -24,7 +33,7 @@ def pg_noise_bissection(image, max_err = 1E-6, n_sigmas = 3, verbose = False):
 
     noise_pts = np.copy(image)
     noise_pixels = sigma_clip(image, sigma = n_sigmas, sigma_lower = n_sigmas, masked = False) # the max parameters are given
-
+    
     sigma_max = np.nanstd(noise_pixels)           # by the parameters of a gaussian
     mean_max = np.nanmean(noise_pixels)              # noise estimation on the input
     gain_max = np.nanmax(noise_pixels) - np.nanmin(noise_pixels)              # image.
@@ -41,11 +50,10 @@ def pg_noise_bissection(image, max_err = 1E-6, n_sigmas = 3, verbose = False):
         log.info('bissection-like noise estimation')
 
     while error > max_err:
-
         sigma = ( sigma_min + sigma_max ) / 2.0 # the noise parameters for this
         mean = ( mean_min + mean_max ) / 2.0    # iteration are the mean of max
         gain = ( gain_min + gain_max ) / 2.0    # and min noise parameters.
-
+       
         sigma_ansc = np.nanstd(sigma_clip(anscombe_transform(noise_pts, sigma = sigma, mean = mean, gain = gain), \
                                         sigma = n_sigmas, sigma_lower = n_sigmas, masked = False))
 
@@ -60,7 +68,7 @@ def pg_noise_bissection(image, max_err = 1E-6, n_sigmas = 3, verbose = False):
 
         error = sigma_max - sigma_min # convergence of the algorithm.
         step += 1
-
+    
         if verbose == True:
             log.info('step %02d sigma_ansc %f sigma %f mean %f gain %f' %(step,sigma_ansc,sigma,mean,gain))
     if verbose == True:

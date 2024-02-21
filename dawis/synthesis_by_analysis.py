@@ -61,19 +61,22 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
     # Noise properties
     C = np.nanmin(im) 
     im -= C # Minimum pixel value must be 0 for Anscombe transform
-    sigma, mean, gain = pg_noise_bissection(im, max_err = 1E-4, n_sigmas = 3)
-    logging.info('Noise properties: sigma = %1.3e, mean = %1.3e, gain = %1.3e\n' %(sigma, mean, gain))
+    sigma_ans, mean_ans, gain_ans = pg_noise_bissection(im, max_err = 1E-4, n_sigmas = 3)
+    logging.info('Noise parametric values for Anscombe transform: sigma = %1.3e, mean = %1.3e, gain = %1.3e\n' %(sigma_ans, mean_ans, gain_ans))
+    
+    noise_pixels = sample_noise(im, n_sigmas = 3)
+    mean, sigma, gain = np.mean(noise_pixels), np.std(noise_pixels), np.max(noise_pixels) - np.min(noise_pixels)
+    logging.info('Noise properties for inpainting: sigma = %1.3e, mean = %1.3e, gain = %1.3e\n' %(sigma, mean, gain))
 
     #===========================================================================
 
     res = np.copy(im)
-    print(np.nanmin(res), np.max(res))
     rec = np.zeros(im.shape)
     rec_lvl = np.zeros((im.shape[0], im.shape[1], n_levels))
     cparl = []
     it = 1
-    std = 1.
-
+    std = 1
+    
     for level in range( starting_level, n_levels ):
 
         normeps = 1.
@@ -104,12 +107,12 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                 # Anscombe transform & thresholding
                 logging.info('[ %s ] Start wavelet transform and detection'%datetime.now())
                 aim = anscombe_transform(res, sigma, mean, gain)
-                acdc, awdc = bspl_atrous(aim, level, header, conditions)
+                awdc = bspl_atrous(aim, level, header, conditions)
                 sdc = hard_threshold(awdc, n_sigmas = n_sigmas)
 
                 # Labels & true wavelet coefficients
                 ldc = label_regions(sdc)
-                cdc, wdc = bspl_atrous(res, level, header, conditions)
+                wdc = bspl_atrous(res, level, header, conditions)
 
                 # Regions of significance
                 rl = make_regions_full_props(wdc, ldc, verbose = True)
