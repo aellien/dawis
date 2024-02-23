@@ -60,7 +60,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
 
     # Noise properties
     C = np.nanmin(im) 
-    im -= C # Minimum pixel value must be 0 for Anscombe transform
+    im -= C # Set minimum pixel value to 0 for Anscombe transform
     sigma_ans, mean_ans, gain_ans = pg_noise_bissection(im, max_err = 1E-4, n_sigmas = 3)
     logging.info('Noise parametric values for Anscombe transform: sigma = %1.3e, mean = %1.3e, gain = %1.3e\n' %(sigma_ans, mean_ans, gain_ans))
     
@@ -106,7 +106,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
 
                 # Anscombe transform & thresholding
                 logging.info('[ %s ] Start wavelet transform and detection'%datetime.now())
-                aim = anscombe_transform(res, sigma, mean, gain)
+                aim = anscombe_transform(res, sigma_ans, mean_ans, gain_ans)
                 awdc = bspl_atrous(aim, level, header, conditions)
                 sdc = hard_threshold(awdc, n_sigmas = n_sigmas)
 
