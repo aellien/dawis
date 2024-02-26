@@ -66,6 +66,7 @@ def restore_patch(interscale_tree_patch, wavelet_datacube, label_datacube, exten
             image = image * gamma  # add attenuation factor
 
 
+
         object_patch.append(restored_object(image, tree.bbox, \
                                             tree.interscale_maximum.level, \
                                             tree.interscale_maximum.eccentricity, \

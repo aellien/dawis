@@ -391,31 +391,32 @@ def ser_a_trous(C0, filter, scale):
     OUTPUTS:
     C1                          The result of applying the a trous algorithm to the input.
     """
+        
     tmp = filter[2]*C0
 
     tmp[(2**(scale+1)):,:] += filter[0]*C0[:-(2**(scale+1)),:]
     tmp[:(2**(scale+1)),:] += filter[0]*C0[(2**(scale+1))-1::-1,:]
-
+    
     tmp[(2**scale):,:] += filter[1]*C0[:-(2**scale),:]
     tmp[:(2**scale),:] += filter[1]*C0[(2**scale)-1::-1,:]
-
+        
     tmp[:-(2**scale),:] += filter[3]*C0[(2**scale):,:]
     tmp[-(2**scale):,:] += filter[3]*C0[:-(2**scale)-1:-1,:]
-
+    
     tmp[:-(2**(scale+1)),:] += filter[4]*C0[(2**(scale+1)):,:]
     tmp[-(2**(scale+1)):,:] += filter[4]*C0[:-(2**(scale+1))-1:-1,:]
-
+    
     C1 = filter[2]*tmp
-
+    
     C1[:,(2**(scale+1)):] += filter[0]*tmp[:,:-(2**(scale+1))]
     C1[:,:(2**(scale+1))] += filter[0]*tmp[:,(2**(scale+1))-1::-1]
-
+    
     C1[:,(2**scale):] += filter[1]*tmp[:,:-(2**scale)]
     C1[:,:(2**scale)] += filter[1]*tmp[:,(2**scale)-1::-1]
-
+    
     C1[:,:-(2**scale)] += filter[3]*tmp[:,(2**scale):]
     C1[:,-(2**scale):] += filter[3]*tmp[:,:-(2**scale)-1:-1]
-
+    
     C1[:,:-(2**(scale+1))] += filter[4]*tmp[:,(2**(scale+1)):]
     C1[:,-(2**(scale+1)):] += filter[4]*tmp[:,:-(2**(scale+1))-1:-1]
 
@@ -472,8 +473,7 @@ def ser_iuwt_decomposition(in1, scale_count, scale_adjust, store_smoothed):
         return detail_coeffs, C0
     else:
         return detail_coeffs
-
-
+    
 def interlaced_atrous_zeros(image, n_levels, n_voices, filter, verbose = False):
 
     '''
@@ -1014,8 +1014,7 @@ if __name__ == '__main__':
     # pyMOresane
     start = time.perf_counter()    
     wbspl_mor, cbspl_mor = ser_iuwt_decomposition(im, scale_count = n_levels, scale_adjust = 0, store_smoothed = True)
-    wbspl_mor = np.swapaxes(wbspl_mor, 0, 2)
-    wbspl_mor = np.swapaxes(wbspl_mor, 0, 1)
+    print('ok')
     datacube(wbspl_mor).waveplot()
     print('ser pyMOresane', time.perf_counter() - start)
     

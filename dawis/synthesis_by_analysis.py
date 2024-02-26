@@ -96,6 +96,9 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
             res[ res < -abs(mean + iptd_sigma * sigma) ] = 0.
             res[ np.where(np.isnan(res) == True)] = 0.
             res += mask
+            
+            hdu = fits.PrimaryHDU(res)
+            hdu.writeto(''.join(( outpath, '.iptd.it%03d.fits' %(it))), overwrite = True)
 
             if ( os.path.exists(''.join(( outpath, '.ol.it%03d.pkl' %(it)))) ) & resume == True:
 
@@ -130,6 +133,9 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                                                                size_patch = size_patch, \
                                                                threshold_rel= threshold_rel, \
                                                                verbose = True)
+                for g, itree in enumerate(itl):
+                    itree.plot(wdc, ldc, show = False, save_path = ''.join(( outpath, '.itl.it%03d.it%003d.pkl' %(it, g) )))
+                
                 if not itl:
                     break
 
@@ -153,8 +159,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
             for o in ol:
                 x_min, y_min, x_max, y_max = o.bbox
                 atom[ x_min : x_max, y_min : y_max ] += o.image
-                rec_lvl[ x_min : x_max, y_min : y_max, o.level ] += o.image # compute residuals and restored image in DAWIS working pixel value range
-
+                rec_lvl[ x_min : x_max, y_min : y_max, o.level ] += o.image
             
             # Update Residuals
             res -= atom
@@ -184,6 +189,12 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                 if data_dump:
                     logging.info('[ %s ] Dumping data in %s' %(datetime.now(), outdir) )
                     write_regions_to_pickle( rl, ''.join(( outpath, '.rl.it%03d.pkl' %(it) )), overwrite = True)
+                    
+                    hdu = fits.PrimaryHDU(res)
+                    hdu.writeto(''.join(( outpath, '.res.it%03d.fits' %(it))), overwrite = True)
+                    
+                    hdu = fits.PrimaryHDU(rec)
+                    hdu.writeto(''.join(( outpath, '.rec.it%03d.fits' %(it))), overwrite = True)
 
                 if gif:
                     awdc.waveplot( name = 'Anscombe modified\nWavelet Planes\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.awdc.it%03d.png' %(it))), origin = 'lower')
