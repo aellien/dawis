@@ -27,7 +27,7 @@ from dawis.gif import *
 
 
 def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2, tau = 0.8, n_levels = None, n_sigmas = 5,\
-                                gamma = 0.2, min_span = 2, max_span = 3, lvl_sep_big = 6, rm_gamma_for_big = False, monomodality = False, threshold_rel = 0.05, \
+                                gamma = 0.2, min_span = 2, max_span = 3, lvl_sep_big = 6, rm_gamma_for_big = False, monomodality = True, threshold_rel = 0.05, \
                                 extent_sep = 0.1, ecc_sep = 0.95, lvl_sep_lin = 2, ceps = 1E-3, scale_lvl_eps = 1, conditions = 'loop', \
                                 max_iter = 500, size_patch = 100, data_dump = True, gif = True, iptd_sigma = 3, resume = True):
 
@@ -133,8 +133,8 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                                                                size_patch = size_patch, \
                                                                threshold_rel= threshold_rel, \
                                                                verbose = True)
-                for g, itree in enumerate(itl):
-                    itree.plot(wdc, ldc, show = False, save_path = ''.join(( outpath, '.itl.it%03d.it%003d.pkl' %(it, g) )))
+                #for g, itree in enumerate(itl):
+                #    itree.plot(wdc, ldc, show = False, save_path = ''.join(( outpath, '.itl.it%03d.it%003d.png' %(it, g) )))
                 
                 if not itl:
                     break
@@ -204,7 +204,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                     sdc.histogram_noise( name = 'Noise histogram (lvl = 0)\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.hist.it%03d.png' %(it))))
                     plot_frame( level = level, it = it, nobj = len(ol), \
                                                         original_image = im, \
-                                                        restored_image = rec, \
+                                                        restored_image = rec + mean, \
                                                         residuals = res, \
                                                         atom = atom, \
                                                         outpath = outpath )
