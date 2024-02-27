@@ -59,14 +59,18 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                                 %(im.shape[0], im.shape[1], n_levels, 2**n_levels) )
 
     # Noise properties
-    C = np.nanmin(im) 
-    im -= C # Set minimum pixel value to 0 for Anscombe transform
-    sigma_ans, mean_ans, gain_ans = pg_noise_bissection(im, max_err = 1E-4, n_sigmas = 3)
-    logging.info('Noise parametric values for Anscombe transform: sigma = %1.3e, mean = %1.3e, gain = %1.3e\n' %(sigma_ans, mean_ans, gain_ans))
-    
     noise_pixels = sample_noise(im, n_sigmas = 3)
     mean, sigma, gain = np.mean(noise_pixels), np.std(noise_pixels), np.max(noise_pixels) - np.min(noise_pixels)
     logging.info('Noise properties for inpainting: sigma = %1.3e, mean = %1.3e, gain = %1.3e\n' %(sigma, mean, gain))
+    im -= mean #remove background
+
+    # Anscombe transform parameters
+    ans_im = np.copy(im)
+    C = np.nanmin(ans_im)
+    ans_im -= C # Set minimum pixel value to 0 for Anscombe transform
+    sigma_ans, mean_ans, gain_ans = pg_noise_bissection(ans_im, max_err = 1E-4, n_sigmas = 3)
+    logging.info('Noise parametric values for Anscombe transform: sigma = %1.3e, mean = %1.3e, gain = %1.3e\n' %(sigma_ans, mean_ans, gain_ans))
+    
 
     #===========================================================================
 
@@ -89,11 +93,11 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
 
             # inpaint bad reconstruction pixels and NaN pixels with noise draws
             mask = np.zeros(res.shape)
-            mask[ res < -abs(mean + iptd_sigma * sigma) ] = 1.
+            mask[ res < -abs(iptd_sigma * sigma) ] = 1.
             mask[np.where(np.isnan(res) == True)] = 1.
-            draws = np.random.normal(mean, sigma, res.shape)
+            draws = np.random.normal(0, sigma, res.shape)
             mask *= draws
-            res[ res < -abs(mean + iptd_sigma * sigma) ] = 0.
+            res[ res < -abs(iptd_sigma * sigma) ] = 0.
             res[ np.where(np.isnan(res) == True)] = 0.
             res += mask
             
@@ -109,6 +113,8 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
 
                 # Anscombe transform & thresholding
                 logging.info('[ %s ] Start wavelet transform and detection'%datetime.now())
+                ares = np.copy(res)
+                ares -= C
                 aim = anscombe_transform(res, sigma_ans, mean_ans, gain_ans)
                 awdc = bspl_atrous(aim, level, header, conditions)
                 sdc = hard_threshold(awdc, n_sigmas = n_sigmas)
@@ -204,7 +210,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                     sdc.histogram_noise( name = 'Noise histogram (lvl = 0)\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.hist.it%03d.png' %(it))))
                     plot_frame( level = level, it = it, nobj = len(ol), \
                                                         original_image = im, \
-                                                        restored_image = rec + mean, \
+                                                        restored_image = rec, \
                                                         residuals = res, \
                                                         atom = atom, \
                                                         outpath = outpath )
