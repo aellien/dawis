@@ -54,6 +54,7 @@ def hard_threshold(wavelet_datacube, n_sigmas = 3, wavelet_type = None, keep_neg
     if noise_pixels[0].size > 0:
         k, pval = normaltest( noise_pixels )
         if pval > alpha:
+            log = logging.getLogger(__name__)
             log.info('/!\ Warning /!\ noise does not look Gaussian : p = %1.5f alpha = %1.5f'%(pval, alpha))
 
     if display == True:
