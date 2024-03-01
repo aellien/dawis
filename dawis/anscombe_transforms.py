@@ -17,16 +17,6 @@ from astropy.stats import sigma_clip
 import logging
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-def sample_noise( image, n_sigmas = 3 ):
-    '''Return array with noise values obtained from sigma clip.
-    '''
-    noise_pixels = sigma_clip(image, sigma = n_sigmas, sigma_lower = n_sigmas, masked = False)
-    mean = np.mean(noise_pixels)
-    noise_pixels = noise_pixels[ noise_pixels <= mean ]
-    noise_pixels = np.append( noise_pixels, noise_pixels + 2 * ( mean - noise_pixels ) )
-    return noise_pixels
-
-
 def pg_noise_bissection(image, max_err = 1E-6, n_sigmas = 3, verbose = False):
     '''
     doc tot do    '''

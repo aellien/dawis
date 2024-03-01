@@ -24,12 +24,14 @@ from dawis.make_regions import *
 from dawis.make_interscale_trees import *
 from dawis.restore_objects import *
 from dawis.gif import *
+from dawis.inpainting import sample_noise, inpaint_with_gaussian_noise
+from dawis.detect_and_deblend import ms_detect_and_deblend
 
 
 def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2, tau = 0.8, n_levels = None, n_sigmas = 5,\
-                                gamma = 0.2, min_span = 2, max_span = 3, lvl_sep_big = 6, rm_gamma_for_big = False, monomodality = True, threshold_rel = 0.05, \
+                                gamma = 0.2, min_span = 2, max_span = 3, lvl_sep_big = 6, rm_gamma_for_big = False, lvl_deblend = 3, \
                                 extent_sep = 0.1, ecc_sep = 0.95, lvl_sep_lin = 2, ceps = 1E-3, scale_lvl_eps = 1, conditions = 'loop', \
-                                max_iter = 500, size_patch = 100, data_dump = True, gif = True, iptd_sigma = 3, resume = True):
+                                max_iter = 500, size_patch = 100, inpaint_res = True, data_dump = True, gif = True, iptd_sigma = 3, resume = True):
 
     #===========================================================================
     ray.init()
@@ -59,9 +61,9 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                                 %(im.shape[0], im.shape[1], n_levels, 2**n_levels) )
 
     # Noise properties
-    noise_pixels = sample_noise(im, n_sigmas = 3)
-    mean, sigma, gain = np.mean(noise_pixels), np.std(noise_pixels), np.max(noise_pixels) - np.min(noise_pixels)
-    logging.info('Noise properties for inpainting: sigma = %1.3e, mean = %1.3e, gain = %1.3e\n' %(sigma, mean, gain))
+    noise_pixels, valmax = sample_noise(im, n_sigmas = 3, bins = 200)
+    mean, sigma = np.mean(noise_pixels), np.std(noise_pixels)
+    logging.info('Noise properties for inpainting: sigma = %1.3e, mean = %1.3e\n' %(sigma, mean))
     im -= mean #remove background
 
     # Anscombe transform parameters
@@ -71,7 +73,6 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
     sigma_ans, mean_ans, gain_ans = pg_noise_bissection(ans_im, max_err = 1E-4, n_sigmas = 3)
     logging.info('Noise parametric values for Anscombe transform: sigma = %1.3e, mean = %1.3e, gain = %1.3e\n' %(sigma_ans, mean_ans, gain_ans))
     
-
     #===========================================================================
 
     res = np.copy(im)
@@ -92,18 +93,14 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
             logging.info('[ %s ] Level = %d Iteration = %d' %(datetime.now(), level, it))
 
             # inpaint bad reconstruction pixels and NaN pixels with noise draws
-            mask = np.zeros(res.shape)
-            mask[ res < -abs(iptd_sigma * sigma) ] = 1.
-            mask[np.where(np.isnan(res) == True)] = 1.
-            draws = np.random.normal(0, sigma, res.shape)
-            mask *= draws
-            res[ res < -abs(iptd_sigma * sigma) ] = 0.
-            res[ np.where(np.isnan(res) == True)] = 0.
-            res += mask
+            if inpaint_res == True:
+                res = inpaint_with_gaussian_noise(res, mean = mean, sigma = sigma, iptd_sigma = iptd_sigma)
             
+            ''' To remove '''
             hdu = fits.PrimaryHDU(res)
             hdu.writeto(''.join(( outpath, '.iptd.it%03d.fits' %(it))), overwrite = True)
-
+            ''' --- '''
+            
             if ( os.path.exists(''.join(( outpath, '.ol.it%03d.pkl' %(it)))) ) & resume == True:
 
                 logging.info('\n\nFound %s --> resuming iteration' %(''.join(( outpath, '.ol.it%03d.pkl' %(it)))))
@@ -115,12 +112,11 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                 logging.info('[ %s ] Start wavelet transform and detection'%datetime.now())
                 ares = np.copy(res)
                 ares -= C
-                aim = anscombe_transform(res, sigma_ans, mean_ans, gain_ans)
+                aim = anscombe_transform(ares, sigma_ans, mean_ans, gain_ans)
                 awdc = bspl_atrous(aim, level, header, conditions)
-                sdc = hard_threshold(awdc, n_sigmas = n_sigmas)
-
+                
                 # Labels & true wavelet coefficients
-                ldc = label_regions(sdc)
+                ldc = ms_detect_and_deblend(awdc, n_sigmas = n_sigmas, lvl_deblend = lvl_deblend, verbose = True)
                 wdc = bspl_atrous(res, level, header, conditions)
 
                 # Regions of significance
@@ -130,15 +126,13 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
 
                 # Interscale trees
                 logging.info('[ %s ] Start interscale trees'%datetime.now())
-                itl, ldc = make_interscale_trees(rl, wdc, ldc, tau = tau, \
-                                                               min_span = min_span, \
-                                                               max_span = max_span, \
-                                                               lvl_sep_big = lvl_sep_big, \
-                                                               monomodality = monomodality, \
-                                                               n_cpus = n_cpus, \
-                                                               size_patch = size_patch, \
-                                                               threshold_rel= threshold_rel, \
-                                                               verbose = True)
+                itl = make_interscale_trees(rl, wdc, ldc, tau = tau, \
+                                                    min_span = min_span, \
+                                                    max_span = max_span, \
+                                                    lvl_sep_big = lvl_sep_big, \
+                                                    n_cpus = n_cpus, \
+                                                    size_patch = size_patch, \
+                                                    verbose = True)
                 #for g, itree in enumerate(itl):
                 #    itree.plot(wdc, ldc, show = False, save_path = ''.join(( outpath, '.itl.it%03d.it%003d.png' %(it, g) )))
                 
@@ -205,9 +199,8 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                 if gif:
                     awdc.waveplot( name = 'Anscombe modified\nWavelet Planes\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.awdc.it%03d.png' %(it))), origin = 'lower')
                     wdc.waveplot( name = 'Wavelet Planes\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.wdc.it%03d.png' %(it))), origin = 'lower')
-                    sdc.waveplot( name = 'Multiscale Suport\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.sdc.it%03d.png' %(it))), origin = 'lower')
                     ldc.waveplot( name = 'Multiscale label\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.ldc.it%03d.png' %(it))), origin = 'lower')
-                    sdc.histogram_noise( name = 'Noise histogram (lvl = 0)\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.hist.it%03d.png' %(it))))
+                    #sdc.histogram_noise( name = 'Noise histogram (lvl = 0)\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.hist.it%03d.png' %(it))))
                     plot_frame( level = level, it = it, nobj = len(ol), \
                                                         original_image = im, \
                                                         restored_image = rec, \
