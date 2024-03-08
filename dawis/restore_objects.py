@@ -50,7 +50,7 @@ def read_objects_from_pickle(filename):
 
 
 @ray.remote
-def restore_patch(interscale_tree_patch, wavelet_datacube, label_datacube, extent_sep, ecc_sep, lvl_sep_lin, lvl_sep_big, gamma, rm_gamma_for_big):
+def restore_patch(interscale_tree_patch, wavelet_datacube, label_datacube, extent_sep, ecc_sep, lvl_sep_lin, lvl_sep_big, gamma, rm_gamma_for_big, deconv):
 
     object_patch = []
     for tree in interscale_tree_patch:
@@ -60,7 +60,9 @@ def restore_patch(interscale_tree_patch, wavelet_datacube, label_datacube, exten
                                                                               label_datacube, \
                                                                               extent_sep, \
                                                                               ecc_sep, \
-                                                                              lvl_sep_lin, lvl_sep_big )
+                                                                              lvl_sep_lin, \
+                                                                              lvl_sep_big, \
+                                                                              deconv )
 
         if (rm_gamma_for_big == False) or (tree.interscale_maximum.level < lvl_sep_big):
             image = image * gamma  # add attenuation factor
@@ -77,7 +79,7 @@ def restore_patch(interscale_tree_patch, wavelet_datacube, label_datacube, exten
 
     return object_patch
 
-def restore_object( interscale_tree, wavelet_datacube, label_datacube, extent_sep, ecc_sep, lvl_sep_lin, lvl_sep_big, verbose = False ):
+def restore_object( interscale_tree, wavelet_datacube, label_datacube, extent_sep, ecc_sep, lvl_sep_lin, lvl_sep_big, lvl_sep_op = 2, deconv = True, verbose = False ):
 
     bspl = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
     haar = 1 / 2. * np.array([ 1, 0, 1 ])
@@ -85,13 +87,18 @@ def restore_object( interscale_tree, wavelet_datacube, label_datacube, extent_se
     flag_convergence = True
 
     if (( interscale_tree.extent < extent_sep ) or (  interscale_tree.eccentricity >= ecc_sep )) & ( interscale_tree.interscale_maximum.level < lvl_sep_lin ) :
+        
         image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_datacube, label_datacube, filter = haar, \
-                                                        synthesis_operator = 'ADJOINT', verbose = verbose )
+                                                        synthesis_operator = 'SUM', deconv = deconv, verbose = verbose )
         filter_kw = 'HAAR'
 
     else:
-        image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_datacube, label_datacube, filter = bspl, \
-                                                    synthesis_operator = 'ADJOINT', verbose = verbose )
+        if interscale_tree.interscale_maximum.level <= lvl_sep_op:
+            image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_datacube, label_datacube, filter = bspl, \
+                                                    synthesis_operator = 'SUM', deconv = deconv, verbose = verbose )
+        else:
+            image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_datacube, label_datacube, filter = bspl, \
+                                                    synthesis_operator = 'ADJOINT', deconv = deconv, verbose = verbose )
         filter_kw = 'BSPL'
 
     # Security
@@ -101,8 +108,7 @@ def restore_object( interscale_tree, wavelet_datacube, label_datacube, extent_se
 
     return image, filter_kw, flag_convergence, sum_wr, norm_wr
 
-
-def restore_objects_default(interscale_tree_list, wavelet_datacube, label_datacube, lvl_sep_big, rm_gamma_for_big,  extent_sep, ecc_sep, lvl_sep_lin, size_patch_small = 50, gamma = 1, size_patch_big = 5, size_big_objects = 512, n_cpus = 1 ):
+def restore_objects_default(interscale_tree_list, oimage, cg_gamma, niter, wavelet_datacube, label_datacube, lvl_sep_big, rm_gamma_for_big,  extent_sep, ecc_sep, lvl_sep_lin, deconv, size_patch_small = 1, gamma = 1, size_patch_big = 1, size_big_objects = 512, n_cpus = 1 ):
 
     if (len(interscale_tree_list) < size_patch_big) or (n_cpus == 1):
         # params_minimization = strategy(tree)
@@ -110,7 +116,7 @@ def restore_objects_default(interscale_tree_list, wavelet_datacube, label_datacu
         bspl = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
         logging.info('Not parallelizing - %d Objects.'%(len(interscale_tree_list)))
         for tree in interscale_tree_list:
-            image, filter_kw, flag_convergence, sum_wr, norm_wr = restore_object( tree, \
+            image, filter_kw, flag_convergence, sum_wr, norm_wr = restore_object( tree, oimage, cg_gamma, niter,\
                                                                                   wavelet_datacube, \
                                                                                   label_datacube, \
                                                                                   extent_sep, \
@@ -132,7 +138,6 @@ def restore_objects_default(interscale_tree_list, wavelet_datacube, label_datacu
 
     else:
         logging.info('Size tree patch (%d) greater than %d, activating Ray store.'%(len(interscale_tree_list), size_patch_big ))
-        #ray.init(num_cpus = n_cpus)
         id_wdc = ray.put(wavelet_datacube)
         id_ldc = ray.put(label_datacube)
         id_extent_sep = ray.put(extent_sep)
@@ -141,6 +146,7 @@ def restore_objects_default(interscale_tree_list, wavelet_datacube, label_datacu
         id_lvl_sep_big = ray.put(lvl_sep_big)
         id_rm_gamma_for_big = ray.put(rm_gamma_for_big)
         id_gamma = ray.put(gamma)
+        id_deconv = ray.put(deconv)
 
         interscale_tree_list.sort(key = lambda x: x.interscale_maximum.area, reverse = True)
 
@@ -155,22 +161,22 @@ def restore_objects_default(interscale_tree_list, wavelet_datacube, label_datacu
                 big_interscale_tree_patch.append(tree)
 
                 if len(big_interscale_tree_patch) >= size_patch_big:
-                    big_object_patch.append( restore_patch.remote( big_interscale_tree_patch, id_wdc, id_ldc, id_extent_sep, id_ecc_sep, id_lvl_sep_lin, id_lvl_sep_big, id_gamma, id_rm_gamma_for_big ))
+                    big_object_patch.append( restore_patch.remote( big_interscale_tree_patch, id_wdc, id_ldc, id_extent_sep, id_ecc_sep, id_lvl_sep_lin, id_lvl_sep_big, id_gamma, id_rm_gamma_for_big, id_deconv ))
                     big_interscale_tree_patch = []
 
             else:
 
                 if big_interscale_tree_patch:
-                        big_object_patch.append( restore_patch.remote( big_interscale_tree_patch, id_wdc, id_ldc, id_extent_sep, id_ecc_sep, id_lvl_sep_lin, id_lvl_sep_big, id_gamma, id_rm_gamma_for_big ))
+                        big_object_patch.append( restore_patch.remote( big_interscale_tree_patch, id_wdc, id_ldc, id_extent_sep, id_ecc_sep, id_lvl_sep_lin, id_lvl_sep_big, id_gamma, id_rm_gamma_for_big, id_deconv ))
 
                 small_interscale_tree_patch.append(tree)
 
                 if len(small_interscale_tree_patch) >= size_patch_small:
-                    small_object_patch.append( restore_patch.remote( small_interscale_tree_patch, id_wdc, id_ldc, id_extent_sep, id_ecc_sep, id_lvl_sep_lin, id_lvl_sep_big, id_gamma, id_rm_gamma_for_big ))
+                    small_object_patch.append( restore_patch.remote( small_interscale_tree_patch, id_wdc, id_ldc, id_extent_sep, id_ecc_sep, id_lvl_sep_lin, id_lvl_sep_big, id_gamma, id_rm_gamma_for_big, id_deconv ))
                     small_interscale_tree_patch = []
 
         if small_interscale_tree_patch:
-            small_object_patch.append( restore_patch.remote( small_interscale_tree_patch, id_wdc, id_ldc, id_extent_sep, id_ecc_sep, id_lvl_sep_lin, id_lvl_sep_big, id_gamma, id_rm_gamma_for_big ))
+            small_object_patch.append( restore_patch.remote( small_interscale_tree_patch, id_wdc, id_ldc, id_extent_sep, id_ecc_sep, id_lvl_sep_lin, id_lvl_sep_big, id_gamma, id_rm_gamma_for_big, id_deconv ))
 
         object_list = []
         for id_patch in big_object_patch:
@@ -179,8 +185,6 @@ def restore_objects_default(interscale_tree_list, wavelet_datacube, label_datacu
         for id_patch in small_object_patch:
             patch = ray.get( id_patch )
             object_list = object_list + patch
-
-        #ray.shutdown()
 
     return object_list
 

@@ -10,6 +10,8 @@
 
 from datetime import datetime
 from dawis.atrous import atrous
+from dawis.wavelet_transforms import bspl_atrous
+from dawis.deconvolution import pad, unpad, richardson_lucy_np, B2spline, twod_B2spline
 import pdb
 import matplotlib.pyplot as plt
 import pickle
@@ -85,7 +87,6 @@ class interscale_tree(object):
         # Bayesian parameter bounds
         self.lowb = 0.
         self.highb = 2.
-
 
     def plot(self, wavelet_datacube, label_datacube, name = None, show = True, save_path = None, **kwargs):
 
@@ -355,9 +356,9 @@ class interscale_tree(object):
 
         return reconstructed, sum_wr, norm_wr
 
-    def CG_minimization(self, wavelet_datacube, label_datacube, filter, \
+    def CG_minimization(self, wavelet_datacube, label_datacube, filter, deconv = False, \
                             synthesis_operator = 'ADJOINT', step_size = 'FR', \
-                            sigma_flux = 1E-3, max_iter = 200, verbose = False):
+                            sigma_flux = 1E-3, max_iter = 3, verbose = False):
         '''
         conjugate gradient (modified from starck, murtagh & bijaoui, 1998).
         '''
@@ -365,8 +366,17 @@ class interscale_tree(object):
         wavelet_tube, support_tube, label_tube = self.tubes(wavelet_datacube, label_datacube)
         n_levels = wavelet_tube.shape[2]
 
+        if deconv == True:
+            if self.interscale_maximum.level <= 2:
+                im_psf = twod_B2spline(xsize = self.x_size, ysize = self.y_size, order = 0)
+
+            else:
+                im_psf = twod_B2spline(xsize = self.x_size, ysize = self.y_size, order = 2)
+    
         if synthesis_operator == 'ADJOINT':
             reconstructed = self.synthesis_adjoint(wavelet_tube, filter = filter)
+            if deconv == True:
+                reconstructed = richardson_lucy_np(reconstructed, im_psf, 10)
         elif synthesis_operator == 'SUM':
             reconstructed = self.synthesis_sum(wavelet_tube)
 
@@ -376,6 +386,9 @@ class interscale_tree(object):
 
         if synthesis_operator == 'ADJOINT':
             fr = self.synthesis_adjoint(wr, filter = filter )
+            if deconv == True:
+                fr = richardson_lucy_np(fr, im_psf, 10)
+                
         elif synthesis_operator == 'SUM':
             fr = self.synthesis_sum(wr)
 
@@ -417,6 +430,9 @@ class interscale_tree(object):
 
                 if synthesis_operator == 'ADJOINT':
                     fr = self.synthesis_adjoint(wr, filter = filter )
+                    if deconv == True:
+                        fr = richardson_lucy_np(fr, im_psf, 10)
+                        
                 elif synthesis_operator == 'SUM':
                     fr = self.synthesis_sum(wr)
 

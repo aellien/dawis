@@ -14,6 +14,7 @@ from astropy.io import fits
 from datetime import datetime
 import sys as sys
 import pdb
+import glob as glob
 from dawis.make_regions import *
 from dawis.datacube import *
 from dawis.wavelet_transforms import bspl_atrous
@@ -30,7 +31,7 @@ from dawis.detect_and_deblend import ms_detect_and_deblend
 
 def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2, tau = 0.8, n_levels = None, n_sigmas = 5,\
                                 gamma = 0.2, min_span = 2, max_span = 3, lvl_sep_big = 6, rm_gamma_for_big = False, lvl_deblend = 3, \
-                                extent_sep = 0.1, ecc_sep = 0.95, lvl_sep_lin = 2, ceps = 1E-3, scale_lvl_eps = 1, conditions = 'loop', \
+                                extent_sep = 0.1, ecc_sep = 0.95, lvl_sep_lin = 2, ceps = 1E-3, scale_lvl_eps = 1, conditions = 'loop', deconv = False,\
                                 max_iter = 500, size_patch = 100, inpaint_res = True, data_dump = True, gif = True, iptd_sigma = 3, resume = True):
 
     #===========================================================================
@@ -141,15 +142,16 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
 
                 # Restoration of detected objects
                 logging.info('[ %s ] Start object restoration'%datetime.now())
-                ol = restore_objects_default(itl, wdc,ldc, size_patch_small = 50, \
+                ol = restore_objects_default(itl, res, 0.01, 15, wdc,ldc, size_patch_small = 1, \
                                                    gamma = gamma, \
                                                    extent_sep = extent_sep, \
                                                    ecc_sep = ecc_sep, \
                                                    lvl_sep_lin = lvl_sep_lin, \
                                                    lvl_sep_big = lvl_sep_big, \
                                                    rm_gamma_for_big = rm_gamma_for_big, \
-                                                   size_patch_big = 5, \
+                                                   size_patch_big = 1, \
                                                    size_big_objects = 512, \
+                                                   deconv = deconv, \
                                                    n_cpus = n_cpus ) # objects in original image pixel value range
 
             # Atom
@@ -248,6 +250,46 @@ def load_iteration( it, outpath ):
     itl = read_interscale_trees_from_pickle( ''.join(( outpath, '.itl.it%03d.pkl' %(it) )))
     ol = read_objects_from_pickle( ''.join(( outpath, '.ol.it%03d.pkl' %(it) )))
     return wdc, ldc, rl, itl, ol
+
+def read_image_atoms( nfp, filter_it = None, verbose = False ):
+
+    # Object lists
+    if filter_it == None:
+        opath = nfp + '*ol.it*.pkl'
+        itpath = nfp + '*itl.it*.pkl'
+    else:
+        opath = nfp + '*ol.it' + filter_it  + '.pkl'
+        itpath = nfp + '*itl.it' + filter_it + '.pkl'
+
+    opathl = glob.glob(opath)
+    opathl.sort()
+
+    # Interscale tree lists
+
+    itpathl = glob.glob(itpath)
+    itpathl.sort()
+
+    tol = []
+    titl = []
+
+    if verbose:
+        print('Reading %s.'%(opath))
+        print('Reading %s.'%(itpath))
+
+    for i, ( op, itlp ) in enumerate( zip( opathl, itpathl )):
+
+        if verbose :
+            print('Iteration %d' %(i), end ='\r')
+
+        ol = read_objects_from_pickle( op )
+        itl = read_interscale_trees_from_pickle( itlp )
+
+        for j, o in enumerate(ol):
+
+            tol.append(o)
+            titl.append(itl[j])
+
+    return tol, titl
 
 if __name__=="__main__":
 

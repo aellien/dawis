@@ -83,7 +83,7 @@ def make_gif( framerate, outpath ):
     try:
         args_ffmpeg = [ 'ffmpeg', '-framerate', str(framerate), '-y', '-i', \
                 ''.join(( outpath, '.frame.it%03d.png' )), \
-                ''.join(( outpath, '.run.avi' )) ]
+                ''.join(( outpath, '.run.mp4' )) ]
 
         run( args_ffmpeg )
     except:

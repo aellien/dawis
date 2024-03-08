@@ -15,7 +15,7 @@ from dawis.datacube import label_datacube
 from astropy.stats import sigma_clip
 from photutils.segmentation import detect_sources, deblend_sources
 
-def ms_detect_and_deblend(wavelet_datacube, n_sigmas = 3, wavelet_type = 'BSPL', lvl_deblend = 0, npixels = 10, verbose = False):
+def ms_detect_and_deblend(wavelet_datacube, n_sigmas = 3, wavelet_type = 'BSPL', lvl_deblend = 0, npixels = 10, deblend_contrast = 0.3, verbose = False):
     '''
     Parameters
     ----------
@@ -60,11 +60,12 @@ def ms_detect_and_deblend(wavelet_datacube, n_sigmas = 3, wavelet_type = 'BSPL',
         segment_map = detect_sources(wavelet_datacube.array[:,:,level], threshold, npixels = npixels)
         
         if level >= lvl_deblend:
-            segment_map = deblend_sources(wavelet_datacube.array[:,:,level], segment_map, npixels = npixels)
-            
-            
-        label_array[:,:,level] = segment_map.data
-        lab_counts[level] = segment_map.labels.max()
+            segment_map = deblend_sources(wavelet_datacube.array[:,:,level], segment_map, npixels = npixels, contrast = deblend_contrast)
+        
+        
+        if segment_map:
+            label_array[:,:,level] = segment_map.data
+            lab_counts[level] = segment_map.labels.max()
             
 
         if level != 0:
