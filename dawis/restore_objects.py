@@ -117,7 +117,7 @@ def restore_objects_default(interscale_tree_list, oimage, cg_gamma, niter, wavel
         bspl = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
         logging.info('Not parallelizing - %d Objects.'%(len(interscale_tree_list)))
         for tree in interscale_tree_list:
-            image, filter_kw, flag_convergence, sum_wr, norm_wr = restore_object( tree, oimage, cg_gamma, niter,\
+            image, filter_kw, flag_convergence, sum_wr, norm_wr = restore_object( tree, \
                                                                                   wavelet_datacube, \
                                                                                   label_datacube, \
                                                                                   extent_sep, \
