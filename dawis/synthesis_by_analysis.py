@@ -35,7 +35,8 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                                 max_iter = 500, size_patch = 100, inpaint_res = True, data_dump = True, gif = True, iptd_sigma = 3, resume = True):
 
     #===========================================================================
-    ray.init()
+    if n_cpus > 1:
+        ray.init()
     
     # Check infile extension
     if infile[-5:] != '.fits':
@@ -218,7 +219,8 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
         if it > max_iter:
             break
     
-    ray.shutdown()
+    if n_cpus > 1:
+        ray.shutdown()
     #===========================================================================
     # Write results to disk
     logging.info('Finished iterating.\nWriting results to disk in %s' %(outdir) )
