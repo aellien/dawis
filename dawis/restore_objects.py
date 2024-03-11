@@ -149,7 +149,7 @@ def restore_objects_default(interscale_tree_list, oimage, cg_gamma, niter, wavel
         id_rm_gamma_for_big = ray.put(rm_gamma_for_big)
         id_gamma = ray.put(gamma)
         id_deconv = ray.put(deconv)
-        id_level_sep_op = ray.put(level_sep_op)
+        id_lvl_sep_op = ray.put(lvl_sep_op)
 
         interscale_tree_list.sort(key = lambda x: x.interscale_maximum.area, reverse = True)
 
@@ -164,22 +164,22 @@ def restore_objects_default(interscale_tree_list, oimage, cg_gamma, niter, wavel
                 big_interscale_tree_patch.append(tree)
 
                 if len(big_interscale_tree_patch) >= size_patch_big:
-                    big_object_patch.append( restore_patch.remote( big_interscale_tree_patch, id_wdc, id_ldc, id_extent_sep, id_ecc_sep, id_lvl_sep_lin, id_lvl_sep_big, id_level_sep_op, id_gamma, id_rm_gamma_for_big, id_deconv ))
+                    big_object_patch.append( restore_patch.remote( big_interscale_tree_patch, id_wdc, id_ldc, id_extent_sep, id_ecc_sep, id_lvl_sep_lin, id_lvl_sep_big, id_lvl_sep_op, id_gamma, id_rm_gamma_for_big, id_deconv ))
                     big_interscale_tree_patch = []
 
             else:
 
                 if big_interscale_tree_patch:
-                        big_object_patch.append( restore_patch.remote( big_interscale_tree_patch, id_wdc, id_ldc, id_extent_sep, id_ecc_sep, id_lvl_sep_lin, id_lvl_sep_big, id_level_sep_op, id_gamma, id_rm_gamma_for_big, id_deconv ))
+                        big_object_patch.append( restore_patch.remote( big_interscale_tree_patch, id_wdc, id_ldc, id_extent_sep, id_ecc_sep, id_lvl_sep_lin, id_lvl_sep_big, id_lvl_sep_op, id_gamma, id_rm_gamma_for_big, id_deconv ))
 
                 small_interscale_tree_patch.append(tree)
 
                 if len(small_interscale_tree_patch) >= size_patch_small:
-                    small_object_patch.append( restore_patch.remote( small_interscale_tree_patch, id_wdc, id_ldc, id_extent_sep, id_ecc_sep, id_lvl_sep_lin, id_lvl_sep_big, id_level_sep_op, id_gamma, id_rm_gamma_for_big, id_deconv ))
+                    small_object_patch.append( restore_patch.remote( small_interscale_tree_patch, id_wdc, id_ldc, id_extent_sep, id_ecc_sep, id_lvl_sep_lin, id_lvl_sep_big, id_lvl_sep_op, id_gamma, id_rm_gamma_for_big, id_deconv ))
                     small_interscale_tree_patch = []
 
         if small_interscale_tree_patch:
-            small_object_patch.append( restore_patch.remote( small_interscale_tree_patch, id_wdc, id_ldc, id_extent_sep, id_ecc_sep, id_lvl_sep_lin, id_lvl_sep_big, id_level_sep_op, id_gamma, id_rm_gamma_for_big, id_deconv ))
+            small_object_patch.append( restore_patch.remote( small_interscale_tree_patch, id_wdc, id_ldc, id_extent_sep, id_ecc_sep, id_lvl_sep_lin, id_lvl_sep_big, id_lvl_sep_op, id_gamma, id_rm_gamma_for_big, id_deconv ))
 
         object_list = []
         for id_patch in big_object_patch:
