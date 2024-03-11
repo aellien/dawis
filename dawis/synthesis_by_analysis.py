@@ -31,7 +31,7 @@ from dawis.detect_and_deblend import ms_detect_and_deblend
 
 def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2, tau = 0.8, n_levels = None, n_sigmas = 5,\
                                 gamma = 0.2, min_span = 2, max_span = 3, lvl_sep_big = 6, rm_gamma_for_big = False, lvl_deblend = 3, \
-                                extent_sep = 0.1, ecc_sep = 0.95, lvl_sep_lin = 2, ceps = 1E-3, scale_lvl_eps = 1, conditions = 'loop', deconv = False,\
+                                extent_sep = 0.1, ecc_sep = 0.95, lvl_sep_lin = 2, lvl_sep,op = 3, ceps = 1E-3, scale_lvl_eps = 1, conditions = 'loop', deconv = False,\
                                 max_iter = 500, size_patch = 100, inpaint_res = True, data_dump = True, gif = True, iptd_sigma = 3, resume = True):
 
     #===========================================================================
@@ -148,6 +148,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                                                    ecc_sep = ecc_sep, \
                                                    lvl_sep_lin = lvl_sep_lin, \
                                                    lvl_sep_big = lvl_sep_big, \
+                                                   lvl_sep,op = lvl_sep,op, \
                                                    rm_gamma_for_big = rm_gamma_for_big, \
                                                    size_patch_big = 1, \
                                                    size_big_objects = 512, \
