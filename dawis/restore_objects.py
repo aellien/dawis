@@ -21,9 +21,10 @@ import logging
 class restored_object(object):
     """docstring for restored_object."""
 
-    def __init__(self, image, bbox, level, eccentricity, filter_kw, flag_convergence, sum_wr, norm_wr):
+    def __init__(self, image, det_err_image, bbox, level, eccentricity, filter_kw, flag_convergence, sum_wr, norm_wr):
         self.bbox = bbox
         self.image = image
+        self.det_err_image = det_err_image
         self.level = level
         self.eccentricity = eccentricity
         self.filter = filter_kw
@@ -55,7 +56,7 @@ def restore_patch(interscale_tree_patch, wavelet_datacube, label_datacube, exten
     object_patch = []
     for tree in interscale_tree_patch:
 
-        image, filter_kw, flag_convergence, sum_wr, norm_wr = restore_object( tree, \
+        image, det_err_image, filter_kw, flag_convergence, sum_wr, norm_wr = restore_object( tree, \
                                                                               wavelet_datacube, \
                                                                               label_datacube, \
                                                                               extent_sep, \
@@ -70,7 +71,7 @@ def restore_patch(interscale_tree_patch, wavelet_datacube, label_datacube, exten
 
 
 
-        object_patch.append(restored_object(image, tree.bbox, \
+        object_patch.append(restored_object(image, det_err_image, tree.bbox, \
                                             tree.interscale_maximum.level, \
                                             tree.interscale_maximum.eccentricity, \
                                             filter_kw, \
@@ -102,22 +103,28 @@ def restore_object( interscale_tree, wavelet_datacube, label_datacube, extent_se
                                                     synthesis_operator = 'ADJOINT', deconv = deconv, verbose = verbose )
         filter_kw = 'BSPL'
 
+    if interscale_tree.det_err_tube(wavelet_datacube, label_datacube).shape[2] > 1:
+        det_err_image = np.sum(interscale_tree.det_err_tube(wavelet_datacube, label_datacube), axis = 2)
+    else:
+        det_err_image = interscale_tree.det_err_tube(wavelet_datacube, label_datacube)
+
+
     # Security
     if np.isnan(np.sum(image)):
         image = np.zeros( image.shape )
         flag_convergence = False
 
-    return image, filter_kw, flag_convergence, sum_wr, norm_wr
+    return image, det_err_image, filter_kw, flag_convergence, sum_wr, norm_wr
 
 def restore_objects_default(interscale_tree_list, oimage, cg_gamma, niter, wavelet_datacube, label_datacube, lvl_sep_big, rm_gamma_for_big,  extent_sep, ecc_sep, lvl_sep_lin, lvl_sep_op, deconv, size_patch_small = 1, gamma = 1, size_patch_big = 1, size_big_objects = 512, n_cpus = 1 ):
 
     if (len(interscale_tree_list) < size_patch_big) or (n_cpus == 1):
-        # params_minimization = strategy(tree)
+
         object_list = []
         bspl = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
         logging.info('Not parallelizing - %d Objects.'%(len(interscale_tree_list)))
         for tree in interscale_tree_list:
-            image, filter_kw, flag_convergence, sum_wr, norm_wr = restore_object( tree, \
+            image, det_err_image, filter_kw, flag_convergence, sum_wr, norm_wr = restore_object( tree, \
                                                                                   wavelet_datacube, \
                                                                                   label_datacube, \
                                                                                   extent_sep, \
@@ -130,7 +137,7 @@ def restore_objects_default(interscale_tree_list, oimage, cg_gamma, niter, wavel
             if (rm_gamma_for_big == False) or (tree.interscale_maximum.level < lvl_sep_big):
                 image = image * gamma  # add attenuation factor
 
-            object_list.append( restored_object(image, tree.bbox, \
+            object_list.append( restored_object(image, det_err_image, tree.bbox, \
                                                 tree.interscale_maximum.level, \
                                                 tree.interscale_maximum.eccentricity, \
                                                 filter_kw, \

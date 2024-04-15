@@ -33,7 +33,7 @@ class interscale_tree(object):
     they are build from a master region called "interscale_maximum".
     """
 
-    def __init__(self, interscale_maximum, region_list, wavelet_datacube, label_datacube, clip = 30):
+    def __init__(self, interscale_maximum, region_list, wavelet_datacube, label_datacube, det_err_array, clip = 30):
 
         self.region_list = region_list
         self.interscale_maximum = interscale_maximum
@@ -41,6 +41,7 @@ class interscale_tree(object):
         self.span_levels = np.size(np.unique([ x.level for x in region_list ]))
         self.clip = clip
         self.eccentricity = self.interscale_maximum.eccentricity
+        self.det_err_array = det_err_array
 
         x_min = np.min([ x.bbox[0] for x in self.region_list ])
         y_min = np.min([ x.bbox[1] for x in self.region_list ])
@@ -87,7 +88,19 @@ class interscale_tree(object):
         # Bayesian parameter bounds
         self.lowb = 0.
         self.highb = 2.
-
+        
+    def det_err_tube(self, wavelet_datacube, label_datacube):
+        
+        wavelet_tube, support_tube, label_tube = self.tubes(wavelet_datacube, label_datacube)
+        det_err_tube = np.copy(support_tube)
+        try:
+            for level in range(0, det_err_tube.shape[2]):
+                det_err_tube[:,:,level] *= self.det_err_array[level]
+        except:
+            import pdb;pdb.set_trace()
+        return det_err_tube
+            
+    
     def plot(self, wavelet_datacube, label_datacube, name = None, show = True, save_path = None, **kwargs):
 
         fig, ax = plt.subplots(1, 2, sharex = True, sharey = True, \
@@ -544,7 +557,7 @@ def enforce_monomodality(interscale_maximum, wavelet_datacube, label_datacube, t
         return interscale_maximum, label_clip
 
 @ray.remote
-def interscale_connectivity_para( interscale_maximum_list, region_list, wavelet_datacube, label_datacube, level_maximum, min_span = 3, max_span = 3, lvl_sep_big = 6, min_reg_size = 4, verbose = False):
+def interscale_connectivity_para( interscale_maximum_list, region_list, wavelet_datacube, label_datacube, det_err_array, level_maximum, min_span = 3, max_span = 3, lvl_sep_big = 6, min_reg_size = 4, verbose = False):
 
     interscale_tree_list = []
     n_rejected = 0
@@ -577,11 +590,11 @@ def interscale_connectivity_para( interscale_maximum_list, region_list, wavelet_
             continue
 
         # Output list of interscale tree and their clipped segmented label array
-        interscale_tree_list.append(interscale_tree(interscale_maximum, connected_region_list, wavelet_datacube, label_datacube))
+        interscale_tree_list.append(interscale_tree(interscale_maximum, connected_region_list, wavelet_datacube, label_datacube, det_err_array))
 
     return interscale_tree_list
 
-def interscale_connectivity_serial( interscale_maximum_list, region_list, wavelet_datacube, label_datacube, level_maximum, min_span = 3, max_span = 3, lvl_sep_big = 6, min_reg_size = 4, verbose = False):
+def interscale_connectivity_serial( interscale_maximum_list, region_list, wavelet_datacube, label_datacube, det_err_array, level_maximum, min_span = 3, max_span = 3, lvl_sep_big = 6, min_reg_size = 4, verbose = False):
 
     interscale_tree_list = []
     n_rejected = 0 
@@ -614,11 +627,11 @@ def interscale_connectivity_serial( interscale_maximum_list, region_list, wavele
             n_rejected += 1
             continue
 
-        interscale_tree_list.append(interscale_tree(interscale_maximum, connected_region_list, wavelet_datacube, label_datacube))
+        interscale_tree_list.append(interscale_tree(interscale_maximum, connected_region_list, wavelet_datacube, label_datacube, det_err_array))
         
     return interscale_tree_list
 
-def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0.8, min_span = 3, max_span = 3, lvl_sep_big = 6, monomodality = False, threshold_rel = 0.05, min_reg_size = 4, size_patch = 100, n_cpus = 1, verbose = False):
+def make_interscale_trees(region_list, wavelet_datacube, label_datacube, det_err_array, tau = 0.8, min_span = 3, max_span = 3, lvl_sep_big = 6, monomodality = False, threshold_rel = 0.05, min_reg_size = 4, size_patch = 100, n_cpus = 1, verbose = False):
 
     interscale_tree_list = []
 
@@ -629,15 +642,20 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
     threshold_maximum = region_list[0].norm_max_intensity * tau
     level_maximum = region_list[0].level
     
-    while region_list[i].level in levels_rejected :
-        i += 1
-        threshold_maximum = region_list[i].norm_max_intensity * tau
-        level_maximum = region_list[i].level
+    if len(region_list) > 1:
+        while region_list[i].level in levels_rejected :
     
-    interscale_maximum_list = [x for x in region_list if 
-                           x.norm_max_intensity >= threshold_maximum and
-                           x.level == level_maximum and
-                           x.area >= min_reg_size]
+            i += 1
+            threshold_maximum = region_list[i].norm_max_intensity * tau
+            level_maximum = region_list[i].level
+        
+        interscale_maximum_list = [x for x in region_list if 
+                               x.norm_max_intensity >= threshold_maximum and
+                               x.level == level_maximum and
+                               x.area >= min_reg_size]
+    
+    else:
+        interscale_maximum_list = region_list
     
     if verbose == True:
         log = logging.getLogger(__name__)
@@ -650,6 +668,7 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
                                                                region_list = region_list,  \
                                                                wavelet_datacube = wavelet_datacube, \
                                                                label_datacube = label_datacube,  \
+                                                               det_err_array = det_err_array, \
                                                                level_maximum = level_maximum,  \
                                                                min_span = min_span,  \
                                                                max_span = max_span,  \
@@ -669,6 +688,7 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
         id_lvl_sep_big = ray.put(lvl_sep_big)
         id_min_reg_size = ray.put(min_reg_size)
         id_verbose = ray.put(verbose)
+        id_det_err_array = ray.put(det_err_array)
         
         interscale_maximum_patch = []
         interscale_tree_patch = []
@@ -683,6 +703,7 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
                                                                                    region_list = id_rl,  \
                                                                                    wavelet_datacube = id_wdc,  \
                                                                                    label_datacube = id_ldc,  \
+                                                                                   det_err_array = id_det_err_array, \
                                                                                    level_maximum = id_level_maximum,  \
                                                                                    min_span = id_min_span,  \
                                                                                    max_span = id_max_span,  \
@@ -697,6 +718,7 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, tau = 0
                                                                                region_list = id_rl,  \
                                                                                wavelet_datacube = id_wdc,  \
                                                                                label_datacube = id_ldc,  \
+                                                                               det_err_array = id_det_err_array, \
                                                                                level_maximum = id_level_maximum,  \
                                                                                min_span = id_min_span,  \
                                                                                max_span = id_max_span,  \

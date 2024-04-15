@@ -28,7 +28,7 @@ def congrid(a, newdims, method='linear', centre=False, minusone=False):
     True - inarray is resampled by(i-1)/(x-1) * (j-1)/(y-1)
     This prevents extrapolation one element beyond bounds of input array.
     '''
-    if not a.dtype in [n.float64, n.float32]:
+    if not a.dtype in [float]:
         a = n.cast[float](a)
 
     m1 = n.cast[int](minusone)
@@ -59,7 +59,7 @@ def congrid(a, newdims, method='linear', centre=False, minusone=False):
             dimlist.append( (old[i] - m1) / (newdims[i] - m1) \
                             * (base + ofs) - ofs )
         # specify old dims
-        olddims = [n.arange(i, dtype = n.float) for i in list( a.shape )]
+        olddims = [n.arange(i, dtype = float) for i in list( a.shape )]
 
         # first interpolation - for ndims = any
         mint = scipy.interpolate.interp1d( olddims[-1], a, kind=method )

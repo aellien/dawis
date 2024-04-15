@@ -29,14 +29,14 @@ from dawis.inpainting import sample_noise, inpaint_with_gaussian_noise
 from dawis.detect_and_deblend import ms_detect_and_deblend
 
 
-def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2, tau = 0.8, n_levels = None, n_sigmas = 5, deblend_contrast = 0.1,\
+def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2, tau = 0.8, n_levels = None, n_sigmas = 5, deblend_contrast = 0.1,\
                                 gamma = 0.2, min_span = 2, max_span = 3, lvl_sep_big = 6, rm_gamma_for_big = False, lvl_deblend = 3, \
                                 extent_sep = 0.1, ecc_sep = 0.95, lvl_sep_lin = 2, lvl_sep_op = 3, ceps = 1E-3, scale_lvl_eps = 1, conditions = 'loop', deconv = False,\
                                 max_iter = 500, size_patch = 100, inpaint_res = True, data_dump = True, gif = True, iptd_sigma = 3, resume = True):
 
     #===========================================================================
     if n_cpus > 1:
-        ray.init()
+        ray.init(num_cpus = n_cpus)
     
     # Check infile extension
     if infile[-5:] != '.fits':
@@ -78,6 +78,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
     #===========================================================================
 
     res = np.copy(im)
+    dei = np.zeros(im.shape)
     rec = np.zeros(im.shape)
     rec_lvl = np.zeros((im.shape[0], im.shape[1], n_levels))
     cparl = []
@@ -98,11 +99,6 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
             if inpaint_res == True:
                 res = inpaint_with_gaussian_noise(res, mean = mean, sigma = sigma, iptd_sigma = iptd_sigma)
             
-            ''' To remove '''
-            hdu = fits.PrimaryHDU(res)
-            hdu.writeto(''.join(( outpath, '.iptd.it%03d.fits' %(it))), overwrite = True)
-            ''' --- '''
-            
             if ( os.path.exists(''.join(( outpath, '.ol.it%03d.pkl' %(it)))) ) & resume == True:
 
                 logging.info('\n\nFound %s --> resuming iteration' %(''.join(( outpath, '.ol.it%03d.pkl' %(it)))))
@@ -118,7 +114,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                 awdc = bspl_atrous(aim, level, header, conditions)
                 
                 # Labels & true wavelet coefficients
-                ldc = ms_detect_and_deblend(awdc, n_sigmas = n_sigmas, lvl_deblend = lvl_deblend, deblend_contrast = deblend_contrast, verbose = True)
+                ldc, dea = ms_detect_and_deblend(awdc, n_sigmas = n_sigmas, lvl_deblend = lvl_deblend, deblend_contrast = deblend_contrast, verbose = True)
                 wdc = bspl_atrous(res, level, header, conditions)
 
                 # Regions of significance
@@ -128,16 +124,13 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
 
                 # Interscale trees
                 logging.info('[ %s ] Start interscale trees'%datetime.now())
-                itl = make_interscale_trees(rl, wdc, ldc, tau = tau, \
+                itl = make_interscale_trees(rl, wdc, ldc, dea, tau = tau, \
                                                     min_span = min_span, \
                                                     max_span = max_span, \
                                                     lvl_sep_big = lvl_sep_big, \
                                                     n_cpus = n_cpus, \
                                                     size_patch = size_patch, \
                                                     verbose = True)
-                #for g, itree in enumerate(itl):
-                #    itree.plot(wdc, ldc, show = False, save_path = ''.join(( outpath, '.itl.it%03d.it%003d.png' %(it, g) )))
-                
                 if not itl:
                     break
 
@@ -164,6 +157,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                 x_min, y_min, x_max, y_max = o.bbox
                 atom[ x_min : x_max, y_min : y_max ] += o.image
                 rec_lvl[ x_min : x_max, y_min : y_max, o.level ] += o.image
+                dei[x_min : x_max, y_min : y_max] = dei[x_min : x_max, y_min : y_max] + o.det_err_image
             
             # Update Residuals
             res -= atom
@@ -199,6 +193,9 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 3, starting_level = 2,
                     
                     hdu = fits.PrimaryHDU(rec)
                     hdu.writeto(''.join(( outpath, '.rec.it%03d.fits' %(it))), overwrite = True)
+
+                    hdu = fits.PrimaryHDU(dei)
+                    hdu.writeto(''.join(( outpath, '.dei.it%03d.fits' %(it))), overwrite = True)
 
                 if gif:
                     awdc.waveplot( name = 'Anscombe modified\nWavelet Planes\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.awdc.it%03d.png' %(it))), origin = 'lower')

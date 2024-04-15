@@ -16,8 +16,6 @@ import matplotlib.pyplot as plt
 #from numba import jit, njit
 from dawis.congrid import congrid
 import logging
-import multiprocessing as mp
-import ctypes
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 

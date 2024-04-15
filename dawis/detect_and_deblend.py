@@ -49,6 +49,9 @@ def ms_detect_and_deblend(wavelet_datacube, n_sigmas = 3, wavelet_type = 'BSPL',
     noise_pixels = np.copy(wavelet_datacube.array[:,:,0]).flatten()
     noise_pixels = sigma_clip(noise_pixels, sigma = n_sigmas, sigma_lower = n_sigmas, masked = False)
     sigma = np.std(noise_pixels)
+    
+    # Detection error
+    det_err_array = []
         
     # Labels 
     label_array = np.zeros(wavelet_datacube.shape)
@@ -57,10 +60,12 @@ def ms_detect_and_deblend(wavelet_datacube, n_sigmas = 3, wavelet_type = 'BSPL',
     for level in range(0, n_levels):
             
         threshold = n_sigmas * sigma * conv_table[level]
+        det_err_array.append(sigma * conv_table[level]) # uncertainty is taken as 1-sigma std of noise at given wavelet scale
         segment_map = detect_sources(wavelet_datacube.array[:,:,level], threshold, npixels = npixels)
         
         if level >= lvl_deblend:
-            segment_map = deblend_sources(wavelet_datacube.array[:,:,level], segment_map, npixels = npixels, contrast = deblend_contrast)
+            if segment_map:
+                segment_map = deblend_sources(wavelet_datacube.array[:,:,level], segment_map, npixels = npixels, contrast = deblend_contrast, nproc = 1)
         
         
         if segment_map:
@@ -80,7 +85,7 @@ def ms_detect_and_deblend(wavelet_datacube, n_sigmas = 3, wavelet_type = 'BSPL',
                     np.max(label_array[:,:,level])-lab_counts[level]+1,\
                     np.max(label_array[:,:,level])))
             
-    return label_datacube(label_array, lab_counts, wavelet_datacube.fheader)
+    return label_datacube(label_array, lab_counts, wavelet_datacube.fheader), np.array(det_err_array)
 
 if __name__ == '__main__':
 
