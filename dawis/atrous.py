@@ -11,7 +11,6 @@ import pdb
 from datetime import datetime
 from scipy.ndimage import gaussian_filter
 from scipy.signal import convolve2d
-from scipy.signal import bspline
 import matplotlib.pyplot as plt
 #from numba import jit, njit
 from dawis.congrid import congrid
@@ -388,6 +387,8 @@ def ser_a_trous(C0, filter, scale):
 
     OUTPUTS:
     C1                          The result of applying the a trous algorithm to the input.
+    
+    Implementation borrowed from https://github.com/ratt-ru/PyMORESANE
     """
         
     tmp = filter[2]*C0
@@ -434,6 +435,8 @@ def ser_iuwt_decomposition(in1, scale_count, scale_adjust, store_smoothed):
     OUTPUTS:
     detail_coeffs                       Array containing the detail coefficients.
     C0                  (optional):     Array containing the smoothest version of the input.
+    
+    Implementation borrowed from https://github.com/ratt-ru/PyMORESANE
     """
 
     wavelet_filter = (1./16)*np.array([1,4,6,4,1])      # Filter-bank for use in the a trous algorithm.

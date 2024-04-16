@@ -225,6 +225,8 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
     hdu_res.writeto( ''.join(( outpath, '.residuals.fits' )), overwrite = True )
     hdu_rec = fits.PrimaryHDU( rec, header = header )
     hdu_rec.writeto( ''.join(( outpath, '.restored.fits' )), overwrite = True )
+    hdu_dei = fits.PrimaryHDU( dei, header = header )
+    hdu_rec.writeto( ''.join(( outpath, '.deterror.fits' )), overwrite = True )
     hdu_rec_lvl = fits.PrimaryHDU( rec_lvl, header = header )
     hdu_rec_lvl.writeto( ''.join(( outpath, '.scl.restored.fits' )), overwrite = True )
 
