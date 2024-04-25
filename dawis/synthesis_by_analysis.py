@@ -28,15 +28,18 @@ from dawis.gif import *
 from dawis.inpainting import sample_noise, inpaint_with_gaussian_noise
 from dawis.detect_and_deblend import ms_detect_and_deblend
 
-
+@ray.remote
 def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2, tau = 0.8, n_levels = None, n_sigmas = 5, deblend_contrast = 0.1,\
                                 gamma = 0.2, min_span = 2, max_span = 3, lvl_sep_big = 6, rm_gamma_for_big = False, lvl_deblend = 3, \
                                 extent_sep = 0.1, ecc_sep = 0.95, lvl_sep_lin = 2, lvl_sep_op = 3, ceps = 1E-3, scale_lvl_eps = 1, conditions = 'loop', deconv = False,\
                                 max_iter = 500, size_patch = 100, inpaint_res = True, data_dump = True, gif = True, iptd_sigma = 3, resume = True):
 
-    #===========================================================================
-    if n_cpus > 1:
+    # Setup Ray for parallelisation
+    # If there is no head ray cluster setup, create one internal to dawis run
+    intern_ray_flag = False
+    if (n_cpus > 1) & (ray.is_initialized == False):
         ray.init(num_cpus = n_cpus)
+        inter_ray_flag = True
     
     # Check infile extension
     if infile[-5:] != '.fits':
@@ -216,7 +219,8 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
         if it > max_iter:
             break
     
-    if n_cpus > 1:
+    # If intern Ray cluster, shut it down after when run is over
+    if inter_ray_flag:
         ray.shutdown()
     #===========================================================================
     # Write results to disk
