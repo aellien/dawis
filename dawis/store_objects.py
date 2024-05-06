@@ -14,6 +14,7 @@ import logging
 import pickle
 import sys
 import os
+import glob
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 def object_recursive_save_to_hdf5(o, h5grp):
@@ -261,6 +262,57 @@ def pkl_to_hdf5(pkl_ol, pkl_itl):
    itl = read_interscale_trees_from_pickle(pkl_itl)
    write_ol_to_hdf5(ol, pkl_ol[:-4] + 'hdf5')
    write_itl_to_hdf5(ol, pkl_itl[:-4] + 'hdf5')
+   
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+def read_image_atoms( nfp, file_format = 'hdf5', filter_it = None, verbose = True ):
+
+    if file_format == 'pkl':
+        
+        if filter_it == None:
+            opath = nfp + '*ol.it*.pkl'
+            itpath = nfp + '*itl.it*.pkl'
+        else:
+            opath = nfp + '*ol.it' + filter_it  + '.pkl'
+            itpath = nfp + '*itl.it' + filter_it + '.pkl'
+            
+    elif file_format == 'hdf5':
+        
+        if filter_it == None:
+            opath = nfp + '*ol.it*.hdf5'
+            itpath = nfp + '*itl.it*.hdf5'
+        else:
+            opath = nfp + '*ol.it' + filter_it  + '.hdf5'
+            itpath = nfp + '*itl.it' + filter_it + '.hdf5'
+
+    # Object lists
+    opathl = glob.glob(opath)
+    opathl.sort()
+
+    # Interscale tree lists
+    itpathl = glob.glob(itpath)
+    itpathl.sort()
+
+    tol = []
+    titl = []
+
+    if verbose:
+        print('Reading %s.'%(opath))
+        print('Reading %s.'%(itpath))
+
+    for i, ( op, itlp ) in enumerate( zip( opathl, itpathl )):
+        
+        if verbose :
+            print('Iteration %d' %(i), end ='\r')
+
+        ol = read_objects_from_pickle( op )
+        itl = read_interscale_trees_from_pickle( itlp )
+
+        for j, o in enumerate(ol):
+
+            tol.append(o)
+            titl.append(itl[j])
+
+    return tol, titl
    
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 if __name__ == '__main__':
