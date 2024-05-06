@@ -70,6 +70,7 @@ def object_recursive_save_to_hdf5(o, h5grp):
                     except TypeError:
                         object_recursive_save_to_hdf5(sub_val, sub_h5grp)       
             else:
+                log = logging.getLogger(__name__)
                 log.info('Unknown data structure for %s. NOT SAVING TO HDF5 FILE.' %(attr))
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%      
@@ -296,8 +297,9 @@ def read_image_atoms( nfp, file_format = 'hdf5', filter_it = None, verbose = Tru
     titl = []
 
     if verbose:
-        print('Reading %s.'%(opath))
-        print('Reading %s.'%(itpath))
+        log = logging.getLogger(__name__)
+        log.info('Reading %s.'%(opath))
+        log.info('Reading %s.'%(itpath))
 
     for i, ( op, itlp ) in enumerate( zip( opathl, itpathl )):
         
