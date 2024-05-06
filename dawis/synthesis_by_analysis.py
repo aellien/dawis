@@ -258,46 +258,6 @@ def load_iteration( it, outpath ):
     ol = read_objects_from_pickle( ''.join(( outpath, '.ol.it%03d.pkl' %(it) )))
     return wdc, ldc, rl, itl, ol
 
-def read_image_atoms( nfp, filter_it = None, verbose = False ):
-
-    # Object lists
-    if filter_it == None:
-        opath = nfp + '*ol.it*.pkl'
-        itpath = nfp + '*itl.it*.pkl'
-    else:
-        opath = nfp + '*ol.it' + filter_it  + '.pkl'
-        itpath = nfp + '*itl.it' + filter_it + '.pkl'
-
-    opathl = glob.glob(opath)
-    opathl.sort()
-
-    # Interscale tree lists
-
-    itpathl = glob.glob(itpath)
-    itpathl.sort()
-
-    tol = []
-    titl = []
-
-    if verbose:
-        print('Reading %s.'%(opath))
-        print('Reading %s.'%(itpath))
-
-    for i, ( op, itlp ) in enumerate( zip( opathl, itpathl )):
-
-        if verbose :
-            print('Iteration %d' %(i), end ='\r')
-
-        ol = read_objects_from_pickle( op )
-        itl = read_interscale_trees_from_pickle( itlp )
-
-        for j, o in enumerate(ol):
-
-            tol.append(o)
-            titl.append(itl[j])
-
-    return tol, titl
-
 if __name__=="__main__":
 
     if len(sys.argv) < 4:
