@@ -260,8 +260,8 @@ def pkl_to_hdf5(pkl_ol, pkl_itl):
     
    ol = read_objects_from_pickle(pkl_ol)
    itl = read_interscale_trees_from_pickle(pkl_itl)
-   write_ol_to_hdf5(ol, pkl_ol[:-4] + 'hdf5')
-   write_itl_to_hdf5(itl, pkl_itl[:-4] + 'hdf5')
+   write_ol_to_hdf5(ol, pkl_ol[:-3] + 'hdf5')
+   write_itl_to_hdf5(itl, pkl_itl[:-3] + 'hdf5')
    
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 def read_image_atoms( nfp, file_format = 'hdf5', filter_it = None, verbose = True ):
