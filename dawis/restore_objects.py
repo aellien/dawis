@@ -11,7 +11,8 @@
 from datetime import datetime
 import pdb
 import matplotlib.pyplot as plt
-import pickle
+import _pickle as pickle
+import gc
 import numpy as np
 import ray
 import logging
@@ -21,34 +22,19 @@ import logging
 class restored_object(object):
     """docstring for restored_object."""
 
-    def __init__(self, image, det_err_image, bbox, level, eccentricity, filter_kw, flag_convergence, sum_wr, norm_wr):
-        self.bbox = bbox
-        self.image = image
-        self.det_err_image = det_err_image
-        self.level = level
-        self.eccentricity = eccentricity
-        self.filter = filter_kw
-        self.flag_convergence = flag_convergence
-        self.sum_wr = sum_wr
-        self.norm_wr = norm_wr
-
-def write_objects_to_pickle(object_list, filename, overwrite = True):
-
-    if overwrite == True:
-        mode = 'wb'
-    else:
-        mode = 'ab'
-
-    with open(filename, mode) as outfile:
-        pickle.dump(object_list, outfile)
-
-def read_objects_from_pickle(filename):
-
-    with open(filename, 'rb') as infile:
-        object_list = pickle.load(infile)
-
-    return object_list
-
+    def __init__(self, image = None, det_err_image = None, bbox = None, level = None, eccentricity = None, filter_kw = None, flag_convergence = None, sum_wr = None, norm_wr = None, blank = False):
+        
+        if blank == False:
+            
+            self.bbox = tuple(bbox)
+            self.image = image
+            self.det_err_image = det_err_image
+            self.level = level
+            self.eccentricity = eccentricity
+            self.filter = str(filter_kw)
+            self.flag_convergence = flag_convergence
+            self.sum_wr = sum_wr
+            self.norm_wr = norm_wr
 
 @ray.remote
 def restore_patch(interscale_tree_patch, wavelet_datacube, label_datacube, extent_sep, ecc_sep, lvl_sep_lin, lvl_sep_big,  lvl_sep_op, gamma, rm_gamma_for_big, deconv):

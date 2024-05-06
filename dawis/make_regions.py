@@ -35,7 +35,7 @@ class region(object):
         # initialize all allowed keys to false
         self.__dict__.update((key, False) for key in allowed_keys)
         # and update the given keys by their given values
-        self.__dict__.update((key, value) for key, value in kwargs.items() if key in allowed_keys)
+        self.__dict__.update((key, np.array(value)) for key, value in kwargs.items() if key in allowed_keys)
 
     
 

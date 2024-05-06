@@ -14,7 +14,8 @@ from dawis.wavelet_transforms import bspl_atrous
 from dawis.deconvolution import pad, unpad, richardson_lucy_np, B2spline, twod_B2spline
 import pdb
 import matplotlib.pyplot as plt
-import pickle
+import gc
+import _pickle as pickle
 import numpy as np
 import logging
 import ultranest
@@ -33,61 +34,63 @@ class interscale_tree(object):
     they are build from a master region called "interscale_maximum".
     """
 
-    def __init__(self, interscale_maximum, region_list, wavelet_datacube, label_datacube, det_err_array, clip = 30):
+    def __init__(self, interscale_maximum = None, region_list = None, wavelet_datacube = None, label_datacube = None, det_err_array = None, clip = 30, blank = False):
 
-        self.region_list = region_list
-        self.interscale_maximum = interscale_maximum
-        self.n_regions = len(region_list)
-        self.span_levels = np.size(np.unique([ x.level for x in region_list ]))
-        self.clip = clip
-        self.eccentricity = self.interscale_maximum.eccentricity
-        self.det_err_array = det_err_array
+        if blank == False:
+             
+            self.region_list = region_list
+            self.interscale_maximum = interscale_maximum
+            self.n_regions = len(region_list)
+            self.span_levels = np.size(np.unique([ x.level for x in region_list ]))
+            self.clip = clip
+            self.eccentricity = self.interscale_maximum.eccentricity
+            self.det_err_array = det_err_array
+            
+            x_min = np.min([ x.bbox[0] for x in self.region_list ])
+            y_min = np.min([ x.bbox[1] for x in self.region_list ])
+            x_max = np.max([ x.bbox[2] for x in self.region_list ])
+            y_max = np.max([ x.bbox[3] for x in self.region_list ])
 
-        x_min = np.min([ x.bbox[0] for x in self.region_list ])
-        y_min = np.min([ x.bbox[1] for x in self.region_list ])
-        x_max = np.max([ x.bbox[2] for x in self.region_list ])
-        y_max = np.max([ x.bbox[3] for x in self.region_list ])
+            # Extent
+            clip = np.copy(label_datacube.array[ x_min:x_max, \
+                                                y_min:y_max, \
+                                                    : ])
+            self.bbox = (x_min, y_min, x_max, y_max)
+            extent_im = np.sum( self.tubes( wavelet_datacube, label_datacube )[1], axis = 2 )
+            n_pix = np.size( np.where( extent_im != 0. )[0] )
+            self.extent = n_pix / ( ( x_max - x_min ) * ( y_max - y_min ) )
 
-        # Extent
-        clip = np.copy(label_datacube.array[ x_min:x_max, \
-                                             y_min:y_max, \
-                                             : ])
-        self.bbox = (x_min, y_min, x_max, y_max)
-        extent_im = np.sum( self.tubes( wavelet_datacube, label_datacube )[1], axis = 2 )
-        n_pix = np.size( np.where( extent_im != 0. )[0] )
-        self.extent = n_pix / ( ( x_max - x_min ) * ( y_max - y_min ) )
-
-        # Make vignet larger
-        x_min -= int( ( x_max - x_min ) / 2. )
-        x_max += int( ( x_max - x_min ) / 2. )
-        if x_min < 0: x_min = 0
-        if x_max > label_datacube.x_size: x_max = label_datacube.x_size
-
-        y_min -= int( ( y_max - y_min ) / 2. )
-        y_max += int( ( y_max - y_min ) / 2. )
-        if y_min < 0: y_min = 0
-        if y_max > label_datacube.y_size: y_max = label_datacube.y_size
-
-        # Clip
-        if x_max - x_min < self.clip:
-            x_min = int( (x_max + x_min) / 2. - self.clip / 2. + 1.)   # we resize it to the minclip
-            x_max = int( (x_max + x_min) / 2. + self.clip / 2. + 1.)   # value.
+            # Make vignet larger
+            x_min -= int( ( x_max - x_min ) / 2. )
+            x_max += int( ( x_max - x_min ) / 2. )
             if x_min < 0: x_min = 0
             if x_max > label_datacube.x_size: x_max = label_datacube.x_size
 
-        if y_max - y_min < self.clip:
-            y_min = int( (y_max + y_min) / 2. - self.clip / 2. + 1.)   # we resize it to the minclip
-            y_max = int( (y_max + y_min) / 2. + self.clip / 2. + 1.)   # value.
+            y_min -= int( ( y_max - y_min ) / 2. )
+            y_max += int( ( y_max - y_min ) / 2. )
             if y_min < 0: y_min = 0
             if y_max > label_datacube.y_size: y_max = label_datacube.y_size
 
-        self.bbox = (x_min, y_min, x_max, y_max)
-        self.x_size = x_max - x_min
-        self.y_size = y_max - y_min
+            # Clip
+            if x_max - x_min < self.clip:
+                x_min = int( (x_max + x_min) / 2. - self.clip / 2. + 1.)   # we resize it to the minclip
+                x_max = int( (x_max + x_min) / 2. + self.clip / 2. + 1.)   # value.
+                if x_min < 0: x_min = 0
+                if x_max > label_datacube.x_size: x_max = label_datacube.x_size
 
-        # Bayesian parameter bounds
-        self.lowb = 0.
-        self.highb = 2.
+            if y_max - y_min < self.clip:
+                y_min = int( (y_max + y_min) / 2. - self.clip / 2. + 1.)   # we resize it to the minclip
+                y_max = int( (y_max + y_min) / 2. + self.clip / 2. + 1.)   # value.
+                if y_min < 0: y_min = 0
+                if y_max > label_datacube.y_size: y_max = label_datacube.y_size
+
+            self.bbox = (x_min, y_min, x_max, y_max)
+            self.x_size = x_max - x_min
+            self.y_size = y_max - y_min
+
+            # Bayesian parameter bounds
+            self.lowb = 0.
+            self.highb = 2.
         
     def det_err_tube(self, wavelet_datacube, label_datacube):
         
@@ -471,23 +474,6 @@ class interscale_tree(object):
         sum_wr = np.sum( wr )
 
         return reconstructed, sum_wr, norm_wr
-
-def write_interscale_trees_to_pickle(interscale_tree_list, filename, overwrite = True):
-
-    if overwrite == True:
-        mode = 'wb'
-    else:
-        mode = 'ab'
-
-    with open(filename, mode) as outfile:
-        pickle.dump(interscale_tree_list, outfile)
-
-def read_interscale_trees_from_pickle(filename):
-
-    with open(filename, 'rb') as infile:
-        interscale_tree_list = pickle.load(infile)
-
-    return interscale_tree_list
 
 def enforce_monomodality(interscale_maximum, wavelet_datacube, label_datacube, threshold_rel = 0.05):
     '''Deprecated
