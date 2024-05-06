@@ -213,7 +213,7 @@ def load_restored_object_from_hdf5_group(grp):
     for attr_name in grp.keys():
         
         attr = grp[attr_name]
-        print(attr_name, attr)
+        #print(attr_name, attr)
         setattr(o, attr_name, np.squeeze(attr[()]))
     return o
 
