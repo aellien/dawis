@@ -219,7 +219,7 @@ def load_restored_object_from_hdf5_group(grp):
     return o
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-def write_objects_to_pickle(object_list, filename, overwrite = True):
+def write_ol_to_pickle(object_list, filename, overwrite = True):
 
     if overwrite == True:
         mode = 'wb'
@@ -230,7 +230,7 @@ def write_objects_to_pickle(object_list, filename, overwrite = True):
         pickle.dump(object_list, outfile)
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-def read_objects_from_pickle(filename):
+def read_ol_from_pickle(filename):
 
     with open(filename, 'rb') as infile:
         object_list = pickle.load(infile)
@@ -238,7 +238,7 @@ def read_objects_from_pickle(filename):
     return object_list
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-def write_interscale_trees_to_pickle(interscale_tree_list, filename, overwrite = True):
+def write_itl_to_pickle(interscale_tree_list, filename, overwrite = True):
 
     if overwrite == True:
         mode = 'wb'
@@ -249,7 +249,7 @@ def write_interscale_trees_to_pickle(interscale_tree_list, filename, overwrite =
         pickle.dump(interscale_tree_list, outfile)
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-def read_interscale_trees_from_pickle(filename):
+def read_itl_from_pickle(filename):
 
     with open(filename, 'rb') as infile:
         interscale_tree_list = pickle.load(infile)
