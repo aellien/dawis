@@ -14,6 +14,7 @@ import logging
 import pickle
 import sys
 import os
+import gc
 import glob
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -87,6 +88,7 @@ def write_itl_to_hdf5(itl, filename):
         filename (str): The name of the HDF5 file to be created.
     """
     with h5py.File(filename, "w") as f:
+        gc.collect()
         for i, o in enumerate(itl):
             grp = f.create_group(f'it{i}')
             object_recursive_save_to_hdf5(o, grp)
@@ -104,6 +106,7 @@ def read_itl_from_hdf5(filename):
     """
     itl = []
     with h5py.File(filename, "r") as f:
+        gc.collect()
         for grp_name in f.keys():
             grp = f[grp_name]
             it = load_interscale_tree_from_hdf5_group(grp)
@@ -177,6 +180,7 @@ def write_ol_to_hdf5(object_list, filename):
         filename (str): The name of the HDF5 file to be created.
     """
     with h5py.File(filename, "w") as f:
+        gc.collect()
         for i, o in enumerate(object_list):
             grp = f.create_group(f'o{i}')
             object_recursive_save_to_hdf5(o, grp)
@@ -194,6 +198,7 @@ def read_ol_from_hdf5(filename):
     """
     ol = []
     with h5py.File(filename, "r") as f:
+        gc.collect()
         for grp_name in f.keys():
             grp = f[grp_name]
             o = load_restored_object_from_hdf5_group(grp)
@@ -227,12 +232,14 @@ def write_ol_to_pickle(object_list, filename, overwrite = True):
         mode = 'ab'
 
     with open(filename, mode) as outfile:
+        gc.collect()
         pickle.dump(object_list, outfile)
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 def read_ol_from_pickle(filename):
 
     with open(filename, 'rb') as infile:
+        gc.collect()
         object_list = pickle.load(infile)
 
     return object_list
@@ -246,12 +253,14 @@ def write_itl_to_pickle(interscale_tree_list, filename, overwrite = True):
         mode = 'ab'
 
     with open(filename, mode) as outfile:
+        gc.collect()
         pickle.dump(interscale_tree_list, outfile)
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 def read_itl_from_pickle(filename):
 
     with open(filename, 'rb') as infile:
+        gc.collect()
         interscale_tree_list = pickle.load(infile)
         
     return interscale_tree_list
@@ -259,8 +268,8 @@ def read_itl_from_pickle(filename):
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 def pkl_to_hdf5(pkl_ol, pkl_itl):
     
-   ol = read_objects_from_pickle(pkl_ol)
-   itl = read_interscale_trees_from_pickle(pkl_itl)
+   ol = read_ol_from_pickle(pkl_ol)
+   itl = read_itl_from_pickle(pkl_itl)
    write_ol_to_hdf5(ol, pkl_ol[:-3] + 'hdf5')
    write_itl_to_hdf5(itl, pkl_itl[:-3] + 'hdf5')
    

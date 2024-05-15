@@ -27,10 +27,10 @@ from dawis.restore_objects import *
 from dawis.gif import *
 from dawis.inpainting import sample_noise, inpaint_with_gaussian_noise
 from dawis.detect_and_deblend import ms_detect_and_deblend
-from dawis.store_objects import write_itl_to_hdf5, write_ol_to_hdf5
+from dawis.store_objects import *
 
 def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2, tau = 0.8, n_levels = None, n_sigmas = 5, deblend_contrast = 0.1,\
-                                gamma = 0.2, min_span = 2, max_span = 3, lvl_sep_big = 6, rm_gamma_for_big = False, lvl_deblend = 3, \
+                                gamma = 0.2, min_span = 2, max_span = 3, lvl_sep_big = 6, rm_gamma_for_big = False, lvl_deblend = 3, outfile_format = 'pickle', \
                                 extent_sep = 0.1, ecc_sep = 0.95, lvl_sep_lin = 2, lvl_sep_op = 3, ceps = 1E-3, scale_lvl_eps = 1, conditions = 'loop', deconv = False,\
                                 max_iter = 500, size_patch = 100, inpaint_res = True, data_dump = True, gif = True, iptd_sigma = 3, resume = True):
 
@@ -102,10 +102,16 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
             if inpaint_res == True:
                 res = inpaint_with_gaussian_noise(res, mean = mean, sigma = sigma, iptd_sigma = iptd_sigma)
             
+            # Check if resume run
             if ( os.path.exists(''.join(( outpath, '.ol.it%03d.pkl' %(it)))) ) & resume == True:
 
                 logging.info('\n\nFound %s --> resuming iteration' %(''.join(( outpath, '.ol.it%03d.pkl' %(it)))))
-                ol = read_objects_from_pickle(''.join(( outpath, '.ol.it%03d.pkl' %(it))))
+                ol = read_ol_from_pickle(''.join(( outpath, '.ol.it%03d.pkl' %(it))))
+                
+            elif ( os.path.exists(''.join(( outpath, '.ol.it%03d.hdf5' %(it)))) ) & resume == True:
+
+                logging.info('\n\nFound %s --> resuming iteration' %(''.join(( outpath, '.ol.it%03d.hdf5' %(it)))))
+                ol = read_ol_from_pickle(''.join(( outpath, '.ol.it%03d.hdf5' %(it))))
 
             else:
 
@@ -184,10 +190,18 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
             if ( os.path.exists(''.join(( outpath, '.ol.it%03d.hdf5' %(it)))) ) & resume == True:
                 it += 1
                 continue
+            
+            elif ( os.path.exists(''.join(( outpath, '.ol.it%03d.pkl' %(it)))) ) & resume == True:
+                it += 1
+                continue
+            
             else:
-                write_itl_to_hdf5( itl, ''.join(( outpath, '.itl.it%03d.hdf5' %(it) )))
-                write_ol_to_hdf5( ol, ''.join(( outpath, '.ol.it%03d.hdf5' %(it) )))
-                
+                if outfile_format == 'hdf5':
+                    write_itl_to_hdf5( itl, ''.join(( outpath, '.itl.it%03d.hdf5' %(it) )))
+                    write_ol_to_hdf5( ol, ''.join(( outpath, '.ol.it%03d.hdf5' %(it) )))
+                elif outfile_format == 'pickle':
+                    write_itl_to_pickle( itl, ''.join(( outpath, '.itl.it%03d.pkl' %(it) )))
+                    write_ol_to_pickle( ol, ''.join(( outpath, '.ol.it%03d.pkl' %(it) )))
                 if data_dump:
                     logging.info('[ %s ] Dumping data in %s' %(datetime.now(), outdir) )
                     write_regions_to_pickle( rl, ''.join(( outpath, '.rl.it%03d.pkl' %(it) )), overwrite = True)
@@ -255,7 +269,7 @@ def load_iteration( it, outpath ):
     ldc = label_datacube.from_fits( ''.join(( outpath, '.ldc.it%03d.fits' %(it) )))
     rl = read_regions_from_pickle( ''.join(( outpath, '.rl.it%03d.pkl' %(it) )))
     itl = read_interscale_trees_from_pickle( ''.join(( outpath, '.itl.it%03d.pkl' %(it) )))
-    ol = read_objects_from_pickle( ''.join(( outpath, '.ol.it%03d.pkl' %(it) )))
+    ol = read_ol_from_pickle( ''.join(( outpath, '.ol.it%03d.pkl' %(it) )))
     return wdc, ldc, rl, itl, ol
 
 if __name__=="__main__":
