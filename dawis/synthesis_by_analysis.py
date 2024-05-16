@@ -111,7 +111,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
             elif ( os.path.exists(''.join(( outpath, '.ol.it%03d.hdf5' %(it)))) ) & resume == True:
 
                 logging.info('\n\nFound %s --> resuming iteration' %(''.join(( outpath, '.ol.it%03d.hdf5' %(it)))))
-                ol = read_ol_from_pickle(''.join(( outpath, '.ol.it%03d.hdf5' %(it))))
+                ol = read_ol_from_hdf5(''.join(( outpath, '.ol.it%03d.hdf5' %(it))))
 
             else:
 
