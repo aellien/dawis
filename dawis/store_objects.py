@@ -316,8 +316,8 @@ def read_image_atoms( nfp, file_format = 'hdf5', filter_it = None, verbose = Tru
             print('Iteration %d' %(i), end ='\r')
             
         if file_format == 'pkl':
-            ol = read_objects_from_pickle( op )
-            itl = read_interscale_trees_from_pickle( itlp )
+            ol = read_ol_from_pickle( op )
+            itl = read_itl_from_pickle( itlp )
 
         elif file_format == 'hdf5':
             ol = read_ol_from_hdf5( op)
