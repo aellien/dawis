@@ -41,7 +41,7 @@ def ms_detect_and_deblend(wavelet_datacube, n_sigmas = 3, wavelet_type = 'BSPL',
     
     if verbose == True:
         log = logging.getLogger(__name__)
-        log.info('\nLabelling regions')
+        log.info('Labelling regions')
     
     x_axis, y_axis, n_levels = wavelet_datacube.shape
     

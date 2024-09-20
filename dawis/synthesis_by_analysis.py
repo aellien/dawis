@@ -96,7 +96,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
         while avnormeps > ceps :
 
             start_time_it = datetime.now()
-            logging.info('[ %s ] Level = %d Iteration = %d' %(datetime.now(), level, it))
+            logging.info('[ %s ] Level = %d Iteration = %d ---------------' %(datetime.now(), level, it))
 
             # inpaint bad reconstruction pixels and NaN pixels with noise draws
             if inpaint_res == True:
@@ -105,12 +105,12 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
             # Check if resume run
             if ( os.path.exists(''.join(( outpath, '.ol.it%03d.pkl' %(it)))) ) & resume == True:
 
-                logging.info('\n\nFound %s --> resuming iteration' %(''.join(( outpath, '.ol.it%03d.pkl' %(it)))))
+                logging.info('Found %s.\nResuming iteration' %(''.join(( outpath, '.ol.it%03d.pkl' %(it)))))
                 ol = read_ol_from_pickle(''.join(( outpath, '.ol.it%03d.pkl' %(it))))
                 
             elif ( os.path.exists(''.join(( outpath, '.ol.it%03d.hdf5' %(it)))) ) & resume == True:
 
-                logging.info('\n\nFound %s --> resuming iteration' %(''.join(( outpath, '.ol.it%03d.hdf5' %(it)))))
+                logging.info('Found %s --> resuming iteration' %(''.join(( outpath, '.ol.it%03d.hdf5' %(it)))))
                 ol = read_ol_from_hdf5(''.join(( outpath, '.ol.it%03d.hdf5' %(it))))
 
             else:
@@ -175,7 +175,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
             # Convergence
             flux_res = 1 - ( np.abs(np.sum(atom) - np.sum(np.sqrt(res**2)))) / np.sum(np.sqrt(res**2))
             flux_rec = 1 - ( np.abs(np.sum(atom) - np.sum(np.sqrt(rec**2)))) / np.sum(np.sqrt(rec**2))
-            logging.info('[ %s ] Convergence : res = %f rec = %f' %( datetime.now(), flux_res, flux_rec ))
+            logging.info('Convergence : res = %f rec = %f' %(flux_res, flux_rec ))
             old_std = std
             std = np.std(res)
             eps = np.sqrt( ( old_std - std )**2 ) / np.sqrt( old_std**2 )
@@ -184,14 +184,16 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
             if len(window) > 5:window.pop(0)
             avnormeps = np.mean(window)
             cparl.append([ str(level), str(it), str(avnormeps), str(normeps), str(eps), str(flux_rec), str(flux_res), str(len(ol)), str( datetime.now() - start_time_it ) ])
-            logging.info('[ %s ] Number Objects = %d, Normalized Epsilon = %f, Window Normalized Epsilon = %f' %( datetime.now(), len(ol), normeps, avnormeps ))
+            logging.info('Number Objects = %d, Normalized Epsilon = %f, Window Normalized Epsilon = %f' %( len(ol), normeps, avnormeps ))
 
             # Data Dump
             if ( os.path.exists(''.join(( outpath, '.ol.it%03d.hdf5' %(it)))) ) & resume == True:
                 it += 1
+                logging.info('[ %s ]End of iteration (time: %s) \n\n'%(datetime.now(), datetime.now() - start_time_it ))
                 continue
             
             elif ( os.path.exists(''.join(( outpath, '.ol.it%03d.pkl' %(it)))) ) & resume == True:
+                logging.info('[ %s ]End of iteration (time: %s) \n\n'%(datetime.now(), datetime.now() - start_time_it ))
                 it += 1
                 continue
             
@@ -226,7 +228,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
                                                         residuals = res, \
                                                         atom = atom, \
                                                         outpath = outpath )
-            logging.info('[ %s ]End of iteration (time: %s).\n\n'%(datetime.now(), datetime.now() - start_time_it ))
+            logging.info('[ %s ]End of iteration (time: %s)\n\n'%(datetime.now(), datetime.now() - start_time_it ))
             it += 1
             if it > max_iter:
                 break

@@ -96,13 +96,9 @@ class interscale_tree(object):
         
         wavelet_tube, support_tube, label_tube = self.tubes(wavelet_datacube, label_datacube)
         det_err_tube = np.copy(support_tube)
-        try:
-            for level in range(0, det_err_tube.shape[2]):
+        
+        for level in range(0, det_err_tube.shape[2]):
                 det_err_tube[:,:,level] *= self.det_err_array[level]
-        except:
-            import pdb;pdb.set_trace()
-
-        print('det_err_tube: shape =',det_err_tube.shape)
         
         return det_err_tube
             
@@ -635,7 +631,8 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, det_err
         while region_list[i].level in levels_rejected :
             i += 1
             if i >= len(region_list):
-                print('make_interscale_trees:return None')
+                log = logging.getLogger(__name__)
+                log.info("No interscale maximum found. Please consider lowering parameters 'tau' or 'min_span' if this keeps happening at every level.")
                 return None # Regions are all in rejected levels (0 or last)
                 
         threshold_maximum = region_list[i].norm_max_intensity * tau
@@ -654,7 +651,7 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, det_err
     log.info('Estimating global interscale maxima: %d found.' %(len(interscale_maximum_list)))
 
     if (len(interscale_maximum_list) <= size_patch) or (n_cpus == 1):
-        print("serial")
+        log.info('Not activating Ray store.')
         # Connectivity
         interscale_tree_list = interscale_connectivity_serial( interscale_maximum_list = interscale_maximum_list,  \
                                                                region_list = region_list,  \
@@ -669,8 +666,7 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, det_err
                                                                verbose = verbose )
 
     else:
-        print("para")
-        logging.info('Size interscale maximum patch (%d) greater than %d, activating Ray store.'%( len(interscale_maximum_list), size_patch ))
+        logging.info('Activating Ray store with patches of size %d.'%(size_patch))
         id_rl = ray.put(region_list)
         id_wdc = ray.put(wavelet_datacube)
         id_ldc = ray.put(label_datacube)
