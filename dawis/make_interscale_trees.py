@@ -101,6 +101,9 @@ class interscale_tree(object):
                 det_err_tube[:,:,level] *= self.det_err_array[level]
         except:
             import pdb;pdb.set_trace()
+
+        print('det_err_tube: shape =',det_err_tube.shape)
+        
         return det_err_tube
             
     
@@ -627,26 +630,29 @@ def make_interscale_trees(region_list, wavelet_datacube, label_datacube, det_err
     levels_rejected = [ 0, label_datacube.z_size ]
     threshold_maximum = region_list[0].norm_max_intensity * tau
     level_maximum = region_list[0].level
-    
+
     if len(region_list) > 1:
         while region_list[i].level in levels_rejected :
-    
             i += 1
-            threshold_maximum = region_list[i].norm_max_intensity * tau
-            level_maximum = region_list[i].level
+            if i >= len(region_list):
+                print('make_interscale_trees:return None')
+                return None # Regions are all in rejected levels (0 or last)
+                
+        threshold_maximum = region_list[i].norm_max_intensity * tau
+        level_maximum = region_list[i].level
         
         interscale_maximum_list = [x for x in region_list if 
-                               x.norm_max_intensity >= threshold_maximum and
-                               x.level == level_maximum and
-                               x.area >= min_reg_size]
-    
+                            x.norm_max_intensity >= threshold_maximum and
+                            x.level == level_maximum and
+                            x.area >= min_reg_size]
+            
     else:
         interscale_maximum_list = region_list
     
-    if verbose == True:
-        log = logging.getLogger(__name__)
-        log.info('Estimating global interscale maxima: %d found.' %(len(interscale_maximum_list)))
-       
+
+    log = logging.getLogger(__name__)
+    log.info('Estimating global interscale maxima: %d found.' %(len(interscale_maximum_list)))
+
     if (len(interscale_maximum_list) <= size_patch) or (n_cpus == 1):
         print("serial")
         # Connectivity

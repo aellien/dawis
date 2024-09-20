@@ -91,9 +91,11 @@ def restore_object( interscale_tree, wavelet_datacube, label_datacube, extent_se
 
     if interscale_tree.det_err_tube(wavelet_datacube, label_datacube).shape[2] > 1:
         det_err_image = np.sum(interscale_tree.det_err_tube(wavelet_datacube, label_datacube), axis = 2)
+        print('restore_object:case1: shape = ',det_err_image.shape)
     else:
-        det_err_image = interscale_tree.det_err_tube(wavelet_datacube, label_datacube)
-
+        det_err_image = np.squeeze(interscale_tree.det_err_tube(wavelet_datacube, label_datacube), 2) # from (x, y, 1) to (x, y)
+        print('restore_object:case2: shape = ',det_err_image.shape)
+    
 
     # Security
     if np.isnan(np.sum(image)):
