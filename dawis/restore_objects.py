@@ -122,6 +122,13 @@ def restore_objects_default(interscale_tree_list, oimage, cg_gamma, niter, wavel
             if (rm_gamma_for_big == False) or (tree.interscale_maximum.level < lvl_sep_big):
                 image = image * gamma  # add attenuation factor
 
+            # new quality check
+            # some restored objects with the adjoint operator are very bad
+            # use residual values to quality check and leave the reconstructed object if too bad
+            # hard coded values for tests
+            if (tree.interscale_maximum.level > lvl_sep_op) & (sum_wr > 1000) & (norm_wr > 100):
+                image = np.zeros(image.shape)
+                flag_convergence = False
             object_list.append( restored_object(image, det_err_image, tree.bbox, \
                                                 tree.interscale_maximum.level, \
                                                 tree.interscale_maximum.eccentricity, \
