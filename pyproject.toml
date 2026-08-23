@@ -35,7 +35,8 @@ dependencies = [
 ray = ["ray"]
 viz = ["matplotlib"]
 bench = ["psutil"]
-all = ["dawis[ray,viz,bench]"]
+test = ["pytest>=8.0"]
+all = ["dawis[ray,viz,bench,test]"]
 
 [project.urls]
 Homepage = "https://github.com/aellien/dawis"
@@ -47,3 +48,11 @@ zip-safe = false
 
 [tool.setuptools.package-data]
 dawis = ["gallery/*.fits"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+markers = [
+    "slow: Tier 2 checks — the full gallery golden run and parallel consistency. Excluded from the default suite; run with `pytest -m slow`.",
+]
+addopts = "-ra --strict-markers --strict-config -m \"not slow\""
