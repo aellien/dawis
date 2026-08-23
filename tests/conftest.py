@@ -113,14 +113,3 @@ def run_dir(tmp_path: Path) -> Path:
     path = tmp_path / "run"
     path.mkdir()
     return path
-
-
-def pytest_sessionfinish(session, exitstatus):
-    """Exit zero when the suite is still empty.
-
-    Scaffolding only: pytest reports ``NO_TESTS_COLLECTED`` (exit 5) when it
-    finds nothing, and #34 asks for a clean exit before any test exists.
-    Delete this hook once Tier 0 lands (#35).
-    """
-    if exitstatus == pytest.ExitCode.NO_TESTS_COLLECTED:
-        session.exitstatus = pytest.ExitCode.OK
