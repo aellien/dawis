@@ -18,7 +18,11 @@ from dawis.datacube import *
 from scipy.stats import sigmaclip
 from scipy.stats import normaltest
 import numpy as np
-import matplotlib.pyplot as plt
+try:
+    import matplotlib.pyplot as plt
+except ImportError:  # matplotlib is the optional [viz] extra
+    from dawis._optional import MissingDependency
+    plt = MissingDependency('matplotlib', 'viz')
 import logging
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

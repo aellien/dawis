@@ -9,9 +9,17 @@
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-from matplotlib.colors import LogNorm
+try:
+    from matplotlib.colors import LogNorm
+except ImportError:  # matplotlib is the optional [viz] extra
+    from dawis._optional import MissingDependency
+    LogNorm = MissingDependency('matplotlib.colors.LogNorm', 'viz')
 from subprocess import run
-import matplotlib.pyplot as plt
+try:
+    import matplotlib.pyplot as plt
+except ImportError:  # matplotlib is the optional [viz] extra
+    from dawis._optional import MissingDependency
+    plt = MissingDependency('matplotlib', 'viz')
 import logging
 logging.getLogger('matplotlib').setLevel(logging.WARNING)
 import numpy as np

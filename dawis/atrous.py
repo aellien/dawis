@@ -11,7 +11,11 @@ import pdb
 from datetime import datetime
 from scipy.ndimage import gaussian_filter
 from scipy.signal import convolve2d
-import matplotlib.pyplot as plt
+try:
+    import matplotlib.pyplot as plt
+except ImportError:  # matplotlib is the optional [viz] extra
+    from dawis._optional import MissingDependency
+    plt = MissingDependency('matplotlib', 'viz')
 #from numba import jit, njit
 from dawis.congrid import congrid
 import logging

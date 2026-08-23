@@ -6,8 +6,16 @@
 # MODULES
 
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.colors import SymLogNorm
+try:
+    import matplotlib.pyplot as plt
+except ImportError:  # matplotlib is the optional [viz] extra
+    from dawis._optional import MissingDependency
+    plt = MissingDependency('matplotlib', 'viz')
+try:
+    from matplotlib.colors import SymLogNorm
+except ImportError:  # matplotlib is the optional [viz] extra
+    from dawis._optional import MissingDependency
+    SymLogNorm = MissingDependency('matplotlib.colors.SymLogNorm', 'viz')
 from astropy.io import fits
 from dawis.exceptions import DawisDimensionError
 from dawis.datacube import *

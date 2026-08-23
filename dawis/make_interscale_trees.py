@@ -13,14 +13,25 @@ from dawis.wavelet_transforms import bspl_atrous
 from dawis.deconvolution import pad, unpad, richardson_lucy_np, B2spline, twod_B2spline
 from dawis.table_noise_stds import table_noise_stds
 import pdb
-import matplotlib.pyplot as plt
+try:
+    import matplotlib.pyplot as plt
+except ImportError:  # matplotlib is the optional [viz] extra
+    from dawis._optional import MissingDependency
+    plt = MissingDependency('matplotlib', 'viz')
 import gc
 import _pickle as pickle
 import numpy as np
 import logging
-import ultranest
-import ray
-from matplotlib.colors import SymLogNorm
+try:
+    import ray
+except ImportError:  # ray is the optional [ray] extra
+    from dawis._optional import MissingRay
+    ray = MissingRay()
+try:
+    from matplotlib.colors import SymLogNorm
+except ImportError:  # matplotlib is the optional [viz] extra
+    from dawis._optional import MissingDependency
+    SymLogNorm = MissingDependency('matplotlib.colors.SymLogNorm', 'viz')
 from skimage.feature import peak_local_max
 from scipy import ndimage as ndi
 from scipy.optimize import line_search

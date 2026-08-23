@@ -10,11 +10,19 @@
 
 from datetime import datetime
 import pdb
-import matplotlib.pyplot as plt
+try:
+    import matplotlib.pyplot as plt
+except ImportError:  # matplotlib is the optional [viz] extra
+    from dawis._optional import MissingDependency
+    plt = MissingDependency('matplotlib', 'viz')
 import _pickle as pickle
 import gc
 import numpy as np
-import ray
+try:
+    import ray
+except ImportError:  # ray is the optional [ray] extra
+    from dawis._optional import MissingRay
+    ray = MissingRay()
 import logging
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

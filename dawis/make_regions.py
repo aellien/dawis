@@ -10,10 +10,18 @@
 
 from dawis.table_noise_stds import table_noise_stds
 from skimage.measure import regionprops
-from matplotlib.offsetbox import AnchoredText
+try:
+    from matplotlib.offsetbox import AnchoredText
+except ImportError:  # matplotlib is the optional [viz] extra
+    from dawis._optional import MissingDependency
+    AnchoredText = MissingDependency('matplotlib.offsetbox.AnchoredText', 'viz')
 from datetime import datetime
 import pdb
-import matplotlib.pyplot as plt
+try:
+    import matplotlib.pyplot as plt
+except ImportError:  # matplotlib is the optional [viz] extra
+    from dawis._optional import MissingDependency
+    plt = MissingDependency('matplotlib', 'viz')
 import pickle
 import numpy as np
 import logging

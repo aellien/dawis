@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dawis"
+version = "0.9.0.dev0"
+description = "Detection Algorithm with Wavelets for Intracluster light Studies"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Amaël Ellien", email = "amael.ellien@oca.eu" },
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Astronomy",
+]
+dependencies = [
+    "numpy",
+    "scipy",
+    "astropy",
+    "h5py",
+    "photutils",
+    "scikit-image",
+]
+
+[project.optional-dependencies]
+ray = ["ray"]
+viz = ["matplotlib"]
+all = ["dawis[ray,viz]"]
+
+[project.urls]
+Homepage = "https://github.com/aellien/dawis"
+Repository = "https://github.com/aellien/dawis.git"
+
+[tool.setuptools]
+packages = ["dawis"]
+zip-safe = false
+
+[tool.setuptools.package-data]
+dawis = ["gallery/*.fits"]
