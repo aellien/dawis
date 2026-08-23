@@ -1,0 +1,120 @@
+{
+  "label": "legacy-seeded, CG max_iter=3",
+  "status": "ok",
+  "error": null,
+  "started": "2026-08-24T00:08:57",
+  "wall_s": 262.5,
+  "image": {
+    "path": "/home/amael/dawis-legacy-seeded/dawis/gallery/tidal_group_f814w_sci.fits",
+    "shape": [
+      900,
+      900
+    ]
+  },
+  "cg_max_iter": 3,
+  "cg_max_iter_default_in_source": 200,
+  "cg_max_iter_forced": true,
+  "cg_calls": 418,
+  "seed": 0,
+  "seed_supported": true,
+  "config": {
+    "indir": "/home/amael/dawis-legacy-seeded/dawis/gallery",
+    "infile": "tidal_group_f814w_sci.fits",
+    "outdir": "/home/amael/dawis-bench/cg-max-iter-3",
+    "n_cpus": 1,
+    "starting_level": 2,
+    "tau": 0.1,
+    "n_levels": 9,
+    "n_sigmas": 5,
+    "deblend_contrast": 0.1,
+    "gamma": 0.5,
+    "min_span": 2,
+    "max_span": 3,
+    "lvl_sep_big": 5,
+    "rm_gamma_for_big": false,
+    "lvl_deblend": 3,
+    "outfile_format": "pickle",
+    "extent_sep": 0.1,
+    "ecc_sep": 0.95,
+    "lvl_sep_lin": 2,
+    "lvl_sep_op": 3,
+    "ceps": 0.0001,
+    "scale_lvl_eps": 1,
+    "conditions": "loop",
+    "deconv": false,
+    "max_iter": 500,
+    "size_patch": 100,
+    "inpaint_res": true,
+    "data_dump": false,
+    "gif": false,
+    "iptd_sigma": 3,
+    "resume": false,
+    "seed": 0
+  },
+  "config_passed": {
+    "n_levels": 9,
+    "tau": 0.1,
+    "gamma": 0.5,
+    "ceps": 0.0001,
+    "min_span": 2,
+    "max_span": 3,
+    "lvl_sep_big": 5,
+    "starting_level": 2,
+    "indir": "/home/amael/dawis-legacy-seeded/dawis/gallery",
+    "infile": "tidal_group_f814w_sci.fits",
+    "outdir": "/home/amael/dawis-bench/cg-max-iter-3",
+    "n_cpus": 1,
+    "max_iter": 500,
+    "data_dump": false,
+    "gif": false,
+    "resume": false,
+    "seed": 0
+  },
+  "source": {
+    "package_dir": "/home/amael/dawis-legacy-seeded/dawis",
+    "git": {
+      "commit": "1434f66a9482c078f090f474f1ac3ae4b2682b47",
+      "branch": "legacy-seeded",
+      "describe": "v0.0.7-h-5-g1434f66",
+      "dirty": false
+    },
+    "stubbed_modules": [
+      "ray",
+      "ultranest"
+    ]
+  },
+  "machine": {
+    "hostname": "amael-XPS-13-9360",
+    "cpu_model": "Intel(R) Core(TM) i7-7500U CPU @ 2.70GHz",
+    "n_cpus_machine": 4,
+    "ram_total_gb": 14.7,
+    "platform": "Linux-7.0.0-29-generic-x86_64-with-glibc2.43",
+    "python": "3.13.9",
+    "packages": {
+      "numpy": "2.3.5",
+      "scipy": "1.16.3",
+      "astropy": "7.1.1",
+      "h5py": "3.15.1",
+      "photutils": "3.0.0",
+      "skimage": "0.25.2",
+      "matplotlib": "3.10.6",
+      "psutil": "7.0.0",
+      "ray": null
+    }
+  },
+  "outdir_mb": 194.8,
+  "phases_s": {
+    "inpaint+resume": 0.7173090000000002,
+    "wavelet+detect": 32.242166,
+    "trees": 7.674098999999999,
+    "restore": 205.05428600000002,
+    "atoms+converge+write": 4.008081999999999
+  },
+  "loop_s": 249.695942,
+  "n_iterations": 22,
+  "n_atoms": 418,
+  "peak_rss_total_mb": 949.0,
+  "peak_rss_driver_mb": 949.0,
+  "max_procs": 1,
+  "restore_share": 0.8212
+}

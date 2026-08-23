@@ -34,7 +34,8 @@ dependencies = [
 [project.optional-dependencies]
 ray = ["ray"]
 viz = ["matplotlib"]
-all = ["dawis[ray,viz]"]
+bench = ["psutil"]
+all = ["dawis[ray,viz,bench]"]
 
 [project.urls]
 Homepage = "https://github.com/aellien/dawis"
