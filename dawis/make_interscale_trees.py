@@ -24,7 +24,7 @@ from skimage.feature import peak_local_max  # noqa: F401
 from skimage.measure import label, regionprops  # noqa: F401
 from skimage.segmentation import watershed  # noqa: F401
 
-from dawis.deconvolution import (  # noqa: F401
+from dawis.restoration.deconvolution import (  # noqa: F401
     B2spline,
     pad,
     richardson_lucy_np,

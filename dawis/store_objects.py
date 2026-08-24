@@ -6,7 +6,7 @@ Created on Fri May  3 15:38:40 2024
 @author: aellien
 """
 from dawis.trees import interscale_tree
-from dawis.restore_objects import restored_object
+from dawis.restoration import restored_object
 from dawis.detection import region
 import h5py
 import numpy as np

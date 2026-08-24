@@ -3,10 +3,11 @@
 The third block carved out of the flat package. It depends on
 :mod:`dawis.cubes`, on the regions :mod:`dawis.detection` produces, and on the
 à trous transform of :mod:`dawis.wavelets` — all already carved, so nothing
-here points backwards. The one exception is the Richardson-Lucy deconvolution
-that the synthesis calls under ``deconv``, still in the flat
-``dawis.deconvolution``; it joins ``dawis.restoration`` when that block is
-carved (#44).
+here points backwards. The Richardson-Lucy deconvolution that the synthesis
+calls under ``deconv`` moved to :mod:`dawis.restoration` with #44 and is
+imported from there. That edge runs one way only: restoration names
+:class:`~dawis.trees.construction.interscale_tree` in its annotations alone,
+behind ``TYPE_CHECKING``, so the two blocks do not form a cycle.
 
 An **interscale tree** is one structure seen at every scale at once: a root
 region on a coarse plane plus the finer regions that belong to the same

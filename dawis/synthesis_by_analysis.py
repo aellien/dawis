@@ -30,7 +30,7 @@ from dawis.anscombe_transforms import *
 from dawis.make_interscale_trees import *
 from dawis.restore_objects import *
 from dawis.gif import *
-from dawis.inpainting import sample_noise, inpaint_with_gaussian_noise
+from dawis.restoration import sample_noise, inpaint_with_gaussian_noise
 from dawis.store_objects import *
 
 def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2, tau = 0.8, n_levels = None, n_sigmas = 5, deblend_contrast = 0.1,\

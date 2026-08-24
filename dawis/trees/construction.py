@@ -33,8 +33,8 @@ from __future__ import annotations
 import numpy as np
 
 from dawis.cubes import label_datacube, wavelet_datacube
-from dawis.deconvolution import richardson_lucy_np, twod_B2spline
 from dawis.detection import region
+from dawis.restoration.deconvolution import richardson_lucy_np, twod_B2spline
 from dawis.wavelets import atrous
 
 try:
