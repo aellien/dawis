@@ -7,7 +7,7 @@ Created on Fri May  3 15:38:40 2024
 """
 from dawis.make_interscale_trees import interscale_tree
 from dawis.restore_objects import restored_object
-from dawis.make_regions import region
+from dawis.detection import region
 import h5py
 import numpy as np
 import logging

@@ -15,18 +15,22 @@ from datetime import datetime
 import sys as sys
 import pdb
 import glob as glob
-from dawis.make_regions import *
 from dawis.cubes import *
+from dawis.detection import (
+    hard_threshold,
+    label_regions,
+    make_regions_full_props,
+    ms_detect_and_deblend,
+    read_regions_from_pickle,
+    region,
+    write_regions_to_pickle,
+)
 from dawis.wavelet_transforms import bspl_atrous
-from dawis.hard_threshold import hard_threshold
-from dawis.label_regions import label_regions
 from dawis.anscombe_transforms import *
-from dawis.make_regions import *
 from dawis.make_interscale_trees import *
 from dawis.restore_objects import *
 from dawis.gif import *
 from dawis.inpainting import sample_noise, inpaint_with_gaussian_noise
-from dawis.detect_and_deblend import ms_detect_and_deblend
 from dawis.store_objects import *
 
 def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2, tau = 0.8, n_levels = None, n_sigmas = 5, deblend_contrast = 0.1,\
