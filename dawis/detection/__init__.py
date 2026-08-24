@@ -38,9 +38,7 @@ from dawis.detection.noise import table_noise_stds
 from dawis.detection.regions import (
     make_regions_crucial_props,
     make_regions_full_props,
-    read_regions_from_pickle,
     region,
-    write_regions_to_pickle,
 )
 from dawis.detection.thresholding import hard_threshold
 
@@ -50,8 +48,6 @@ __all__ = [
     'make_regions_crucial_props',
     'make_regions_full_props',
     'ms_detect_and_deblend',
-    'read_regions_from_pickle',
     'region',
     'table_noise_stds',
-    'write_regions_to_pickle',
 ]

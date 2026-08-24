@@ -43,7 +43,7 @@ Homepage = "https://github.com/aellien/dawis"
 Repository = "https://github.com/aellien/dawis.git"
 
 [tool.setuptools]
-packages = ["dawis", "dawis.detection", "dawis.restoration", "dawis.trees", "dawis.wavelets"]
+packages = ["dawis", "dawis.detection", "dawis.io", "dawis.restoration", "dawis.trees", "dawis.wavelets"]
 zip-safe = false
 
 [tool.setuptools.package-data]

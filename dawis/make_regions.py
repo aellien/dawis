@@ -1,7 +1,7 @@
 """Deprecated location of region property construction.
 
-The code moved to :mod:`dawis.detection.regions` (#42). This module
-re-exports it, along with the names the old module leaked into its own
+The code moved to :mod:`dawis.detection.regions` (#42), and the two pickle
+helpers on to :mod:`dawis.io.legacy` (#45). This module re-exports both, along with the names the old module leaked into its own
 namespace — skimage's ``regionprops``, matplotlib's ``AnchoredText``, and the
 noise table — so a caller importing any name from here still gets it. It is
 deleted by the contract ticket (#50) once none remain.
@@ -21,7 +21,10 @@ from dawis.detection.regions import (  # noqa: F401
     plt,
     make_regions_crucial_props,
     make_regions_full_props,
-    read_regions_from_pickle,
     region,
+)
+# The two pickle helpers travelled on to :mod:`dawis.io.legacy` with #45.
+from dawis.io.legacy import (  # noqa: F401
+    read_regions_from_pickle,
     write_regions_to_pickle,
 )

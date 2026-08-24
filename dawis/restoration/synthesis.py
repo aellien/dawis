@@ -59,7 +59,7 @@ class restored_object(object):
 
     Constructed with ``blank = True`` and no other argument, the instance is
     left empty for a reader to fill in — that is how
-    :mod:`dawis.store_objects` rebuilds one off disk.
+    :mod:`dawis.io.store` rebuilds one off disk.
 
     Parameters
     ----------

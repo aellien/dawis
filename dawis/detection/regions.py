@@ -15,7 +15,6 @@ scale.
 from __future__ import annotations
 
 import logging
-import pickle
 
 import numpy as np
 from skimage.measure import regionprops
@@ -292,64 +291,5 @@ def make_regions_crucial_props(wavelet_datacube, label_datacube, n_cpus = 1, ver
                                     x_max = region_tab[i, 0], \
                                     y_max = region_tab[i, 1], \
                                     level = region_tab[i, 2] ) )
-
-    return region_list
-
-def write_regions_to_pickle(
-    region_list: list[region],
-    filename: str,
-    overwrite: bool = True,
-) -> None:
-    """Write a region list to a pickle file.
-
-    Parameters
-    ----------
-    region_list : list of region
-        The regions to write.
-    filename : str
-        Path to write to.
-    overwrite : bool, optional
-        Replace the file. Default is True; False appends a second pickle
-        stream to the existing file, which
-        :func:`read_regions_from_pickle` will not read back.
-
-    Notes
-    -----
-    Moves to the ``io`` subpackage when that is carved.
-    """
-
-    if overwrite == True:
-        mode = 'wb'
-    else:
-        mode = 'ab'
-
-    with open(filename, mode) as outfile:
-        pickle.dump(region_list, outfile)
-
-def read_regions_from_pickle(filename: str) -> list[region]:
-    """Read a region list back from a pickle file.
-
-    Parameters
-    ----------
-    filename : str
-        Path written by :func:`write_regions_to_pickle`.
-
-    Returns
-    -------
-    list of region
-        The regions, in the order they were written.
-
-    Notes
-    -----
-    Reads one pickle stream, so a file appended to holds regions this does
-    not return.
-
-    Unpickling executes whatever the file says. Read only files you produced.
-
-    Moves to the ``io`` subpackage when that is carved.
-    """
-
-    with open(filename, 'rb') as infile:
-        region_list = pickle.load(infile)
 
     return region_list

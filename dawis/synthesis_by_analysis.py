@@ -21,9 +21,7 @@ from dawis.detection import (
     label_regions,
     make_regions_full_props,
     ms_detect_and_deblend,
-    read_regions_from_pickle,
     region,
-    write_regions_to_pickle,
 )
 from dawis.wavelet_transforms import bspl_atrous
 from dawis.anscombe_transforms import *
@@ -31,7 +29,17 @@ from dawis.make_interscale_trees import *
 from dawis.restore_objects import *
 from dawis.gif import *
 from dawis.restoration import sample_noise, inpaint_with_gaussian_noise
-from dawis.store_objects import *
+from dawis.io import (
+    read_image,
+    read_regions_from_pickle,
+    read_ol_from_hdf5,
+    read_ol_from_pickle,
+    write_itl_to_hdf5,
+    write_itl_to_pickle,
+    write_ol_to_hdf5,
+    write_ol_to_pickle,
+    write_regions_to_pickle,
+)
 
 def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2, tau = 0.8, n_levels = None, n_sigmas = 5, deblend_contrast = 0.1,\
                                 gamma = 0.2, min_span = 2, max_span = 3, lvl_sep_big = 6, rm_gamma_for_big = False, lvl_deblend = 3, outfile_format = 'pickle', \
@@ -67,9 +75,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
                                     %(infile, indir, outdir, n_cpus, tau, gamma, min_span, max_span, ceps))
 
     #  FITS header & image properties
-    hdu = fits.open(os.path.join(indir, infile))
-    im  = hdu[0].data
-    header = hdu[0].header
+    im, header = read_image(os.path.join(indir, infile))
     if not n_levels:
         n_levels = int(np.min(np.floor(np.log2(im.shape))))
     logging.info('Image of size %d x %d\n--> n_levels = %d, corresponding to maximum size %d pixels\n' \
