@@ -14,24 +14,6 @@ from astropy.stats import sigma_clip
 import dawis
 
 
-def inverse_anscombe(
-    image: np.ndarray, sigma: float = 0.0, mean: float = 0.0, gain: float = 1.0
-) -> np.ndarray:
-    """Invert the Anscombe transform algebraically.
-
-    The forward map is ``y = (2 / g) * sqrt(g * x + 3 * g ** 2 / 8 + s ** 2 -
-    g * m)``. Solving for ``x`` gives the expression below. DAWIS ships no
-    inverse of its own, so this one is written from the definition and serves
-    as the yardstick for the roundtrip.
-    """
-    return (
-        gain ** 2 * image ** 2 / 4.0
-        - 3.0 * gain ** 2 / 8.0
-        - sigma ** 2
-        + gain * mean
-    ) / gain
-
-
 #: Noise parameters covering unit gain, amplification and attenuation.
 NOISE_PARAMETERS = [
     (0.0, 0.0, 1.0),
@@ -44,12 +26,19 @@ NOISE_PARAMETERS = [
 
 @pytest.mark.parametrize("sigma, mean, gain", NOISE_PARAMETERS)
 def test_the_transform_is_invertible(sigma, mean, gain):
-    """Forward then back is the identity, to floating point precision."""
+    """Forward then back is the identity, to floating point precision.
+
+    The forward map is ``y = (2 / g) * sqrt(g * x + 3 * g ** 2 / 8 + s ** 2 -
+    g * m)``; :func:`dawis.inverse_anscombe` solves it for ``x``. The input
+    values are well clear of the point where the square root turns negative,
+    so the forward transform fills no pixels with noise draws and the
+    roundtrip is exact.
+    """
     rng = np.random.default_rng(20260823)
     image = rng.uniform(50.0, 500.0, (64, 64))
 
     transformed = dawis.anscombe_transform(image, sigma=sigma, mean=mean, gain=gain)
-    restored = inverse_anscombe(transformed, sigma=sigma, mean=mean, gain=gain)
+    restored = dawis.inverse_anscombe(transformed, sigma=sigma, mean=mean, gain=gain)
 
     np.testing.assert_allclose(
         restored,
