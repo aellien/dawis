@@ -1,0 +1,117 @@
+# Provenance of the Tier 1 cutout goldens (#36).
+#
+# These pin the published Ellien+2021 behaviour on a 256x256 patch and
+# gate every commit of the 1.0 carve. Regenerate them only in a commit
+# whose message says why the golden moved (#3).
+
+[golden]
+tier = 1
+recorded_by = "Amaël Ellien"
+recorded_on = "2026-08-24"
+reason = "initial Tier 1 recording for #36"
+ticket = "https://github.com/aellien/dawis-dev/issues/36"
+wall_s = 36.5
+
+# The branch the goldens were recorded from: the published algorithm
+# with the RNG pinned and the post-publication drifts reverted (#32).
+[source]
+repo = "dawis-dev"
+branch = "legacy-seeded"
+commit = "1434f66a9482c078f090f474f1ac3ae4b2682b47"
+describe = "v0.0.7-h-5-g1434f66"
+dirty = false
+stubbed_modules = ["ray", "ultranest"]
+
+# Amaël supplied (222, 242) on #3 as the CENTRE of the cutout, in (x, y).
+# The FITS array is (ny, nx), so x is the SECOND axis. Centre, half-width
+# and the resulting bounds are all recorded because every misreading of
+# those two numbers still lands on a valid source-rich patch, and so
+# produces a different golden silently rather than failing. This is the
+# one full statement of the convention; the code points here.
+[input]
+image = "dawis/gallery/tidal_group_f814w_sci.fits"
+image_shape = [900, 900]
+image_dtype = ">f4"
+cutout_centre_xy = [222, 242]
+cutout_size = 256
+cutout_half_width = 128
+cutout_slice_y = [114, 370]
+cutout_slice_x = [94, 350]
+cutout_expression = "image[114:370, 94:350]"
+cutout_dtype = ">f4"
+
+# cg_max_iter is the conjugate-gradient solver's cap inside
+# interscale_tree.CG_minimization, and it is A SPEED KNOB, NOT A SCIENCE
+# CLAIM. Tier 1 catches structural breakage during the carve, which it
+# does equally well at any iteration count; the shipping 200 costs about
+# six times more per atom (#33) and would break this tier's three-minute
+# budget. Tier 2 (#37) runs the shipping value and is the science check.
+# pipeline_max_iter is the unrelated cap on the greedy outer loop; the
+# cutout converges well inside it, so this run converged rather than
+# hitting the cap.
+[run]
+seed = 20260823
+n_cpus = 1
+cg_max_iter = 3
+cg_max_iter_default_in_source = 200
+pipeline_max_iter = 500
+n_iterations = 20
+n_atoms = 76
+
+# Every pipeline parameter with the value this run actually used,
+# defaults resolved.
+[config]
+n_cpus = 1
+starting_level = 2
+tau = 0.1
+n_levels = 9
+n_sigmas = 5
+deblend_contrast = 0.1
+gamma = 0.5
+min_span = 2
+max_span = 3
+lvl_sep_big = 5
+rm_gamma_for_big = false
+lvl_deblend = 3
+outfile_format = "pickle"
+extent_sep = 0.1
+ecc_sep = 0.95
+lvl_sep_lin = 2
+lvl_sep_op = 3
+ceps = 0.0001
+scale_lvl_eps = 1
+conditions = "loop"
+deconv = false
+max_iter = 500
+size_patch = 100
+inpaint_res = true
+data_dump = false
+gif = false
+iptd_sigma = 3
+resume = false
+seed = 20260823
+
+# Per #3: float tolerance on images and per-atom quantities, exact on
+# atom and iteration counts. The values are #3's stated starting points
+# -- rtol=1e-5 with atol=1e-3*sigma on images, rtol=1e-4 per atom -- and
+# the sigma is the robust sigma of THIS run's residual, recorded above,
+# not of the raw input. Never bit-for-bit: BLAS, OS and numpy versions
+# move the last bits, and the one comparison that IS bit-identical by
+# design is Tier 2's parallel-consistency check (#57).
+[tolerances]
+residual_sigma = 0.0018642150796949865
+image_atol = 1.8642150796949866e-06
+image_rtol = 1e-05
+atom_rtol = 0.0001
+atom_atol = 0.0
+convergence_rtol = 0.0001
+convergence_atol = 0.0
+exact = ["n_atoms", "n_iterations", "level", "bbox", "flag_convergence", "filter"]
+
+# Recorded for diagnosis only. The goldens are expected to reproduce
+# across machines within the tolerances above.
+[machine]
+hostname = "amael-XPS-13-9360"
+platform = "Linux-7.0.0-29-generic-x86_64-with-glibc2.43"
+python = "3.13.9"
+numpy = "2.3.5"
