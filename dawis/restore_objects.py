@@ -8,6 +8,11 @@ It is deleted by the contract ticket (#50) once no caller names it.
 
 The ``__main__`` demo block goes with the move; its role belongs to the
 tutorial notebooks (#12).
+
+The ``plt`` this module used to leak went with #46, matplotlib now living only
+in :mod:`dawis.viz`, and the ``ray`` beside it went with #47: ray is named
+nowhere outside :mod:`dawis.parallel`, so binding it here would undo the seam
+the moment ``import dawis`` ran.
 """
 
 import gc  # noqa: F401
@@ -24,14 +29,3 @@ from dawis.restoration.synthesis import (  # noqa: F401
     restore_patch,
     restored_object,
 )
-
-# Mirrored rather than re-exported from :mod:`dawis.restoration.synthesis`,
-# because ``MissingRay`` is bound there only when the extra is absent and this
-# module leaked the name into ``dawis`` when it was. The ``plt`` that sat
-# beside it is gone with #46: matplotlib now lives only in :mod:`dawis.viz`,
-# and the moved code never used it.
-try:
-    import ray  # noqa: F401
-except ImportError:  # ray is the optional [ray] extra
-    from dawis._optional import MissingRay  # noqa: F401
-    ray = MissingRay()

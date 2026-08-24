@@ -1,0 +1,400 @@
+"""Tier 0 checks for the parallelism seam (#47).
+
+The seam is a single function, :func:`dawis.parallel.pmap`, plus the two
+backends behind it. What is asserted here is the contract the science blocks
+rely on — that a batch is called with its shared arguments appended, that
+results come back in the order the batches were given, and that the serial
+backend is what runs unless something asks for otherwise.
+
+The ray adapter is exercised against a fake ``ray`` module installed in
+``sys.modules``. Ray is the optional ``[ray]`` extra and is not installed in
+the test environment; the fake lets the adapter's init, put, submit, get and
+shutdown sequence be asserted anyway, which is the part of it that has any
+logic in it.
+
+The last two checks are the architectural ones the ticket asks for: nothing
+outside :mod:`dawis.parallel` names ``ray``, and the package imports with ray
+absent.
+"""
+
+from __future__ import annotations
+
+import ast
+import builtins
+import importlib
+import sys
+import types
+from contextlib import contextmanager
+from pathlib import Path
+
+import pytest
+
+from dawis import parallel
+
+
+# ---------------------------------------------------------------------------
+# pmap, on the serial backend
+# ---------------------------------------------------------------------------
+
+
+def _sum_batch(batch, offset, scale):
+    """A stand-in science kernel: one batch, two shared arguments."""
+    return [(value + offset) * scale for value in batch]
+
+
+def test_pmap_calls_the_function_once_per_batch_with_the_shared_arguments():
+    result = parallel.pmap(_sum_batch, [[1, 2], [3]], shared=(10, 2))
+    assert result == [[22, 24], [26]]
+
+
+def test_pmap_returns_results_in_the_order_the_batches_were_given():
+    order = parallel.pmap(lambda batch: batch, [['a'], ['b'], ['c']])
+    assert order == [['a'], ['b'], ['c']]
+
+
+def test_pmap_accepts_an_iterator_of_batches():
+    result = parallel.pmap(lambda batch: sum(batch), iter([[1], [2]]))
+    assert result == [1, 2]
+
+
+def test_pmap_of_nothing_is_nothing():
+    assert parallel.pmap(lambda batch: 1 / 0, []) == []
+
+
+def test_pmap_runs_in_this_process_by_default():
+    """Serial is the default: no worker, no cluster, no ray import."""
+    sys.modules.pop('ray', None)
+    marker = []
+    parallel.pmap(lambda batch: marker.append(batch), [[1]])
+    assert marker == [[1]]
+    assert 'ray' not in sys.modules
+
+
+def test_pmap_stays_serial_for_one_worker_even_under_an_active_ray_backend(fake_ray):
+    """A block's own serial gate wins over whatever the pipeline activated."""
+    with parallel.parallel_backend('ray', n_workers=4):
+        parallel.pmap(lambda batch: batch, [[1]], n_workers=1)
+    assert [name for name, _ in fake_ray.calls if name == 'submit'] == []
+
+
+# ---------------------------------------------------------------------------
+# Choosing a backend
+# ---------------------------------------------------------------------------
+
+
+def test_serial_is_the_default_backend():
+    assert parallel.make_backend().name == 'serial'
+    assert parallel.make_backend(n_workers=1).name == 'serial'
+
+
+def test_more_than_one_worker_asks_for_the_default_parallel_backend():
+    assert parallel.DEFAULT_PARALLEL_BACKEND == 'ray'
+    assert parallel.make_backend(n_workers=4).name == 'ray'
+
+
+def test_a_named_backend_is_honoured_whatever_the_worker_count():
+    assert parallel.make_backend('serial', n_workers=8).name == 'serial'
+    assert parallel.make_backend('ray', n_workers=1).name == 'ray'
+
+
+def test_an_unknown_backend_name_is_refused_by_name():
+    with pytest.raises(ValueError, match='dask'):
+        parallel.make_backend('dask')
+
+
+def test_no_backend_is_active_outside_a_parallel_backend_block():
+    assert parallel.active_backend() is None
+    with parallel.parallel_backend('serial') as backend:
+        assert parallel.active_backend() is backend
+    assert parallel.active_backend() is None
+
+
+# ---------------------------------------------------------------------------
+# The ray adapter
+# ---------------------------------------------------------------------------
+
+
+class _FakeRef:
+    """Stand-in for ``ray.ObjectRef``, holding the value it points at."""
+
+    def __init__(self, value):
+        self.value = value
+
+
+def _install_fake_ray(monkeypatch=None):
+    """Put a minimal fake ``ray`` in ``sys.modules`` and return it.
+
+    Records every call the adapter makes as ``(name, payload)`` on
+    ``module.calls``, so the init-put-submit-get-shutdown sequence can be
+    asserted without a cluster.
+    """
+    module = types.ModuleType('ray')
+    module.calls = []
+    state = {'up': False}
+
+    def init(**kwargs):
+        state['up'] = True
+        module.calls.append(('init', kwargs))
+
+    def is_initialized():
+        return state['up']
+
+    def shutdown():
+        state['up'] = False
+        module.calls.append(('shutdown', None))
+
+    def put(value):
+        module.calls.append(('put', value))
+        return _FakeRef(value)
+
+    def get(refs):
+        module.calls.append(('get', refs))
+        if isinstance(refs, list):
+            return [ref.value for ref in refs]
+        return refs.value
+
+    def remote(function):
+        class _RemoteFunction:
+            def remote(self, *args, **kwargs):
+                module.calls.append(('submit', args))
+                plain = [
+                    arg.value if isinstance(arg, _FakeRef) else arg for arg in args
+                ]
+                return _FakeRef(function(*plain, **kwargs))
+
+        return _RemoteFunction()
+
+    module.init = init
+    module.is_initialized = is_initialized
+    module.shutdown = shutdown
+    module.put = put
+    module.get = get
+    module.remote = remote
+    sys.modules['ray'] = module
+    return module
+
+
+@pytest.fixture
+def fake_ray():
+    """A fake ``ray``, removed again however the test ends."""
+    previous = sys.modules.get('ray')
+    module = _install_fake_ray()
+    yield module
+    if previous is None:
+        sys.modules.pop('ray', None)
+    else:
+        sys.modules['ray'] = previous
+
+
+def test_the_ray_adapter_puts_the_shared_arguments_once_and_the_batches_never(fake_ray):
+    with parallel.parallel_backend('ray', n_workers=2):
+        parallel.pmap(_sum_batch, [[1], [2], [3]], shared=(10, 2), n_workers=2)
+
+    put = [payload for name, payload in fake_ray.calls if name == 'put']
+    assert put == [10, 2]
+
+
+def test_the_ray_adapter_returns_what_the_serial_backend_would(fake_ray):
+    batches = [[1, 2], [3], [4, 5, 6]]
+    serial = parallel.pmap(_sum_batch, batches, shared=(10, 2))
+    with parallel.parallel_backend('ray', n_workers=2):
+        distributed = parallel.pmap(_sum_batch, batches, shared=(10, 2), n_workers=2)
+    assert distributed == serial
+
+
+def test_the_ray_adapter_starts_the_cluster_it_needs_and_stops_it_again(fake_ray):
+    with parallel.parallel_backend('ray', n_workers=3):
+        assert ('init', {'num_cpus': 3}) in fake_ray.calls
+    assert ('shutdown', None) in fake_ray.calls
+
+
+def test_the_ray_adapter_leaves_a_cluster_it_did_not_start_running(fake_ray):
+    fake_ray.init(num_cpus=8)
+    fake_ray.calls.clear()
+    with parallel.parallel_backend('ray', n_workers=3):
+        pass
+    assert fake_ray.calls == []
+    assert fake_ray.is_initialized()
+
+
+@contextmanager
+def ray_uninstalled():
+    """Make ``import ray`` fail for the duration, as a clean install does."""
+    real_import = builtins.__import__
+
+    def refuse_ray(name, *args, **kwargs):
+        if name == 'ray':
+            raise ImportError("No module named 'ray'")
+        return real_import(name, *args, **kwargs)
+
+    previous = sys.modules.pop('ray', None)
+    builtins.__import__ = refuse_ray
+    try:
+        yield
+    finally:
+        builtins.__import__ = real_import
+        if previous is not None:
+            sys.modules['ray'] = previous
+
+
+def test_a_failing_block_still_releases_the_cluster(fake_ray):
+    """What ``synthesis_by_analysis``'s try/finally relies on."""
+    with pytest.raises(ZeroDivisionError):
+        with parallel.parallel_backend('ray', n_workers=2):
+            1 / 0
+    assert ('shutdown', None) in fake_ray.calls
+    assert parallel.active_backend() is None
+
+
+def test_asking_for_ray_without_the_extra_says_how_to_install_it():
+    with ray_uninstalled():
+        with pytest.raises(ImportError, match=r"dawis\[ray\]"):
+            parallel.parallel_backend('ray', n_workers=2).start()
+
+
+# ---------------------------------------------------------------------------
+# The architectural rules the seam exists to make true
+# ---------------------------------------------------------------------------
+
+
+# These two walk the package's imports the way `tests/unit/test_viz.py` walks
+# them for matplotlib. #58 replaces both with one import-graph test that
+# asserts all three of the architecture's dependency rules at once.
+def _dawis_sources():
+    package = Path(parallel.__file__).parent
+    return sorted(package.rglob('*.py'))
+
+
+def _imported_names(path):
+    tree = ast.parse(path.read_text(), filename=str(path))
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(alias.name.split('.')[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            names.add(node.module.split('.')[0])
+    return names
+
+
+def test_nothing_outside_the_parallelism_module_imports_ray():
+    offenders = [
+        path.name
+        for path in _dawis_sources()
+        if path.name != 'parallel.py' and 'ray' in _imported_names(path)
+    ]
+    assert offenders == []
+
+
+def test_the_package_imports_with_ray_uninstalled():
+    """Every module of the package, not only the top-level namespace."""
+    package_root = Path(parallel.__file__).parent
+    modules = [
+        'dawis.' + '.'.join(path.relative_to(package_root).with_suffix('').parts)
+        for path in _dawis_sources()
+        if path.name != '__init__.py'
+    ]
+    # dawis.viz needs matplotlib, the [viz] extra, which is a different
+    # question from this one.
+    modules = [name for name in modules if not name.startswith('dawis.viz')]
+
+    with ray_uninstalled():
+        for name in ['dawis'] + modules:
+            importlib.import_module(name)
+
+
+# ---------------------------------------------------------------------------
+# The blocks that hand work to the seam
+# ---------------------------------------------------------------------------
+#
+# Cutting a list into patches is the one thing a block does that the seam
+# cannot check for it, and getting it wrong loses or duplicates structures
+# silently. These drive the tree block's cut with a stand-in connectivity
+# function, so what is asserted is the batching alone.
+
+
+class _FakeRegion:
+    """The three attributes ``make_interscale_trees`` reads off a region."""
+
+    def __init__(self, index):
+        self.index = index
+        self.level = 3
+        self.area = 10
+        self.norm_max_intensity = 1000.0 - index
+
+
+class _FakeLabelCube:
+    z_size = 9
+
+
+def _drive_tree_batching(monkeypatch, n_roots, n_cpus, size_patch):
+    """Run the root-patching of ``make_interscale_trees`` and report the cut."""
+    from dawis.trees import deblending
+
+    seen = []
+
+    def record(batch, *shared):
+        seen.append((list(batch), shared))
+        return list(batch)
+
+    monkeypatch.setattr(deblending, 'interscale_connectivity', record)
+
+    roots = [_FakeRegion(index) for index in range(n_roots)]
+    trees = deblending.make_interscale_trees(
+        region_list=roots,
+        wavelet_datacube='wavelet-cube',
+        label_datacube=_FakeLabelCube(),
+        det_err_array='errors',
+        tau=0.0,
+        size_patch=size_patch,
+        n_cpus=n_cpus,
+    )
+    return seen, trees
+
+
+def test_one_worker_hands_the_roots_over_as_a_single_batch(monkeypatch):
+    seen, trees = _drive_tree_batching(monkeypatch, n_roots=250, n_cpus=1, size_patch=100)
+    assert len(seen) == 1
+    assert len(trees) == 250
+
+
+def test_many_workers_cut_the_roots_into_patches_that_rejoin_unchanged(monkeypatch):
+    serial, serial_trees = _drive_tree_batching(
+        monkeypatch, n_roots=250, n_cpus=1, size_patch=100
+    )
+    _install_fake_ray()
+    try:
+        cut, cut_trees = _drive_tree_batching(
+            monkeypatch, n_roots=250, n_cpus=4, size_patch=100
+        )
+    finally:
+        sys.modules.pop('ray', None)
+
+    assert [len(batch) for batch, _ in cut] == [100, 100, 50]
+    # Distinct objects across the two runs, so identity says nothing: the
+    # roots carry an index precisely so order can be compared.
+    assert [tree.index for tree in cut_trees] == [tree.index for tree in serial_trees]
+    assert [region.index for region in serial[0][0]] == [
+        region.index for batch, _ in cut for region in batch
+    ]
+
+
+def test_the_arguments_every_patch_shares_are_passed_once_each(monkeypatch):
+    seen, _ = _drive_tree_batching(monkeypatch, n_roots=10, n_cpus=1, size_patch=100)
+    (_, shared), = seen
+    # region list, wavelet cube, label cube, detection errors, root level, and
+    # the four knobs the connectivity reads, plus verbose.
+    assert len(shared) == 10
+    assert shared[1] == 'wavelet-cube'
+    assert shared[3] == 'errors'
+    assert shared[4] == 3
+
+
+def test_the_deprecated_flat_module_still_answers_to_the_pre_seam_name():
+    """Renames are a separate pass from moves, so the shim holds the old name."""
+    # By module, not `from dawis import ...`: the package's star imports bind
+    # the *function* `make_interscale_trees` over its own module's name.
+    shim = importlib.import_module('dawis.make_interscale_trees')
+    from dawis.trees.deblending import interscale_connectivity
+
+    assert shim.interscale_connectivity_serial is interscale_connectivity
+    assert not hasattr(shim, 'interscale_connectivity_para')

@@ -19,8 +19,8 @@ Three modules.
 
 :mod:`dawis.restoration.synthesis` is the entry point.
 :func:`restore_objects_default` walks the trees of one iteration —
-in process, or over ray workers — and each becomes a
-:class:`restored_object`, an *atom*. :func:`restore_object` makes the per-tree
+in process, or over workers, as :mod:`dawis.parallel` decides — and each
+becomes a :class:`restored_object`, an *atom*. :func:`restore_object` makes the per-tree
 choice of filter and synthesis operator that the solver then runs with.
 
 :mod:`dawis.restoration.deconvolution` holds the optional PSF step inside that

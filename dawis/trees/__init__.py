@@ -24,8 +24,10 @@ conjugate-gradient solver.
 :mod:`dawis.trees.deblending` holds the decision that comes first: which
 regions belong to which root, and therefore where one structure stops and the
 next begins. :func:`make_interscale_trees` is the entry point the pipeline
-calls; :func:`interscale_connectivity_serial` and its ray twin do the
-attaching.
+calls; :func:`interscale_connectivity` does the attaching. The two copies of
+that function — one plain, one under ``@ray.remote`` — collapsed into this one
+when the parallelism seam landed (#47), and where a patch of roots runs is now
+:mod:`dawis.parallel`'s business rather than this block's.
 
 The watershed pass that once enforced monomodality inside a tree was deleted
 upstream in ``ae19cb2``, well before this carve; its dead ``monomodality`` and
@@ -37,14 +39,12 @@ below and is deleted once no caller names it.
 
 from dawis.trees.construction import interscale_tree
 from dawis.trees.deblending import (
-    interscale_connectivity_para,
-    interscale_connectivity_serial,
+    interscale_connectivity,
     make_interscale_trees,
 )
 
 __all__ = [
-    'interscale_connectivity_para',
-    'interscale_connectivity_serial',
+    'interscale_connectivity',
     'interscale_tree',
     'make_interscale_trees',
 ]

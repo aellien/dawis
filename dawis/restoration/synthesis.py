@@ -19,11 +19,15 @@ above it. It also builds the detection-error image and traps a diverged solve.
 
 :func:`restore_objects_default` runs that over a list of trees. Below
 ``size_patch_big`` trees, or on one worker, it loops in process. Above it, it
-sorts by area, splits into big and small patches, and hands them to ray
-through :func:`restore_patch`. #5 measured a 308% flux difference between the
-two, so the worker count currently selects an outcome as well as a degree of
-parallelism; #56 unifies them onto the published serial path. Until it lands,
-a run whose output is being compared with another must hold ``n_cpus`` fixed.
+sorts by area and splits the list into big and small patches, which
+:func:`restore_patch` synthesises one at a time. Which of those patches runs
+where is not decided here: they go to :func:`dawis.parallel.pmap`, and ray is
+named nowhere in this module since #47.
+
+#5 measured a 308% flux difference between the two branches, so the worker
+count currently selects an outcome as well as a degree of parallelism; #56
+unifies them onto the published serial path. Until it lands, a run whose
+output is being compared with another must hold ``n_cpus`` fixed.
 """
 
 from __future__ import annotations
@@ -34,18 +38,13 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from dawis.cubes import label_datacube, wavelet_datacube
+from dawis.parallel import pmap
 
 # Annotations only. dawis.trees imports the deconvolution of this package, so
 # importing it back at runtime would close a cycle. The alias is needed
 # because restore_object's first parameter is itself named interscale_tree.
 if TYPE_CHECKING:
     from dawis.trees import interscale_tree as interscale_tree_type
-
-try:
-    import ray
-except ImportError:  # ray is the optional [ray] extra
-    from dawis._optional import MissingRay
-    ray = MissingRay()
 
 
 class restored_object(object):
@@ -114,7 +113,6 @@ class restored_object(object):
             self.sum_wr = sum_wr
             self.norm_wr = norm_wr
 
-@ray.remote
 def restore_patch(
     interscale_tree_patch: list[interscale_tree_type],
     wavelet_datacube: wavelet_datacube,
@@ -128,12 +126,12 @@ def restore_patch(
     rm_gamma_for_big: bool,
     deconv: bool,
 ) -> list[restored_object]:
-    """Synthesise a patch of trees on a ray worker.
+    """Synthesise one patch of trees into atoms.
 
-    The parallel counterpart of the in-process loop of
-    :func:`restore_objects_default`: the same call to :func:`restore_object`
-    per tree, the same attenuation rule, over a slice of the tree list. Called
-    through ``restore_patch.remote(...)``, which needs the ``[ray]`` extra.
+    The unit of work :func:`restore_objects_default` distributes: the same
+    call to :func:`restore_object` per tree, the same attenuation rule, over a
+    slice of the tree list. A patch is independent of every other, which is
+    the whole reason restoration parallelises.
 
     Parameters
     ----------
@@ -263,8 +261,8 @@ def restore_object(
 
     Notes
     -----
-    ``lvl_sep_big`` is accepted so the signature matches the ray path and is
-    not read here; the attenuation it governs is applied by the caller.
+    ``lvl_sep_big`` is accepted so the signature matches :func:`restore_patch`
+    and is not read here; the attenuation it governs is applied by the caller.
     """
 
     bspl = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
@@ -327,8 +325,9 @@ def restore_objects_default(
     Below ``size_patch_big`` trees, or with ``n_cpus`` at 1, every tree goes
     through :func:`restore_object` in process. Otherwise the list is sorted by
     the area of the interscale maximum, split into big and small patches by
-    ``size_big_objects``, and each patch is sent to a ray worker through
-    :func:`restore_patch`. Either way the synthesised image is multiplied by
+    ``size_big_objects``, and each patch goes through :func:`restore_patch`
+    wherever :func:`dawis.parallel.pmap` runs it. Either way the synthesised
+    image is multiplied by
     ``gamma``, unless ``rm_gamma_for_big`` is set and the object sits at or
     above ``lvl_sep_big``.
 
@@ -367,13 +366,13 @@ def restore_objects_default(
     deconv : bool
         Whether the solver deconvolves each plane by the B3-spline kernel.
     size_patch_small : int, optional
-        Trees per ray task for objects below ``size_big_objects``. Default 1.
+        Trees per patch for objects below ``size_big_objects``. Default 1.
     gamma : float, optional
         Attenuation applied to every synthesised image. Default 1, no
         attenuation.
     size_patch_big : int, optional
-        Trees per ray task for big objects, and the list length below which
-        the serial branch is taken regardless of ``n_cpus``. Default 1.
+        Trees per patch for big objects, and the list length below which the
+        serial branch is taken regardless of ``n_cpus``. Default 1.
     size_big_objects : int, optional
         Side in pixels above which a tree counts as a big object for
         patching. Default 512.
@@ -421,54 +420,66 @@ def restore_objects_default(
                                                 norm_wr ))
 
     else:
-        logging.info('Size tree patch (%d) greater than %d, activating Ray store.'%(len(interscale_tree_list), size_patch_big ))
-        id_wdc = ray.put(wavelet_datacube)
-        id_ldc = ray.put(label_datacube)
-        id_extent_sep = ray.put(extent_sep)
-        id_ecc_sep = ray.put(ecc_sep)
-        id_lvl_sep_lin = ray.put(lvl_sep_lin)
-        id_lvl_sep_big = ray.put(lvl_sep_big)
-        id_rm_gamma_for_big = ray.put(rm_gamma_for_big)
-        id_gamma = ray.put(gamma)
-        id_deconv = ray.put(deconv)
-        id_lvl_sep_op = ray.put(lvl_sep_op)
+        logging.info('Size tree patch (%d) greater than %d, distributing.'%(len(interscale_tree_list), size_patch_big ))
 
         interscale_tree_list.sort(key = lambda x: x.interscale_maximum.area, reverse = True)
 
         small_interscale_tree_patch = []
-        small_object_patch = []
+        small_patches = []
         big_interscale_tree_patch = []
-        big_object_patch = []
+        big_patches = []
 
+        # Patches are snapshotted with `list(...)` as they are collected,
+        # because the accumulator keeps being appended to afterwards. That is
+        # what `.remote()` used to do implicitly by serialising its argument
+        # at the call, so on the ray backend -- the only backend this branch
+        # could reach before #47 -- the copies make it bit-for-bit what it
+        # was. A backend that runs a patch in this process instead sees live
+        # objects where ray saw a deep copy; nothing enforces that, so
+        # `restore_patch` must go on treating what it is handed as read-only.
+        #
+        # Three defects of this branch are preserved along with it, and all
+        # three belong to #56, which unifies the two branches onto the
+        # published serial path. `&` binds tighter than `>`, so the big-object
+        # test is a chained comparison rather than the conjunction it reads
+        # as; a big patch that meets a small tree is re-collected on every
+        # subsequent small tree because the accumulator is never cleared; and
+        # a big patch left over at the end of the list is dropped. Together
+        # they are a large part of the 308% flux difference #5 measured.
         for tree in interscale_tree_list:
 
             if tree.x_size > size_big_objects & tree.y_size > size_big_objects:
                 big_interscale_tree_patch.append(tree)
 
                 if len(big_interscale_tree_patch) >= size_patch_big:
-                    big_object_patch.append( restore_patch.remote( big_interscale_tree_patch, id_wdc, id_ldc, id_extent_sep, id_ecc_sep, id_lvl_sep_lin, id_lvl_sep_big, id_lvl_sep_op, id_gamma, id_rm_gamma_for_big, id_deconv ))
+                    big_patches.append(list(big_interscale_tree_patch))
                     big_interscale_tree_patch = []
 
             else:
 
                 if big_interscale_tree_patch:
-                        big_object_patch.append( restore_patch.remote( big_interscale_tree_patch, id_wdc, id_ldc, id_extent_sep, id_ecc_sep, id_lvl_sep_lin, id_lvl_sep_big, id_lvl_sep_op, id_gamma, id_rm_gamma_for_big, id_deconv ))
+                    big_patches.append(list(big_interscale_tree_patch))
 
                 small_interscale_tree_patch.append(tree)
 
                 if len(small_interscale_tree_patch) >= size_patch_small:
-                    small_object_patch.append( restore_patch.remote( small_interscale_tree_patch, id_wdc, id_ldc, id_extent_sep, id_ecc_sep, id_lvl_sep_lin, id_lvl_sep_big, id_lvl_sep_op, id_gamma, id_rm_gamma_for_big, id_deconv ))
+                    small_patches.append(list(small_interscale_tree_patch))
                     small_interscale_tree_patch = []
 
         if small_interscale_tree_patch:
-            small_object_patch.append( restore_patch.remote( small_interscale_tree_patch, id_wdc, id_ldc, id_extent_sep, id_ecc_sep, id_lvl_sep_lin, id_lvl_sep_big, id_lvl_sep_op, id_gamma, id_rm_gamma_for_big, id_deconv ))
+            small_patches.append(list(small_interscale_tree_patch))
 
-        object_list = []
-        for id_patch in big_object_patch:
-            patch = ray.get( id_patch )
-            object_list = object_list + patch
-        for id_patch in small_object_patch:
-            patch = ray.get( id_patch )
-            object_list = object_list + patch
+        # One patch is one independent unit of work; `pmap` decides where each
+        # runs and hands them back in the order they were given, so big
+        # objects still precede small ones in the result.
+        object_patches = pmap(
+            restore_patch,
+            big_patches + small_patches,
+            shared = (wavelet_datacube, label_datacube, extent_sep, ecc_sep,
+                      lvl_sep_lin, lvl_sep_big, lvl_sep_op, gamma,
+                      rm_gamma_for_big, deconv),
+            n_workers = n_cpus,
+        )
+        object_list = [atom for patch in object_patches for atom in patch]
 
     return object_list
