@@ -16,7 +16,7 @@ import sys as sys
 import pdb
 import glob as glob
 from dawis.make_regions import *
-from dawis.datacube import *
+from dawis.cubes import *
 from dawis.wavelet_transforms import bspl_atrous
 from dawis.hard_threshold import hard_threshold
 from dawis.label_regions import label_regions

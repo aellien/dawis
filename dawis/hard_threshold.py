@@ -14,7 +14,7 @@
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 from dawis.table_noise_stds import table_noise_stds
-from dawis.datacube import *
+from dawis.cubes import *
 from scipy.stats import sigmaclip
 from scipy.stats import normaltest
 import numpy as np

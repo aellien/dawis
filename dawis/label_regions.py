@@ -15,7 +15,7 @@
 #
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-from dawis.datacube import *
+from dawis.cubes import *
 from skimage.measure import label
 import numpy as np
 try:

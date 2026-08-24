@@ -1,5 +1,5 @@
 from dawis.make_regions import *
-from dawis.datacube import *
+from dawis.cubes import *
 from dawis.wavelet_transforms import *
 from dawis.hard_threshold import *
 from dawis.label_regions import *

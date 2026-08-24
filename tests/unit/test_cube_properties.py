@@ -8,6 +8,7 @@ its numbers mean.
 
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 
 import numpy as np
@@ -17,6 +18,15 @@ import dawis
 
 #: Shape of the cubes under test: 8 by 6 pixels over 4 scales.
 CUBE_SHAPE = (8, 6, 4)
+
+#: Every cube class, in the one vocabulary the package exports.
+CUBE_CLASSES = (
+    'datacube',
+    'wavelet_datacube',
+    'coarse_datacube',
+    'support_datacube',
+    'label_datacube',
+)
 
 
 @pytest.fixture
@@ -130,3 +140,22 @@ def test_region_labels_are_unique_across_the_whole_cube():
         err_msg="the per-scale region counts do not match the two regions "
                 "planted on every scale",
     )
+
+
+# The modules are reached through importlib because ``dawis.datacube`` names
+# the class, not the module: the package star-imports the class over it.
+def test_the_cube_classes_live_in_the_top_level_cubes_module():
+    """The cube classes are shared vocabulary, so they sit above the blocks."""
+    cubes = importlib.import_module('dawis.cubes')
+
+    for name in CUBE_CLASSES:
+        assert getattr(cubes, name) is getattr(dawis, name)
+
+
+def test_the_old_datacube_module_still_re_exports_the_cube_classes():
+    """A caller naming the old location keeps working until the shim goes."""
+    cubes = importlib.import_module('dawis.cubes')
+    old_module = importlib.import_module('dawis.datacube')
+
+    for name in CUBE_CLASSES:
+        assert getattr(old_module, name) is getattr(cubes, name)

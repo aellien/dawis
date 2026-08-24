@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from dawis.datacube import coarse_datacube, wavelet_datacube
+from dawis.cubes import coarse_datacube, wavelet_datacube
 from dawis.wavelets.atrous import atrous, ser_iuwt_decomposition
 
 

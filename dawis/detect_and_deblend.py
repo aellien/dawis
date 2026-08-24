@@ -15,7 +15,7 @@ except ImportError:  # matplotlib is the optional [viz] extra
     plt = MissingDependency('matplotlib', 'viz')
 import logging
 from dawis.table_noise_stds import table_noise_stds
-from dawis.datacube import label_datacube
+from dawis.cubes import label_datacube
 from astropy.stats import sigma_clip
 from photutils.segmentation import detect_sources, deblend_sources
 
