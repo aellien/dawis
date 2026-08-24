@@ -37,7 +37,13 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
     # Setup Ray for parallelisation
     # If there is no head ray cluster setup, create one internal to dawis run
     intern_ray_flag = False
-    if (n_cpus > 1) & (ray.is_initialized == False):
+    # `and`, not `&`: the bitwise operator evaluates both sides, so a serial
+    # run reached into `ray` and the MissingRay stub raised. This changes no
+    # outcome -- `ray.is_initialized` is compared, not called, so the test is
+    # False either way and ray.init() has never run here. That latent bug, and
+    # the `inter_ray_flag` typo below that makes ray.shutdown() unreachable,
+    # both belong to the parallelism seam in #47.
+    if (n_cpus > 1) and (ray.is_initialized == False):
         ray.init(num_cpus = n_cpus)
         inter_ray_flag = True
     
