@@ -16,7 +16,8 @@ this script happens to sit in::
 
 The run definition itself — cutout bounds, seed, pinned CG ``max_iter``,
 pipeline parameters — lives in ``tests/tier1.py`` and is imported from there,
-so the recording and the comparison can never drift apart.
+so the recording and the comparison can never drift apart. Everything the two
+tiers' recorders share lives in ``tests/goldens/recording.py``.
 
 Goldens are a ratchet, not a shrine. Re-run this only in a commit whose
 message says why the golden moved.
@@ -24,198 +25,45 @@ message says why the golden moved.
 
 from __future__ import annotations
 
-import argparse
-import importlib.util
-import platform
 import shutil
-import subprocess
 import sys
 import time
-import types
-from datetime import date
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-REPO = HERE.parent.parent
+import recording
+from recording import HERE
 
-#: Modules legacy DAWIS imports at module scope but never calls on the serial
-#: path. Stubbing a *missing* one keeps the recording runnable on a clean
-#: environment; whatever gets stubbed is recorded in provenance.
-STUBBABLE = ("ray", "ultranest")
-
-
-def load_tier1():
-    """Import ``tests/tier1.py`` as a plain module, by path.
-
-    It holds the Tier 1 run definition the comparison test also uses. This
-    script runs by hand, outside pytest, so it loads the file directly rather
-    than relying on pytest's collection.
-    """
-    spec = importlib.util.spec_from_file_location(
-        "dawis_tier1", REPO / "tests" / "tier1.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    # Registered before execution: `dataclass` resolves a class's module out
-    # of sys.modules and fails on a module that is not there yet.
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def stub_missing(names):
-    """Install do-nothing stand-ins for missing module-scope-only imports."""
-    stubbed = []
-    for name in names:
-        try:
-            __import__(name)
-            continue
-        except ImportError:
-            pass
-        module = types.ModuleType(name)
-        if name == "ray":
-            # Only `@ray.remote` runs at import time; nothing else is reached
-            # on the serial path this recording uses.
-            module.remote = lambda fn: fn
-            module.is_initialized = lambda: False
-        sys.modules[name] = module
-        stubbed.append(name)
-    return stubbed
-
-
-def git_state(path):
-    """Identify the checkout the measured package was imported from."""
-
-    def git(*args):
-        try:
-            return subprocess.check_output(
-                ("git", "-C", str(path)) + args, stderr=subprocess.DEVNULL, text=True
-            ).strip()
-        except (subprocess.CalledProcessError, OSError):
-            return None
-
-    commit = git("rev-parse", "HEAD")
-    if commit is None:
-        # `git` swallows its own failures, so without this a non-repository
-        # --source would report a clean checkout on branch None.
-        raise SystemExit("%s is not a git checkout" % path)
-    return {
-        "commit": commit,
-        "branch": git("rev-parse", "--abbrev-ref", "HEAD"),
-        "describe": git("describe", "--tags", "--always"),
-        "dirty": bool(git("status", "--porcelain")),
-    }
-
-
-def robust_sigma(values):
-    """Half the 16-84 percentile spread — the noise scale #3's atol rests on."""
-    import numpy as np
-
-    low, high = np.percentile(values, [16, 84])
-    return float((high - low) / 2.0)
-
-
-def toml_value(value):
-    """Render a Python scalar as TOML. Enough for what provenance holds."""
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int,)):
-        return str(value)
-    if isinstance(value, float):
-        return repr(value)
-    if value is None:
-        return '""'
-    if isinstance(value, (list, tuple)):
-        return "[" + ", ".join(toml_value(v) for v in value) + "]"
-    return '"%s"' % str(value).replace('"', '\\"')
-
-
-def toml_table(name, mapping, comment=None):
-    lines = []
-    if comment:
-        lines.extend("# " + line for line in comment.strip().splitlines())
-    lines.append("[%s]" % name)
-    for key, value in mapping.items():
-        lines.append("%s = %s" % (key, toml_value(value)))
-    lines.append("")
-    return lines
+TICKET = "#36"
+TICKET_URL = "https://github.com/aellien/dawis-dev/issues/36"
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    parser.add_argument(
-        "--source",
-        required=True,
-        help="checkout holding the `dawis` package to record from "
-        "(must be a legacy-seeded checkout, per #36)",
-    )
-    parser.add_argument(
-        "--goldens",
-        default=str(HERE / "tier1_cutout"),
-        help="directory the goldens are written into",
-    )
-    parser.add_argument(
-        "--work-dir",
-        help="scratch directory for the run itself (default: a temporary one)",
-    )
-    parser.add_argument("--author", help="who recorded these (default: git user.name)")
-    parser.add_argument(
-        "--reason", required=True, help="why these goldens were (re)recorded"
-    )
-    parser.add_argument(
-        "--allow-any-branch",
-        action="store_true",
-        help="record from a checkout that is not on legacy-seeded",
-    )
+    parser = recording.build_parser(__doc__, TICKET, HERE / "tier1_cutout")
     args = parser.parse_args()
 
-    # Importing tier1 also pins a headless matplotlib backend, which the
-    # legacy tree needs before anything imports dawis.
-    tier1 = load_tier1()
+    # Importing the tier module also pins a headless matplotlib backend, which
+    # the legacy tree needs before anything imports dawis.
+    tier1 = recording.load_tier("tier1")
+    import goldenrun
 
-    source = Path(args.source).resolve()
-    state = git_state(source)
-    if state["branch"] != "legacy-seeded" and not args.allow_any_branch:
-        raise SystemExit(
-            "#36 records Tier 1 goldens from legacy-seeded; %s is on %s.\n"
-            "Pass --allow-any-branch only if you mean it." % (source, state["branch"])
-        )
-    if state["dirty"]:
-        raise SystemExit(
-            "%s has uncommitted changes; a golden's provenance commit would "
-            "not describe what produced it." % source
-        )
-
-    stubbed = stub_missing(STUBBABLE)
-    sys.path.insert(0, str(source))
-    import dawis
+    source, state = recording.resolve_source(args, TICKET)
+    stubbed = recording.stub_missing()
+    dawis = recording.import_dawis(source)
 
     import numpy as np
     from astropy.io import fits
 
-    package_dir = Path(dawis.__file__).parent
-    if package_dir.parent != source:
-        raise SystemExit(
-            "imported dawis from %s, not from --source %s" % (package_dir, source)
-        )
-
-    image_path = package_dir / "gallery" / tier1.GALLERY_IMAGE
+    image_path = Path(dawis.__file__).parent / "gallery" / goldenrun.GALLERY_IMAGE
     full = fits.getdata(image_path)
     cut = np.array(tier1.cutout_of(full))
 
-    work_dir = Path(args.work_dir) if args.work_dir else None
-    if work_dir is None:
-        import tempfile
-
-        work_dir = Path(tempfile.mkdtemp(prefix="dawis-tier1-"))
-    work_dir.mkdir(parents=True, exist_ok=True)
+    work_dir = recording.work_dir_for(args, "dawis-tier1-")
 
     print("recording Tier 1 goldens")
     print("  source     %s  (%s)" % (source, state["describe"]))
     print("  image      %s %s" % (image_path, list(full.shape)))
     print("  cutout     y %s  x %s" % tier1.CUTOUT_SLICE)
-    print("  seed       %d" % tier1.TEST_SEED)
+    print("  seed       %d" % goldenrun.TEST_SEED)
     print("  CG max_iter %d (pinned speed knob)" % tier1.CG_MAX_ITER)
     print("  work dir   %s" % work_dir)
 
@@ -223,10 +71,9 @@ def main():
     run = tier1.run_tier1(dawis, cut, work_dir)
     wall = time.time() - started
 
-    atoms = tier1.atom_catalogue(dawis, run)
-    convergence = tier1.convergence_table(run)
-    residual = fits.getdata(run.residuals)
-    sigma = robust_sigma(residual)
+    atoms = goldenrun.atom_catalogue(dawis, run)
+    convergence = goldenrun.convergence_table(run)
+    sigma = goldenrun.robust_sigma(fits.getdata(run.residuals))
 
     goldens = Path(args.goldens)
     goldens.mkdir(parents=True, exist_ok=True)
@@ -234,9 +81,9 @@ def main():
     fits.PrimaryHDU(cut).writeto(goldens / "input_cutout.fits", overwrite=True)
     shutil.copyfile(run.restored, goldens / "restored.fits")
     shutil.copyfile(run.residuals, goldens / "residuals.fits")
-    tier1.write_table(goldens / "atoms.csv", tier1.ATOM_COLUMNS, atoms)
-    tier1.write_table(
-        goldens / "convergence.csv", tier1.CONVERGENCE_COLUMNS, convergence
+    goldenrun.write_table(goldens / "atoms.csv", goldenrun.ATOM_COLUMNS, atoms)
+    goldenrun.write_table(
+        goldens / "convergence.csv", goldenrun.CONVERGENCE_COLUMNS, convergence
     )
 
     # #3 ties the image tolerance to the noise of the golden run's own
@@ -251,16 +98,7 @@ def main():
     image_rtol = 1e-5
     atom_rtol = 1e-4
 
-    entry_config = tier1.effective_config(
-        dawis.synthesis_by_analysis, tier1.tier1_kwargs(dawis, work_dir)
-    )
-    # Paths identify this machine, not the run's behaviour.
-    for name in ("indir", "outdir", "infile"):
-        entry_config.pop(name, None)
-
-    author = args.author or subprocess.run(
-        ["git", "config", "user.name"], capture_output=True, text=True
-    ).stdout.strip() or "unknown"
+    kwargs = goldenrun.golden_kwargs(dawis, work_dir, tier1.TIER1_INFILE)
 
     lines = [
         "# Provenance of the Tier 1 cutout goldens (#36).",
@@ -270,27 +108,12 @@ def main():
         "# whose message says why the golden moved (#3).",
         "",
     ]
-    lines += toml_table("golden", {
-        "tier": 1,
-        "recorded_by": author,
-        "recorded_on": date.today().isoformat(),
-        "reason": args.reason,
-        "ticket": "https://github.com/aellien/dawis-dev/issues/36",
-        "wall_s": round(wall, 1),
-    })
-    lines += toml_table("source", {
-        "repo": "dawis-dev",
-        "branch": state["branch"],
-        "commit": state["commit"],
-        "describe": state["describe"],
-        "dirty": state["dirty"],
-        "stubbed_modules": stubbed,
-    }, comment=(
-        "The branch the goldens were recorded from: the published algorithm\n"
-        "with the RNG pinned and the post-publication drifts reverted (#32)."
-    ))
-    lines += toml_table("input", {
-        "image": "dawis/gallery/%s" % tier1.GALLERY_IMAGE,
+    lines += recording.golden_table(
+        1, recording.author_of(args), args.reason, TICKET_URL, wall
+    )
+    lines += recording.source_table(state, stubbed)
+    lines += recording.toml_table("input", {
+        "image": "dawis/gallery/%s" % goldenrun.GALLERY_IMAGE,
         "image_shape": list(full.shape),
         "image_dtype": str(full.dtype),
         "cutout_centre_xy": list(tier1.CUTOUT_CENTRE),
@@ -308,12 +131,12 @@ def main():
         "produces a different golden silently rather than failing. This is the\n"
         "one full statement of the convention; the code points here."
     ))
-    lines += toml_table("run", {
-        "seed": tier1.TEST_SEED,
+    lines += recording.toml_table("run", {
+        "seed": goldenrun.TEST_SEED,
         "n_cpus": 1,
         "cg_max_iter": tier1.CG_MAX_ITER,
-        "cg_max_iter_default_in_source": 200,
-        "pipeline_max_iter": tier1.PIPELINE_MAX_ITER,
+        "cg_max_iter_default_in_source": recording.cg_max_iter_default(dawis),
+        "pipeline_max_iter": goldenrun.PIPELINE_MAX_ITER,
         "n_iterations": len(convergence),
         "n_atoms": len(atoms),
     }, comment=(
@@ -327,11 +150,8 @@ def main():
         "cutout converges well inside it, so this run converged rather than\n"
         "hitting the cap."
     ))
-    lines += toml_table("config", entry_config, comment=(
-        "Every pipeline parameter with the value this run actually used,\n"
-        "defaults resolved."
-    ))
-    lines += toml_table("tolerances", {
+    lines += recording.config_table(dawis, kwargs)
+    lines += recording.toml_table("tolerances", {
         "residual_sigma": sigma,
         "image_atol": image_atol,
         "image_rtol": image_rtol,
@@ -350,15 +170,7 @@ def main():
         "move the last bits, and the one comparison that IS bit-identical by\n"
         "design is Tier 2's parallel-consistency check (#57)."
     ))
-    lines += toml_table("machine", {
-        "hostname": platform.node(),
-        "platform": platform.platform(),
-        "python": platform.python_version(),
-        "numpy": np.__version__,
-    }, comment=(
-        "Recorded for diagnosis only. The goldens are expected to reproduce\n"
-        "across machines within the tolerances above."
-    ))
+    lines += recording.machine_table()
 
     (goldens / "provenance.toml").write_text("\n".join(lines))
 

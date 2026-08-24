@@ -8,9 +8,10 @@ The suite is organised in the three tiers decided on #3:
   (full 900x900 gallery run, ``slow``).
 * ``tests/goldens`` — the recorded outputs plus ``provenance.toml``.
 
-Fixtures only. What a Tier 1 run *is* — cutout bounds, seed, pinned solver
-knob, pipeline parameters — lives in ``tests/tier1.py``, because the hand-run
-recording script shares it and does not run under pytest.
+Fixtures only. What a golden run *is* lives outside pytest, because the
+hand-run recording scripts share it: the machinery common to both tiers in
+``tests/goldenrun.py``, and what each tier changes — the input, the pinned
+solver knob — in ``tests/tier1.py`` and ``tests/tier2.py``.
 """
 
 from __future__ import annotations
@@ -20,19 +21,18 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tier1 import (
+from goldenrun import (
     ATOM_COLUMNS,
     CONVERGENCE_COLUMNS,
     GALLERY_IMAGE,
     TEST_SEED,
-    TIER1_PARAMS,
-    Tier1Run,
+    GoldenRun,
     atom_catalogue,
     convergence_table,
-    cutout_of,
     read_table,
-    run_tier1,
 )
+from tier1 import TIER1_PARAMS, cutout_of, run_tier1
+from tier2 import run_tier2
 
 
 @pytest.fixture(scope="session")
@@ -122,7 +122,7 @@ def tier1_provenance(tier1_goldens: Path) -> dict:
 
 
 @pytest.fixture(scope="session")
-def tier1_run(cutout: np.ndarray, tier1_goldens: Path, tmp_path_factory) -> Tier1Run:
+def tier1_run(cutout: np.ndarray, tier1_goldens: Path, tmp_path_factory) -> GoldenRun:
     """Run Tier 1 against the tree under test, once per session.
 
     Depends on the goldens so a missing recording skips before the run rather
@@ -134,7 +134,7 @@ def tier1_run(cutout: np.ndarray, tier1_goldens: Path, tmp_path_factory) -> Tier
 
 
 @pytest.fixture(scope="session")
-def tier1_atoms(tier1_run: Tier1Run) -> list[dict]:
+def tier1_atoms(tier1_run: GoldenRun) -> list[dict]:
     """Every atom the tree under test produced, in the order it produced them."""
     import dawis
 
@@ -142,7 +142,7 @@ def tier1_atoms(tier1_run: Tier1Run) -> list[dict]:
 
 
 @pytest.fixture(scope="session")
-def tier1_convergence(tier1_run: Tier1Run) -> list[dict]:
+def tier1_convergence(tier1_run: GoldenRun) -> list[dict]:
     """The convergence trace of the run under test, one row per iteration."""
     return convergence_table(tier1_run)
 
@@ -157,3 +157,72 @@ def golden_atoms(tier1_goldens: Path) -> list[dict]:
 def golden_convergence(tier1_goldens: Path) -> list[dict]:
     """The recorded convergence trace."""
     return read_table(tier1_goldens / "convergence.csv", CONVERGENCE_COLUMNS)
+
+
+# ---------------------------------------------------------------------------
+# Tier 2 — the recorded full-image goldens (#37)
+# ---------------------------------------------------------------------------
+#
+# Every Tier 2 test carries the ``slow`` marker, so under the default
+# ``-m "not slow"`` these fixtures are never built and the twenty-minute run
+# never starts.
+
+
+@pytest.fixture(scope="session")
+def tier2_goldens() -> Path:
+    """Directory holding the recorded Tier 2 goldens."""
+    path = Path(__file__).parent / "goldens" / "tier2_gallery"
+    if not (path / "provenance.toml").is_file():
+        pytest.skip(
+            f"Tier 2 goldens not recorded: {path}. "
+            "Record them with tests/goldens/record_gallery_golden.py."
+        )
+    return path
+
+
+@pytest.fixture(scope="session")
+def tier2_provenance(tier2_goldens: Path) -> dict:
+    """The goldens' ``provenance.toml``, which owns the tolerances."""
+    import tomllib
+
+    with open(tier2_goldens / "provenance.toml", "rb") as handle:
+        return tomllib.load(handle)
+
+
+@pytest.fixture(scope="session")
+def tier2_run(gallery_image: np.ndarray, tier2_goldens: Path,
+              tmp_path_factory) -> GoldenRun:
+    """Run Tier 2 against the tree under test, once per session.
+
+    About half an hour — 1641 s measured. Depends on the goldens so a missing
+    recording skips before the run rather than after it.
+    """
+    import dawis
+
+    return run_tier2(dawis, gallery_image, tmp_path_factory.mktemp("tier2"))
+
+
+@pytest.fixture(scope="session")
+def tier2_atoms(tier2_run: GoldenRun) -> list[dict]:
+    """Every atom the tree under test produced, in the order it produced them."""
+    import dawis
+
+    return atom_catalogue(dawis, tier2_run)
+
+
+@pytest.fixture(scope="session")
+def tier2_convergence(tier2_run: GoldenRun) -> list[dict]:
+    """The convergence trace of the run under test, one row per iteration."""
+    return convergence_table(tier2_run)
+
+
+@pytest.fixture(scope="session")
+def golden_gallery_atoms(tier2_goldens: Path) -> list[dict]:
+    """The recorded Tier 2 atom catalogue."""
+    return read_table(tier2_goldens / "atoms.csv", ATOM_COLUMNS)
+
+
+@pytest.fixture(scope="session")
+def golden_gallery_convergence(tier2_goldens: Path) -> list[dict]:
+    """The recorded Tier 2 convergence trace."""
+    return read_table(tier2_goldens / "convergence.csv", CONVERGENCE_COLUMNS)
