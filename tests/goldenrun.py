@@ -28,9 +28,11 @@ from pathlib import Path
 
 import numpy as np
 
-# The legacy tree imports matplotlib at module scope and the pipeline plots its
+# The legacy tree imports matplotlib at module scope and its pipeline plots the
 # convergence trace at the end of every run. Set before anything imports dawis,
-# because matplotlib reads this only once.
+# because matplotlib reads this only once. The 1.0 tree neither imports nor
+# draws (#46), but a golden recorded on `legacy-seeded` is compared against a
+# run of this tree, so both must be drivable from a headless session.
 os.environ.setdefault("MPLBACKEND", "Agg")
 
 #: Reference image shipped inside the package, used by Tier 1 and Tier 2.
@@ -61,6 +63,10 @@ GOLDEN_PARAMS = {
     "lvl_sep_big": 5,
     "max_iter": PIPELINE_MAX_ITER,
     "data_dump": False,
+    # Dropped from the entry point by #46, which took the animation off the
+    # loop: kept here because `legacy-seeded` still has it, and a recording
+    # made there must not spend half its time drawing frames. Filtered out
+    # against the signature by :func:`golden_kwargs`.
     "gif": False,
     "resume": False,
 }
@@ -126,8 +132,15 @@ def golden_kwargs(dawis, work_dir: Path, infile: str,
     Kept separate from :func:`run_golden` so the recording scripts can write
     the resolved set into provenance without restating any of it.
     """
-    kwargs = dict(
-        GOLDEN_PARAMS,
+    accepted = inspect.signature(dawis.synthesis_by_analysis).parameters
+    # The two tiers drive two branches whose entry points differ by a
+    # parameter or two — `gif` exists on `legacy-seeded` and was removed by
+    # #46 — so the shared set is filtered against the signature in hand
+    # rather than restated per branch.
+    kwargs = {
+        name: value for name, value in GOLDEN_PARAMS.items() if name in accepted
+    }
+    kwargs.update(
         indir=str(work_dir),
         infile=infile,
         outdir=str(work_dir),
@@ -135,7 +148,7 @@ def golden_kwargs(dawis, work_dir: Path, infile: str,
     # `seed` is a parameter on `legacy-seeded` and lands on the 1.0 tree in
     # #53. Where it is absent the caller pins the global generator instead —
     # see :func:`run_golden`.
-    if "seed" in inspect.signature(dawis.synthesis_by_analysis).parameters:
+    if "seed" in accepted:
         kwargs["seed"] = seed
     return kwargs
 

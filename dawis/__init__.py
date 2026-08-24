@@ -18,12 +18,15 @@ from dawis import (  # noqa: F401
     store_objects,
     table_noise_stds,
 )
-from dawis.make_regions import AnchoredText  # noqa: F401
 from dawis.hard_threshold import normaltest, sigmaclip  # noqa: F401
 # The store leaked ``h5py`` into ``dawis``; the star imports below no longer
 # reach it, because ``synthesis_by_analysis`` names what it imports (#45).
 from dawis.store_objects import h5py  # noqa: F401
 
+# `dawis.viz` and its shim `dawis.gif` are deliberately absent from both lists
+# below: importing either imports matplotlib, the optional `[viz]` extra, and
+# after #46 `import dawis` never does. Draw things with an explicit
+# `import dawis.viz`.
 from dawis.cubes import *
 from dawis.detection import *
 from dawis.io import *
@@ -31,6 +34,5 @@ from dawis.wavelet_transforms import *
 from dawis.anscombe_transforms import *
 from dawis.make_interscale_trees import *
 from dawis.restore_objects import *
-from dawis.gif import *
 from dawis.exceptions import *
 from dawis.synthesis_by_analysis import *

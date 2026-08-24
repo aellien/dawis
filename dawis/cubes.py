@@ -6,20 +6,14 @@
 # MODULES
 
 import numpy as np
-try:
-    import matplotlib.pyplot as plt
-except ImportError:  # matplotlib is the optional [viz] extra
-    from dawis._optional import MissingDependency
-    plt = MissingDependency('matplotlib', 'viz')
-try:
-    from matplotlib.colors import SymLogNorm
-except ImportError:  # matplotlib is the optional [viz] extra
-    from dawis._optional import MissingDependency
-    SymLogNorm = MissingDependency('matplotlib.colors.SymLogNorm', 'viz')
 from astropy.io import fits
 from dawis.exceptions import DawisDimensionError
 import pdb
 import copy
+# The four display methods that hung off these classes moved to
+# :mod:`dawis.viz.cubes` with #46, where the two versions of the plane grid
+# became one `plot_cube` dispatching on cube type. Nothing outside
+# :mod:`dawis.viz` imports matplotlib.
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 class datacube(object):
@@ -203,84 +197,6 @@ class datacube(object):
                                                         self.y_size, \
                                                         self.z_size) )
 
-    def waveplot(self, ncol = 5, name = None, show = True, save_path = None, **kwargs ):
-        '''Display the datacube under the form a grid of plots. This function
-        uses matplotlib.pyplot.imshow() to plot each plane of which the key args
-        can be passed as args here.
-
-        Arguments
-        ----------------
-
-                ncol        Number of columns in the grid of plots. # Int
-
-                name        Title of the matplotlib figure. # String or None
-
-                **kwargs    The matplotlib kwargs. See matplotlib.pyplot.imshow()
-                            documentation for more information.
-        Examples:
-
-            >>> from numpy.random import normal
-            >>> dc3 = dawis.datacube( normal(0, 1, (100, 100, 10)), dctype = 'NONE' )
-            >>> dc3.waveplot(name = 'Datacube of random values')
-            >>> dc3.waveplot(ncol = 2)
-            >>> dc3.waveplot(name = 'Datacube of random values with bicubic\
-                        interpolation', cmap = 'hot', interpolation = 'bicubic')
-        '''
-
-        # Plot make-up.
-        if self.z_size > ncol:
-            nline = int( np.ceil(self.z_size / ncol) )
-        else:
-            nline = 1
-
-        fig, grid = plt.subplots(nline, ncol, sharex = False, sharey = False, \
-                                  gridspec_kw = {'hspace': 0.2, 'wspace': 0.2})
-
-        if name == None:
-            fig.suptitle('Datacube of type %s'%(self.dctype) )
-        else:
-            fig.suptitle(name)
-
-        lvl = 0
-        for i in range(nline):
-            for j in range(ncol):
-                lvl += 1
-                if lvl > self.z_size:
-                    if nline == 1:
-                        grid[j].set_frame_on(False)
-                        grid[j].get_xaxis().set_ticks([])
-                        grid[j].get_yaxis().set_ticks([])
-                    else:
-                        grid[i][j].set_frame_on(False)
-                        grid[i][j].get_xaxis().set_ticks([])
-                        grid[i][j].get_yaxis().set_ticks([])
-                else:
-                    if nline == 1:
-                        ax = grid[j]
-                    else:
-                        ax = grid[i][j]
-                    if lvl == 1:
-                        norm = ax.imshow(self.array[:, :, lvl - 1], **kwargs)
-                    else:
-                        im = ax.imshow(self.array[:, :, lvl - 1], **kwargs)
-                    cax = plt.colorbar(norm, ax = ax, aspect = 10, pad = 0, \
-                                                    orientation = 'horizontal')
-                    ax.set_title('z = %d' %(lvl))
-                    ax.xaxis.tick_top()
-                    if j != 0:
-                        ax.get_yaxis().set_ticks([])
-                    if i != 0:
-                        ax.get_xaxis().set_ticks([])
-
-        if save_path != None:
-            plt.savefig(save_path, format = 'png')
-
-        plt.tight_layout()
-        if show == True:
-            plt.show()
-        else:
-            plt.close()
-
     def help(self):
         print(help(datacube))
 
@@ -297,126 +213,6 @@ class wavelet_datacube(datacube):
         self.fheader['WAVTYPE'] = wavelet_type
         self.fheader.comments['WAVTYPE'] = 'DAWIS wavelet type'
         self.wavelet_type = wavelet_type
-
-    def std_plot(self, name = None, show = True, save_path = None, **kwargs ):
-        '''doc to do'''
-
-        fig = plt.figure()
-
-        if name == None:
-            fig.suptitle('Standard deviation against scale')
-        else:
-            fig.suptitle(name)
-
-        plt.plot(np.std(self.array, axis = (0,1)), **kwargs)
-        plt.yscale('log', basey = 10)
-
-        if save_path != None:
-            plt.savefig(save_path, format = 'pdf')
-
-        #plt.tight_layout()
-        if show == True:
-            plt.show()
-        else:
-            plt.close()
-
-    def waveplot(self, ncol = 5, name = None, show = True, save_path = None, **kwargs ):
-        '''Display the datacube under the form a grid of plots. This function
-        uses matplotlib.pyplot.imshow() to plot each plane of which the key args
-        can be passed as args here. Version specific to datacube of type 'WAVELET'.
-
-        Arguments
-        ----------------
-
-                ncol        Number of columns in the grid of plots. # Int
-
-                name        Title of the matplotlib figure. # String or None
-
-                **kwargs    The matplotlib kwargs. See matplotlib.pyplot.imshow()
-                            documentation for more information.
-        Examples:
-
-            >>> from numpy.random import normal
-            >>> dc3 = dawis.datacube( normal(0, 1, (100, 100, 10)), dctype = 'NONE' )
-            >>> dc3.waveplot(name = 'Datacube of random values')
-            >>> dc3.waveplot(ncol = 2)
-            >>> dc3.waveplot(name = 'Datacube of random values with bicubic\
-                        interpolation', cmap = 'hot', interpolation = 'bicubic')
-        '''
-
-        # Plot make-up.
-        if self.z_size > ncol:
-            nline = int( np.ceil(self.z_size / ncol) )
-        else:
-            nline = 1
-            ncol = self.z_size
-
-        fig, grid = plt.subplots(nline, ncol, sharex = False, sharey = False, \
-                                  gridspec_kw = {'hspace': 0.2, 'wspace': 0.2})
-
-        if name == None:
-            fig.suptitle('Datacube of type %s'%(self.dctype) )
-        else:
-            fig.suptitle(name)
-
-        lvl = 0
-        for i in range(nline):
-            for j in range(ncol):
-                lvl += 1
-                if lvl > self.z_size:
-                    if nline == 1:
-                        grid[j].set_frame_on(False)
-                        grid[j].get_xaxis().set_ticks([])
-                        grid[j].get_yaxis().set_ticks([])
-                    else:
-                        grid[i][j].set_frame_on(False)
-                        grid[i][j].get_xaxis().set_ticks([])
-                        grid[i][j].get_yaxis().set_ticks([])
-                else:
-                    if nline == 1:
-                        ax = grid[j]
-                    else:
-                        ax = grid[i][j]
-
-                    try:
-                        norm = kwargs.pop('norm')
-                        if lvl == 1:
-                            im_norm = ax.imshow(self.array[:, :, lvl - 1], **kwargs)
-                        else:
-                            im = ax.imshow(self.array[:, :, lvl - 1], **kwargs)
-                        cax = plt.colorbar(im_norm, ax = ax, aspect = 10, pad = 0, \
-                                                        orientation = 'horizontal')
-                    except:
-                        logthresh = 1E-3
-                        norm = SymLogNorm(logthresh)
-                        if lvl == 1:
-                            im_norm = ax.imshow(self.array[:, :, lvl - 1], norm = norm, **kwargs)
-                            maxlog = np.log10( np.ceil( np.max( self.array[:, :, lvl - 1] )))
-                            minlog = np.log10( np.ceil( - np.min( self.array[:, :, lvl - 1] )))
-                        else:
-                            im = ax.imshow(self.array[:, :, lvl - 1], norm = norm, **kwargs)
-
-                        tick_locations = (list(- np.logspace(1, minlog, num = 2, base = 10)) \
-                                            + [0] \
-                                            + list(np.logspace(1, maxlog, num = 2, base = 10)))
-                        cax = plt.colorbar(im_norm, ax = ax, aspect = 10, pad = 0, \
-                                                    orientation = 'horizontal', \
-                                                    ticks = tick_locations)
-                    ax.set_title('z = %d' %(lvl))
-                    ax.xaxis.tick_top()
-                    if j != 0:
-                        ax.get_yaxis().set_ticks([])
-                    if i != 0:
-                        ax.get_xaxis().set_ticks([])
-
-        if save_path != None:
-            plt.savefig(save_path, format = 'png')
-
-        #plt.tight_layout()
-        if show == True:
-            plt.show()
-        else:
-            plt.close()
 
 class coarse_datacube(datacube):
     """docstring for ."""
@@ -443,31 +239,6 @@ class support_datacube(datacube):
         self.fheader['TRSHTYPE'] = threshold_type
         self.fheader.comments['TRSHTYPE'] = 'DAWIS threshold type'
 
-    def histogram_noise(self, name = None, show = True, save_path = None, **kwargs):
-        '''doc to do'''
-
-        fig = plt.figure()
-
-        if name == None:
-            fig.suptitle('Datacube of type %s'%(self.dctype) )
-        else:
-            fig.suptitle(name)
-
-        plt.hist(self.noise_pixels.flatten(),  bins = 'auto',  \
-                                               histtype = 'bar', \
-                                               rwidth = 10. , \
-                                               align='left', \
-                                               **kwargs)
-
-        if save_path != None:
-            plt.savefig(save_path, format = 'png')
-
-        #plt.tight_layout()
-        if show == True:
-            plt.show()
-        else:
-            plt.close()
-
     def test_gaussianity(self, alpha = 1E-3):
         k, pval = normaltest( self.noise_pixels )
         if pval > alpha:
@@ -488,45 +259,3 @@ class label_datacube(datacube):
         self.fheader['LABC'] = np.sum(self.lab_counts)
         self.fheader.comments['LABC'] = 'DAWIS total label counts'
 
-    def label_counts_plot(self, name = None, show = True, save_path = None, **kwargs ):
-        '''doc to do'''
-
-        fig = plt.figure()
-
-        if name == None:
-            fig.suptitle('Label counts against scale')
-        else:
-            fig.suptitle(name)
-
-        plt.plot(self.lab_counts, **kwargs)
-
-        if save_path != None:
-            plt.savefig(save_path, format = 'pdf')
-
-        #plt.tight_layout()
-        if show == True:
-            plt.show()
-        else:
-            plt.close()
-
-#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-if __name__ == '__main__':
-
-    from numpy.random import normal
-    dc3 = datacube( normal(0, 1,(100, 100, 9)), dctype = 'NONE' )
-    dc3.waveplot(name = 'Datacube of random values')
-    #dc3.waveplot(ncol = 2)
-    #dc3.waveplot(cmap = 'hot', interpolation = 'bicubic')
-    #FILE = '/home/ellien/devd/tests/datacube_test.fits'
-
-    #dc_test.to_fits(FILE, overwrite = True )
-
-    #dc_test_3 = datacube( np.ones( (10, 10, 3) ), dctype = 'WAVELET DATACUBE' )
-    #print(dc_test_3.fheader['DCTYPE'])
-    #print(dc_test_3.fheader)
-
-    #dc_test_4 = datacube( np.ones( (10, 10, 3) ), dctype = 'BULLSHIT' )
-
-    #dc_test_2 = datacube.from_fits(FILE)
-    #print(dc_test_2.fheader)

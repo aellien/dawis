@@ -37,16 +37,9 @@ from dawis.detection import region
 from dawis.restoration.deconvolution import richardson_lucy_np, twod_B2spline
 from dawis.wavelets import atrous
 
-try:
-    import matplotlib.pyplot as plt
-except ImportError:  # matplotlib is the optional [viz] extra
-    from dawis._optional import MissingDependency
-    plt = MissingDependency('matplotlib', 'viz')
-try:
-    from matplotlib.colors import SymLogNorm
-except ImportError:  # matplotlib is the optional [viz] extra
-    from dawis._optional import MissingDependency
-    SymLogNorm = MissingDependency('matplotlib.colors.SymLogNorm', 'viz')
+# ``interscale_tree.plot`` moved to
+# :func:`dawis.viz.trees.plot_interscale_tree` with #46; nothing outside
+# :mod:`dawis.viz` imports matplotlib.
 
 
 class interscale_tree(object):
@@ -213,119 +206,6 @@ class interscale_tree(object):
         return det_err_tube
             
     
-    def plot(
-        self,
-        wavelet_datacube: wavelet_datacube,
-        label_datacube: label_datacube,
-        name: str | None = None,
-        show: bool = True,
-        save_path: str | None = None,
-        **kwargs,
-    ) -> None:
-        """Draw the tree: its summed wavelet coefficients beside its regions.
-
-        Parameters
-        ----------
-        wavelet_datacube : dawis.cubes.wavelet_datacube
-            Wavelet planes the tree was built on.
-        label_datacube : dawis.cubes.label_datacube
-            Label cube the tree was built on.
-        name : str, optional
-            Figure title. Default is the label of the interscale maximum.
-        show : bool, optional
-            Display the figure and block. Default is True. When False the
-            figure is closed instead, which is what saving in a loop wants.
-        save_path : str, optional
-            Write the figure there as PNG. Default is not to save.
-        **kwargs
-            Passed to :func:`matplotlib.pyplot.imshow`. A ``norm`` entry is
-            honoured; without one a symmetric-log norm is used.
-
-        Notes
-        -----
-        Requires the ``[viz]`` extra. This method moves to ``dawis.viz`` when
-        that block is carved out — no other module here touches matplotlib.
-        """
-
-        fig, ax = plt.subplots(1, 2, sharex = True, sharey = True, \
-                                  gridspec_kw = {'hspace': 0.5, 'wspace': 0.5})
-
-        if name == None:
-            fig.suptitle('Interscale tree of region n°%d' %(self.interscale_maximum.label) )
-        else:
-            fig.suptitle(name)
-
-        wavelet_image = np.sum(wavelet_datacube.array[ self.bbox[0]:self.bbox[2], \
-                                                       self.bbox[1]:self.bbox[3], \
-                                                       0:self.interscale_maximum.level + 1 ], axis = 2)
-
-        try:
-            norm = kwargs.pop('norm')
-            im = ax[0].imshow( wavelet_image, \
-                    extent = ( self.bbox[1], self.bbox[3], \
-                               self.bbox[0], self.bbox[2] ), \
-                    origin = 'lower', \
-                    **kwargs )
-            plt.colorbar(im, ax = ax[0], orientation = 'vertical')
-        except:
-            logthresh = 1E-3
-            norm = SymLogNorm(logthresh)
-            im = ax[0].imshow( wavelet_image, extent = ( self.bbox[1], self.bbox[3], \
-                                                         self.bbox[0], self.bbox[2] ), \
-                                              origin = 'lower', \
-                                              norm = norm, \
-                                              **kwargs )
-
-            maxlog = np.log10( np.ceil( np.max( wavelet_image )))
-            minlog = np.log10( np.ceil( - np.min( wavelet_image )))
-            tick_locations = (list(- np.logspace(1, minlog, num = 2, base = 10)) \
-                                + [0] \
-                                + list(np.logspace(1, maxlog, num = 2, base = 10)))
-            plt.colorbar(im, ax = ax[0], orientation = 'vertical', \
-                                         ticks = tick_locations,
-                                         aspect = 10,
-                                         shrink = 0.5)
-
-
-        label_image = np.zeros((self.bbox[2] - self.bbox[0], \
-                                self.bbox[3] - self.bbox[1]))
-
-        for i, region in enumerate(self.region_list):
-
-            ax[0].plot( region.y_max, region.x_max, '+' )
-
-            clip = np.copy(label_datacube.array[ self.bbox[0]:self.bbox[2], \
-                                                 self.bbox[1]:self.bbox[3], \
-                                                 int(region.level) ])
-
-            clip[np.where(clip != region.label)] = 0.
-
-            try:
-                ax[0].contour( clip, region.label,
-                                     extent = ( self.bbox[1], self.bbox[3], \
-                                                self.bbox[0], self.bbox[2] ), \
-                                     levels = 0, \
-                                     color = 'cyan')
-            except:
-                print('Region too small for contours.')
-
-            clip[np.where(clip == region.label)] = 1
-            label_image += clip
-            ax[1].plot( region.y_max, region.x_max, '+' )
-
-        ax[1].imshow(label_image, extent = ( self.bbox[1], self.bbox[3], \
-                                             self.bbox[0], self.bbox[2] ), \
-                                  origin = 'lower',
-                                  cmap = 'binary'  )
-
-        if save_path != None:
-            plt.savefig(save_path, format = 'png')
-
-        if show == True:
-            plt.show()
-        else:
-            plt.close()
-
     def tubes(
         self,
         wavelet_datacube: wavelet_datacube,

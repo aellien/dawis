@@ -21,12 +21,6 @@ from scipy.stats import normaltest, sigmaclip
 from dawis.cubes import support_datacube, wavelet_datacube
 from dawis.detection.noise import table_noise_stds
 
-try:
-    import matplotlib.pyplot as plt
-except ImportError:  # matplotlib is the optional [viz] extra
-    from dawis._optional import MissingDependency
-    plt = MissingDependency('matplotlib', 'viz')
-
 
 def hard_threshold(
     wavelet_datacube: wavelet_datacube,
@@ -34,7 +28,6 @@ def hard_threshold(
     wavelet_type: str | None = None,
     keep_neg: bool = False,
     verbose: bool = False,
-    display: bool = False,
 ) -> support_datacube:
     """Threshold a wavelet cube into a binary significance support.
 
@@ -59,8 +52,6 @@ def hard_threshold(
         detections only.
     verbose : bool, optional
         Log the threshold applied at each scale. Default is False.
-    display : bool, optional
-        Show a histogram of the clipped noise pixels. Default is False.
 
     Returns
     -------
@@ -82,13 +73,16 @@ def hard_threshold(
     what it says. The comparison is left as published rather than corrected
     inside a move.
 
-    Two more defects in the same block are carried through unchanged. The
+    One more defect in the same block is carried through unchanged: the
     guard ``noise_pixels[0].size > 0`` inspects a scalar, so it is always
     true, and on a plane whose sample clips away to nothing the indexing
-    raises ``IndexError`` before the guard can do anything. The ``display``
-    path histograms that same scalar rather than the sample, so the plot it
-    draws is empty of information; it is unreachable from the pipeline,
-    which never sets ``display``.
+    raises ``IndexError`` before the guard can do anything.
+
+    The ``display`` argument was dropped by #46, which moved every matplotlib
+    call into :mod:`dawis.viz`. It histogrammed that same scalar rather than
+    the sample, so it drew a plot with one value in it, and the pipeline never
+    set it. :func:`dawis.viz.plot_noise_histogram` draws the histogram it was
+    reaching for, from the support cube this returns.
     """
 
     # Add exceptions
@@ -118,11 +112,6 @@ def hard_threshold(
         if pval > alpha:
             log = logging.getLogger(__name__)
             log.info('/!\ Warning /!\ noise does not look Gaussian : p = %1.5f alpha = %1.5f'%(pval, alpha))
-
-    if display == True:
-        plt.figure(1)
-        plt.hist(noise_pixels[0].flatten(),  bins = 'auto',  histtype = 'bar', rwidth = 10. , align='left')
-        plt.show()
 
     for level in range(0, n_levels):
 

@@ -102,6 +102,8 @@ PHASES = [
     ("trees", "trees", "restore"),
     ("restore", "restore", "atoms"),
     ("atoms+converge", "atoms", "dump"),
+    # Named for the legacy loop, which drew the animation frames inside this
+    # phase. On the 1.0 tree it is the dump alone: #46 moved the drawing out.
     ("dump+gif", "dump", "end"),
 ]
 PHASES_NODUMP = [
@@ -428,7 +430,12 @@ def run(args):
     cg_default, cg_counter = force_cg_max_iter(args.cg_max_iter)
 
     entry = dawis.synthesis_by_analysis
-    supports_seed = "seed" in inspect.signature(entry).parameters
+    entry_params = inspect.signature(entry).parameters
+    supports_seed = "seed" in entry_params
+    # `gif` is a parameter on `legacy` and `legacy-seeded`; #46 took the
+    # animation off the loop and removed it from the 1.0 tree, where the
+    # frames are rebuilt afterwards by `dawis.viz.rebuild_animation`.
+    supports_gif = "gif" in entry_params
 
     kwargs = dict(
         REFERENCE_PARAMS,
@@ -438,13 +445,19 @@ def run(args):
         n_cpus=args.n_cpus,
         max_iter=args.pipeline_max_iter,
         data_dump=args.data_dump,
-        gif=args.gif,
         resume=False,
     )
 
     # `seed` exists on legacy-seeded and on the 1.0 tree, not on legacy.
     if supports_seed:
         kwargs["seed"] = args.seed
+    if supports_gif:
+        kwargs["gif"] = args.gif
+    elif args.gif:
+        raise SystemExit(
+            "--gif: this tree draws no frames during a run (#46); rebuild them "
+            "afterwards with dawis.viz.rebuild_animation"
+        )
 
     stop = threading.Event()
     mem_path = os.path.join(args.outdir, "memory.csv")
@@ -578,7 +591,12 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--label", default="")
     ap.add_argument("--data-dump", action="store_true", help="write per-iteration dumps")
-    ap.add_argument("--gif", action="store_true", help="write animation frames")
+    ap.add_argument(
+        "--gif",
+        action="store_true",
+        help="write animation frames -- only on a tree whose entry point still "
+             "takes `gif`; #46 removed it from 1.0",
+    )
     ap.add_argument(
         "--no-stub-missing",
         dest="stub_missing",

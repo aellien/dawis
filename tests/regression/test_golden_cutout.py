@@ -41,6 +41,22 @@ def test_cutout_matches_the_recorded_input(cutout, tier1_goldens: Path):
     np.testing.assert_array_equal(np.asarray(cutout), recorded)
 
 
+def test_the_loop_draws_nothing(tier1_run: GoldenRun):
+    """The greedy loop writes no frames and no plots (#46).
+
+    The animation cost 52% of the loop (#5) and is now rebuilt afterwards by
+    ``dawis.viz.rebuild_animation``, so a run leaves no image files behind at
+    all — not the frames, and not the per-iteration cube plots that sat beside
+    them.
+    """
+    drawn = sorted(
+        path.name
+        for path in tier1_run.stem.parent.iterdir()
+        if path.suffix in {".png", ".pdf"}
+    )
+    assert drawn == []
+
+
 def test_iteration_count_is_exact(tier1_convergence, golden_convergence):
     """The greedy loop takes the same number of iterations. Exact, per #3."""
     assert len(tier1_convergence) == len(golden_convergence)

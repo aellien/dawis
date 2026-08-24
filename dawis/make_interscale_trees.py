@@ -10,6 +10,12 @@ by the contract ticket (#50) once no caller names it.
 
 The ``__main__`` demo block goes with the move; its role belongs to the
 tutorial notebooks (#12).
+
+The two matplotlib names this module used to leak, ``plt`` and
+``SymLogNorm``, are gone with #46 along with ``interscale_tree.plot``, which
+is now :func:`dawis.viz.trees.plot_interscale_tree`. They are not mirrored
+here: matplotlib is the optional ``[viz]`` extra, and binding it in a module
+that ``import dawis`` reaches would make the extra mandatory again.
 """
 
 import gc  # noqa: F401
@@ -31,11 +37,7 @@ from dawis.restoration.deconvolution import (  # noqa: F401
     twod_B2spline,
     unpad,
 )
-from dawis.trees.construction import (  # noqa: F401
-    SymLogNorm,
-    interscale_tree,
-    plt,
-)
+from dawis.trees.construction import interscale_tree  # noqa: F401
 from dawis.trees.deblending import (  # noqa: F401
     interscale_connectivity_para,
     interscale_connectivity_serial,

@@ -21,13 +21,8 @@ from skimage.measure import regionprops
 
 from dawis.detection.noise import table_noise_stds
 
-try:
-    import matplotlib.pyplot as plt
-    from matplotlib.offsetbox import AnchoredText
-except ImportError:  # matplotlib is the optional [viz] extra
-    from dawis._optional import MissingDependency
-    plt = MissingDependency('matplotlib', 'viz')
-    AnchoredText = MissingDependency('matplotlib.offsetbox.AnchoredText', 'viz')
+# ``region.plot`` moved to :func:`dawis.viz.regions.plot_region` with #46;
+# nothing outside :mod:`dawis.viz` imports matplotlib.
 
 
 class region(object):
@@ -83,87 +78,6 @@ class region(object):
         self.__dict__.update((key, np.array(value)) for key, value in kwargs.items() if key in allowed_keys)
 
     
-
-    def plot(self, wavelet_datacube, label_datacube, name = None, show = True, save_path = None, **kwargs):
-        """Show the region's cutout of its wavelet plane, with its outline.
-
-        Parameters
-        ----------
-        wavelet_datacube : dawis.cubes.wavelet_datacube
-            The cube the region was detected on, supplying the pixels.
-        label_datacube : dawis.cubes.label_datacube
-            The label cube, supplying the outline.
-        name : str, optional
-            Figure title. Default is None, which titles it by label.
-        show : bool, optional
-            Display the figure. Default is True; False closes it instead.
-        save_path : str, optional
-            Write the figure as PDF. Default is None, which writes nothing.
-        **kwargs
-            Passed through to :func:`matplotlib.pyplot.imshow`.
-
-        Notes
-        -----
-        A region with no ``bbox`` gets one computed here, by scanning the
-        whole label cube for its label, and the result is cached on the
-        instance.
-
-        Moves to the ``viz`` subpackage when that is carved.
-        """
-
-        fig = plt.figure()
-
-        if name == None:
-            fig.suptitle('Region n°%d' %(self.label) )
-        else:
-            fig.suptitle(name)
-
-        if self.bbox == False:
-            coo_region = np.where( label_datacube.array == self.label )
-            min_x_axis = np.min(coo_region[0])
-            max_x_axis = np.max(coo_region[0])
-            min_y_axis = np.min(coo_region[1])
-            max_y_axis = np.max(coo_region[1])
-            self.bbox = (min_x_axis, min_y_axis, max_x_axis, max_y_axis)
-
-        plt.imshow( wavelet_datacube.array[ self.bbox[0]:self.bbox[2], \
-                                            self.bbox[1]:self.bbox[3], \
-                                            int(self.level) ], \
-                    extent = ( self.bbox[1], self.bbox[3], \
-                               self.bbox[0], self.bbox[2] ), \
-                    origin = 'lower', \
-                    **kwargs )
-
-        plt.plot( self.y_max, self.x_max, '+', color = 'black' )
-
-        plt.gca().add_artist(AnchoredText( r'level = %d'%(self.level), \
-                                                loc = 'upper right', \
-                                                frameon=True, \
-                                                pad=0.4, \
-                                                borderpad=0.1, \
-                                                prop=dict(size=10)))
-
-        try:
-            clip = label_datacube.array[ self.bbox[0]:self.bbox[2], \
-                                           self.bbox[1]:self.bbox[3], \
-                                           int(self.level) ]
-            clip[np.where(clip != self.label)] = 0.
-            plt.contour( clip, \
-                    self.label, \
-                    extent = ( self.bbox[1], self.bbox[3], \
-                               self.bbox[0], self.bbox[2] ), \
-                    levels = 0, color = 'black', linewidth = 3 )
-        except:
-            print('Region too small for countours.')
-
-        if save_path != None:
-            plt.savefig(save_path, format = 'pdf')
-
-        #plt.tight_layout()
-        if show == True:
-            plt.show()
-        else:
-            plt.close()
 
 def make_regions_full_props(
     wavelet_datacube,

@@ -27,7 +27,6 @@ from dawis.wavelet_transforms import bspl_atrous
 from dawis.anscombe_transforms import *
 from dawis.make_interscale_trees import *
 from dawis.restore_objects import *
-from dawis.gif import *
 from dawis.restoration import sample_noise, inpaint_with_gaussian_noise
 from dawis.io import (
     read_image,
@@ -44,7 +43,7 @@ from dawis.io import (
 def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2, tau = 0.8, n_levels = None, n_sigmas = 5, deblend_contrast = 0.1,\
                                 gamma = 0.2, min_span = 2, max_span = 3, lvl_sep_big = 6, rm_gamma_for_big = False, lvl_deblend = 3, outfile_format = 'pickle', \
                                 extent_sep = 0.1, ecc_sep = 0.95, lvl_sep_lin = 2, lvl_sep_op = 3, ceps = 1E-3, scale_lvl_eps = 1, conditions = 'loop', deconv = False,\
-                                max_iter = 500, size_patch = 100, inpaint_res = True, data_dump = True, gif = True, iptd_sigma = 3, resume = True):
+                                max_iter = 500, size_patch = 100, inpaint_res = True, data_dump = True, iptd_sigma = 3, resume = True):
 
     # Setup Ray for parallelisation
     # If there is no head ray cluster setup, create one internal to dawis run
@@ -233,17 +232,6 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
                     hdu = fits.PrimaryHDU(dei)
                     hdu.writeto(''.join(( outpath, '.dei.it%03d.fits' %(it))), overwrite = True)
 
-                if gif:
-                    awdc.waveplot( name = 'Anscombe modified\nWavelet Planes\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.awdc.it%03d.png' %(it))), origin = 'lower')
-                    wdc.waveplot( name = 'Wavelet Planes\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.wdc.it%03d.png' %(it))), origin = 'lower')
-                    ldc.waveplot( name = 'Multiscale label\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.ldc.it%03d.png' %(it))), origin = 'lower')
-                    #sdc.histogram_noise( name = 'Noise histogram (lvl = 0)\nIteration %d'%(it), show = False, save_path = ''.join(( outpath, '.hist.it%03d.png' %(it))))
-                    plot_frame( level = level, it = it, nobj = len(ol), \
-                                                        original_image = im, \
-                                                        restored_image = rec, \
-                                                        residuals = res, \
-                                                        atom = atom, \
-                                                        outpath = outpath )
             logging.info('[ %s ]End of iteration (time: %s)\n\n'%(datetime.now(), datetime.now() - start_time_it ))
             it += 1
             if it > max_iter:
@@ -272,10 +260,12 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
         for l in cparl:
             conv.write('%s\n' %(' '.join(l)))
 
-    plot_convergence( cparl = cparl, outpath = outpath, marker = 'o', linewidth = 2 )
-
-    if gif:
-        make_gif( framerate = 3, outpath = outpath )
+    # The convergence plot and the animation are drawn from these files by
+    # `dawis.viz`, after the run rather than during it (#46).
+    logging.info('Draw this run with:\n'
+                 '    from dawis.viz import rebuild_animation, rebuild_convergence_plot\n'
+                 "    rebuild_convergence_plot('%s')\n"
+                 "    rebuild_animation('%s')" %(outpath, outpath))
 
     logging.info( datetime.now() - StartTimeAlgo )
 

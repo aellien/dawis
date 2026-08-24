@@ -27,13 +27,9 @@ from dawis.restoration.synthesis import (  # noqa: F401
 
 # Mirrored rather than re-exported from :mod:`dawis.restoration.synthesis`,
 # because ``MissingRay`` is bound there only when the extra is absent and this
-# module leaked both names into ``dawis`` when it was. ``plt`` is mirrored for
-# the same reason: the moved code never used it, so it does not travel.
-try:
-    import matplotlib.pyplot as plt  # noqa: F401
-except ImportError:  # matplotlib is the optional [viz] extra
-    from dawis._optional import MissingDependency  # noqa: F401
-    plt = MissingDependency('matplotlib', 'viz')
+# module leaked the name into ``dawis`` when it was. The ``plt`` that sat
+# beside it is gone with #46: matplotlib now lives only in :mod:`dawis.viz`,
+# and the moved code never used it.
 try:
     import ray  # noqa: F401
 except ImportError:  # ray is the optional [ray] extra
