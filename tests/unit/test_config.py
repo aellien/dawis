@@ -36,6 +36,7 @@ import pytest
 from astropy.io import fits
 
 import dawis
+from dawis import parallel
 from tinyrun import TINY_NAME, TINY_PARAMS, run_quiet
 from tinyrun import tiny_image as make_tiny_image
 
@@ -43,6 +44,7 @@ from dawis.config import (
     BOUNDARY_CONDITIONS,
     DEFAULT_CG_MAX_ITER,
     OUTPUT_FORMATS,
+    PARALLEL_BACKENDS,
     SEED_BITS,
     Config,
     make_rng,
@@ -68,6 +70,8 @@ def test_the_default_configuration_is_the_published_one():
     assert config.cg_max_iter == DEFAULT_CG_MAX_ITER
     assert config.conditions == 'loop'
     assert config.outfile_format == 'pickle'
+    assert config.n_cpus == 1
+    assert config.backend is None
 
 
 def test_the_solver_iteration_cap_defaults_to_the_published_200():
@@ -161,6 +165,7 @@ def test_the_configuration_cannot_be_changed_after_it_is_checked():
     ('ecc_sep', 1.5),
     ('conditions', 'wrap'),
     ('outfile_format', 'csv'),
+    ('backend', 'dask'),
     ('seed', -1),
     ('seed', 2 ** SEED_BITS),
 ])
@@ -203,6 +208,38 @@ def test_a_condition_neither_of_them_accepts_is_refused_by_both():
 @pytest.mark.parametrize('output_format', OUTPUT_FORMATS)
 def test_every_supported_output_format_is_accepted(output_format):
     assert Config(outfile_format = output_format).outfile_format == output_format
+
+
+@pytest.mark.parametrize('backend', PARALLEL_BACKENDS)
+def test_every_accepted_backend_is_one_the_parallelism_seam_knows(backend):
+    """The two lists of backends must agree, and neither imports the other.
+
+    Same standing rule as the boundary conditions above: ``dawis.config`` is
+    shared vocabulary and imports no module of the package, so it states its
+    own tuple beside :data:`dawis.parallel.BACKENDS`. This is what stops the
+    copies drifting — a backend ``Config`` accepts and the seam cannot build
+    would be a run that validates and then dies at the first ``pmap``.
+    """
+    assert Config(backend = backend).backend == backend
+
+    assert backend in parallel.BACKENDS
+
+
+def test_the_seam_knows_no_backend_the_configuration_cannot_name():
+    """The agreement runs both ways, so neither list may quietly widen."""
+    assert set(PARALLEL_BACKENDS) == set(parallel.BACKENDS)
+
+
+def test_no_backend_is_a_backend_choice_and_means_let_the_worker_count_decide():
+    """``None`` is not a missing value: it is what the pipeline has always done.
+
+    One worker selects serial and more than one the default parallel backend.
+    Naming a backend overrides that, which is the whole point of the knob.
+    """
+    assert Config(backend = None).backend is None
+
+    assert parallel.make_backend(None, 1).name == 'serial'
+    assert parallel.make_backend(None, 4).name == parallel.DEFAULT_PARALLEL_BACKEND
 
 
 def test_a_configuration_error_is_a_dawis_error():

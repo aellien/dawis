@@ -49,8 +49,10 @@ recorded on the result and it never stops the run (#4); see
 Two things a run does are deliberately *not* done here. It does not draw: the
 convergence plot and the animation are rebuilt afterwards by :mod:`dawis.viz`
 from the files below, which took the frame writing off the loop (#46). And it
-does not choose a parallel backend: it says how many workers a worker count
-means and :mod:`dawis.parallel` decides the rest (#47).
+does not choose a parallel backend: it forwards the worker count and the
+backend name the configuration carries, and :mod:`dawis.parallel` decides the
+rest (#47). Neither of those two knobs can change what a run computes — since
+#56 they reach scheduling and nothing else.
 
 One thing a run does that no block may: it installs logging handlers, for the
 length of the run and no longer. That is what gives the run directory its
@@ -296,15 +298,16 @@ def run(image, config: Config | None = None, *, outdir: str = '.',
     # minutes and a configured one is not doubled. See :mod:`dawis.logs`.
     with run_logging(outpath):
 
-        # What a worker is, for the length of this run. One worker selects the
-        # serial backend, more than one the default parallel backend; the adapter
-        # attaches to a cluster that is already up and starts one only if none is,
-        # and stops only what it started. `dawis.parallel` owns all of that -- this
-        # file names no backend and imports nothing optional. The cluster is
-        # released on the way out, including out through an exception, which the
-        # pre-#47 code never managed: its shutdown sat on a misspelt flag and was
-        # unreachable.
-        with parallel_backend(n_workers = config.n_cpus):
+        # What a worker is, for the length of this run. `config.backend` names
+        # one, or is None and the worker count decides: one worker selects the
+        # serial backend, more than one the default parallel backend. The
+        # adapter attaches to a cluster that is already up and starts one only
+        # if none is, and stops only what it started. `dawis.parallel` owns all
+        # of that -- this file names no backend itself and imports nothing
+        # optional. The cluster is released on the way out, including out
+        # through an exception, which the pre-#47 code never managed: its
+        # shutdown sat on a misspelt flag and was unreachable.
+        with parallel_backend(name = config.backend, n_workers = config.n_cpus):
 
             log.info(datetime.now())
             start_time_algo = datetime.now()
@@ -444,7 +447,8 @@ def run(image, config: Config | None = None, *, outdir: str = '.',
                                                            size_big_objects = 512, \
                                                            deconv = config.deconv, \
                                                            cg_max_iter = config.cg_max_iter, \
-                                                           n_cpus = config.n_cpus ) # objects in original image pixel value range
+                                                           n_cpus = config.n_cpus, \
+                                                           verbose = True ) # objects in original image pixel value range
 
                     # Atom
                     log.info('[ %s ] Add atoms to restored images.'%datetime.now())

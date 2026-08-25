@@ -39,7 +39,7 @@ import numpy as np
 
 from dawis.cubes import LabelCube, WaveletCube
 from dawis.detection import region
-from dawis.parallel import pmap
+from dawis.parallel import cut_into_patches, pmap
 from dawis.trees.construction import interscale_tree
 
 log = logging.getLogger(__name__)
@@ -257,8 +257,7 @@ def make_interscale_trees(
         workers = 1
     else:
         log.info('Attaching regions in patches of %d roots.' %(size_patch))
-        patches = [interscale_maximum_list[start:start + size_patch]
-                   for start in range(0, len(interscale_maximum_list), size_patch)]
+        patches = cut_into_patches(interscale_maximum_list, size_patch)
         workers = n_cpus
 
     tree_patches = pmap(

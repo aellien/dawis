@@ -17,17 +17,37 @@ with the Haar filter, everything else with the B3-spline, starting from the
 plain sum of planes at or below ``lvl_sep_op`` and from the adjoint operator
 above it. It also builds the detection-error image and traps a diverged solve.
 
-:func:`restore_objects_default` runs that over a list of trees. Below
-``size_patch_big`` trees, or on one worker, it loops in process. Above it, it
-sorts by area and splits the list into big and small patches, which
-:func:`restore_patch` synthesises one at a time. Which of those patches runs
-where is not decided here: they go to :func:`dawis.parallel.pmap`, and ray is
-named nowhere in this module since #47.
+:func:`restore_objects_default` runs that over a list of trees. It cuts the
+list into patches, hands them to :func:`dawis.parallel.pmap`, and lays the
+atoms that come back out in the order the trees were given.
+:func:`restore_patch` is what runs on the far side of that call, wherever
+``pmap`` puts it — one call to :func:`restore_object` per tree of the patch.
+Ray is named nowhere in this module since #47.
 
-#5 measured a 308% flux difference between the two branches, so the worker
-count currently selects an outcome as well as a degree of parallelism; #56
-unifies them onto the published serial path. Until it lands, a run whose
-output is being compared with another must hold ``n_cpus`` fixed.
+One path, whatever the worker count (#56)
+-----------------------------------------
+
+There used to be two. ``n_cpus == 1`` looped over the trees in process and
+anything else patched them out, and the two did not agree: #5 measured a
+**308% difference in total restored flux** between them. #20 settled which
+was the science — the published conjugate-gradient path, the one the serial
+branch ran — and decided the divergence ends here.
+
+So the worker count no longer reaches any decision this module makes. It is
+passed to ``pmap`` and nowhere else, and every tree is restored by the same
+:func:`restore_object` call it would get on one worker. What ``n_cpus``
+changes is where a patch runs and how many run at once; what it cannot change
+is the atom that comes back, or where that atom sits in the returned list.
+That is a contract Tier 2 asserts bit-for-bit (#57), and the reason it can be
+asserted that strictly is that trees are independent — no reduction runs
+across them, so no worker count can reassociate a sum.
+
+Patching is scheduling, and only scheduling. Trees wider *and* taller than
+``size_big_objects`` are expensive and go into patches of ``size_patch_big``
+ahead of everything else, so the long pole is submitted first; the rest
+follow in patches of ``size_patch_small``. Fixing the atom order back to tree
+order afterwards costs one list assignment and buys a result that does not
+depend on how the work was cut up.
 """
 
 from __future__ import annotations
@@ -39,7 +59,7 @@ import numpy as np
 
 from dawis.config import DEFAULT_CG_MAX_ITER
 from dawis.cubes import LabelCube, WaveletCube
-from dawis.parallel import pmap
+from dawis.parallel import cut_into_patches, pmap
 
 log = logging.getLogger(__name__)
 
@@ -129,6 +149,7 @@ def restore_patch(
     rm_gamma_for_big: bool,
     deconv: bool,
     cg_max_iter: int = DEFAULT_CG_MAX_ITER,
+    verbose: bool = False,
 ) -> list[Atom]:
     """Synthesise one patch of trees into atoms.
 
@@ -165,6 +186,9 @@ def restore_patch(
     cg_max_iter : int, optional
         Iteration cap handed to the solver. Default
         :data:`~dawis.config.DEFAULT_CG_MAX_ITER`.
+    verbose : bool, optional
+        Passed through to the solver, which logs a line when its flux test
+        fires. Default False.
 
     Returns
     -------
@@ -184,7 +208,8 @@ def restore_patch(
                                                                               lvl_sep_big, \
                                                                               lvl_sep_op, \
                                                                               deconv, \
-                                                                              cg_max_iter )
+                                                                              cg_max_iter, \
+                                                                              verbose )
 
         if (rm_gamma_for_big == False) or (tree.interscale_maximum.level < lvl_sep_big):
             image = image * gamma  # add attenuation factor
@@ -313,6 +338,69 @@ def restore_object(
 
     return image, det_err_image, filter_kw, flag_convergence, sum_wr, norm_wr
 
+
+def _schedule_patches(
+    interscale_tree_list: list[interscale_tree_type],
+    size_patch_small: int,
+    size_patch_big: int,
+    size_big_objects: int,
+) -> list[list[int]]:
+    """Decide which trees are worked together, and in which order.
+
+    Pure scheduling: every tree lands in exactly one patch whatever the
+    numbers say, so nothing here can change what is restored — only how the
+    work is cut up and which end of it is submitted first. A tree bigger than
+    ``size_big_objects`` on *both* axes costs disproportionately more to
+    solve, so those go first, in patches of their own size; the rest follow.
+    Submitting the long pole first is what keeps the last worker from being
+    handed it.
+
+    Returns positions rather than trees, so that the caller can put the atoms
+    back in tree order once the patches come home. That reordering is the
+    whole reason this is allowed to schedule freely.
+
+    Parameters
+    ----------
+    interscale_tree_list : list of interscale_tree
+        Trees of this iteration, in the order the caller gave them.
+    size_patch_small, size_patch_big : int
+        Trees per patch, for ordinary and for big objects.
+    size_big_objects : int
+        Side in pixels a tree must exceed on both axes to count as big.
+
+    Returns
+    -------
+    list of list of int
+        Patches of positions into ``interscale_tree_list``, big first.
+
+    Notes
+    -----
+    The pre-#56 version of this had three defects, all of them here rather
+    than in the science, and all three are what the tests in
+    ``tests/unit/test_restoration_unification.py`` pin. It wrote the size test
+    as ``x_size > size & y_size > size``, which Python reads as the chained
+    comparison ``x_size > (size & y_size) > size`` and not as the conjunction
+    it looks like. It appended the big accumulator to the patch list without
+    clearing it, so a big tree followed by *n* small ones was restored *n*
+    times over. And it flushed the small accumulator at the end of the list
+    but not the big one, so a big tree in the tail was dropped. The first
+    inflated big patches, the second duplicated atoms and the third lost
+    them — between them a large part of the flux difference #5 measured
+    against the serial branch.
+    """
+
+    big = []
+    small = []
+    for position, tree in enumerate(interscale_tree_list):
+        if tree.x_size > size_big_objects and tree.y_size > size_big_objects:
+            big.append(position)
+        else:
+            small.append(position)
+
+    return (cut_into_patches(big, size_patch_big)
+            + cut_into_patches(small, size_patch_small))
+
+
 def restore_objects_default(
     interscale_tree_list: list[interscale_tree_type],
     oimage: np.ndarray,
@@ -333,30 +421,29 @@ def restore_objects_default(
     size_big_objects: int = 512,
     n_cpus: int = 1,
     cg_max_iter: int = DEFAULT_CG_MAX_ITER,
+    verbose: bool = False,
 ) -> list[Atom]:
     """Synthesise a list of interscale trees into atoms.
 
-    The restoration entry point the pipeline calls once per iteration. Two
-    branches, and they do not agree.
+    The restoration entry point the pipeline calls once per iteration, and
+    since #56 there is one of it rather than two. The trees are cut into
+    patches by :func:`_schedule_patches`, the patches go to
+    :func:`dawis.parallel.pmap` as calls to :func:`restore_patch`, and the
+    atoms are laid back out in the order the trees were given. Each
+    synthesised image is multiplied by ``gamma``, unless ``rm_gamma_for_big``
+    is set and the object sits at or above ``lvl_sep_big``.
 
-    Below ``size_patch_big`` trees, or with ``n_cpus`` at 1, every tree goes
-    through :func:`restore_object` in process. Otherwise the list is sorted by
-    the area of the interscale maximum, split into big and small patches by
-    ``size_big_objects``, and each patch goes through :func:`restore_patch`
-    wherever :func:`dawis.parallel.pmap` runs it. Either way the synthesised
-    image is multiplied by
-    ``gamma``, unless ``rm_gamma_for_big`` is set and the object sits at or
-    above ``lvl_sep_big``.
-
-    The two branches are not interchangeable: #5 measured a 308% flux
-    difference between them, and #56 unifies them onto the published serial
-    path. Until it lands, a run whose output is being compared with another
-    must hold ``n_cpus`` fixed.
+    ``n_cpus`` reaches ``pmap`` and nothing else. It decides how many patches
+    run at once and no part of what any of them computes: the atom returned
+    for a tree, and its place in the returned list, are the same on one worker
+    and on forty. See *One path, whatever the worker count* in the module
+    docstring for why that is worth stating, and #57 for the test that holds
+    it to the bit.
 
     Parameters
     ----------
     interscale_tree_list : list of interscale_tree
-        Trees to synthesise. Sorted in place on the parallel branch.
+        Trees to synthesise. Read, never reordered.
     oimage : numpy.ndarray
         Not used; see Notes.
     cg_gamma : float
@@ -388,22 +475,28 @@ def restore_objects_default(
         Attenuation applied to every synthesised image. Default 1, no
         attenuation.
     size_patch_big : int, optional
-        Trees per patch for big objects, and the list length below which the
-        serial branch is taken regardless of ``n_cpus``. Default 1.
+        Trees per patch for big objects. Default 1.
     size_big_objects : int, optional
-        Side in pixels above which a tree counts as a big object for
-        patching. Default 512.
+        Side in pixels a tree must exceed on both axes to count as a big
+        object for patching. Default 512.
     n_cpus : int, optional
-        Worker count. 1 forces the serial branch. Default 1.
+        Worker count, passed straight to :func:`dawis.parallel.pmap`.
+        Scheduling only. Default 1.
     cg_max_iter : int, optional
-        Iteration cap handed to the solver, on both branches. Default
+        Iteration cap handed to the solver. Default
         :data:`~dawis.config.DEFAULT_CG_MAX_ITER`, the published 200.
+    verbose : bool, optional
+        Passed through to the solver, which logs a line per atom when its
+        flux test fires. Default False. The pipeline passes True, which is
+        what the serial branch always did; the pre-#56 parallel branch could
+        not, so a distributed run now writes those lines too — into the
+        backend's own worker logs rather than the run directory's.
 
     Returns
     -------
     list of Atom
-        One atom per tree. In tree order on the serial branch; big objects
-        first, then small, on the parallel one.
+        One atom per tree, in the order the trees were given, whatever the
+        worker count.
 
     Notes
     -----
@@ -411,96 +504,33 @@ def restore_objects_default(
     kept because the pipeline passes them positionally.
     """
 
-    if (len(interscale_tree_list) < size_patch_big) or (n_cpus == 1):
+    patches = _schedule_patches(interscale_tree_list, size_patch_small,
+                                size_patch_big, size_big_objects)
+    log.info('Restoring %d interscale trees in %d patches on %d worker(s).',
+             len(interscale_tree_list), len(patches), n_cpus)
 
-        object_list = []
-        bspl = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
-        log.info('Not parallelizing - %d Objects.'%(len(interscale_tree_list)))
-        for tree in interscale_tree_list:
-            image, det_err_image, filter_kw, flag_convergence, sum_wr, norm_wr = restore_object( tree, \
-                                                                                  wavelet_cube, \
-                                                                                  label_cube, \
-                                                                                  extent_sep, \
-                                                                                  ecc_sep, \
-                                                                                  lvl_sep_lin, \
-                                                                                  lvl_sep_big, \
-                                                                                  lvl_sep_op, \
-                                                                                  deconv, \
-                                                                                  cg_max_iter, \
-                                                                                  verbose = True )
+    # Each patch is built as its own list, never as a view into the caller's.
+    # That is what `.remote()` used to do implicitly by serialising its
+    # argument at the call; a backend that runs a patch in this process sees
+    # live tree objects where ray saw a deep copy, and nothing enforces the
+    # difference, so `restore_patch` must go on treating what it is handed as
+    # read-only.
+    atom_patches = pmap(
+        restore_patch,
+        [[interscale_tree_list[position] for position in patch]
+         for patch in patches],
+        shared = (wavelet_cube, label_cube, extent_sep, ecc_sep,
+                  lvl_sep_lin, lvl_sep_big, lvl_sep_op, gamma,
+                  rm_gamma_for_big, deconv, cg_max_iter, verbose),
+        n_workers = n_cpus,
+    )
 
-            if (rm_gamma_for_big == False) or (tree.interscale_maximum.level < lvl_sep_big):
-                image = image * gamma  # add attenuation factor
+    # Patch order is a scheduling decision -- big objects first -- and it
+    # stops here. The atoms go back where their trees were, so the returned
+    # list reads the same whatever the patching did.
+    by_position: dict[int, Atom] = {}
+    for patch, atom_patch in zip(patches, atom_patches, strict = True):
+        by_position.update(zip(patch, atom_patch, strict = True))
 
-            object_list.append( Atom(image, det_err_image, tree.bbox, \
-                                                tree.interscale_maximum.level, \
-                                                tree.interscale_maximum.eccentricity, \
-                                                filter_kw, \
-                                                flag_convergence, \
-                                                sum_wr, \
-                                                norm_wr ))
-
-    else:
-        log.info('Size tree patch (%d) greater than %d, distributing.'%(len(interscale_tree_list), size_patch_big ))
-
-        interscale_tree_list.sort(key = lambda x: x.interscale_maximum.area, reverse = True)
-
-        small_interscale_tree_patch = []
-        small_patches = []
-        big_interscale_tree_patch = []
-        big_patches = []
-
-        # Patches are snapshotted with `list(...)` as they are collected,
-        # because the accumulator keeps being appended to afterwards. That is
-        # what `.remote()` used to do implicitly by serialising its argument
-        # at the call, so on the ray backend -- the only backend this branch
-        # could reach before #47 -- the copies make it bit-for-bit what it
-        # was. A backend that runs a patch in this process instead sees live
-        # objects where ray saw a deep copy; nothing enforces that, so
-        # `restore_patch` must go on treating what it is handed as read-only.
-        #
-        # Three defects of this branch are preserved along with it, and all
-        # three belong to #56, which unifies the two branches onto the
-        # published serial path. `&` binds tighter than `>`, so the big-object
-        # test is a chained comparison rather than the conjunction it reads
-        # as; a big patch that meets a small tree is re-collected on every
-        # subsequent small tree because the accumulator is never cleared; and
-        # a big patch left over at the end of the list is dropped. Together
-        # they are a large part of the 308% flux difference #5 measured.
-        for tree in interscale_tree_list:
-
-            if tree.x_size > size_big_objects & tree.y_size > size_big_objects:
-                big_interscale_tree_patch.append(tree)
-
-                if len(big_interscale_tree_patch) >= size_patch_big:
-                    big_patches.append(list(big_interscale_tree_patch))
-                    big_interscale_tree_patch = []
-
-            else:
-
-                if big_interscale_tree_patch:
-                    big_patches.append(list(big_interscale_tree_patch))
-
-                small_interscale_tree_patch.append(tree)
-
-                if len(small_interscale_tree_patch) >= size_patch_small:
-                    small_patches.append(list(small_interscale_tree_patch))
-                    small_interscale_tree_patch = []
-
-        if small_interscale_tree_patch:
-            small_patches.append(list(small_interscale_tree_patch))
-
-        # One patch is one independent unit of work; `pmap` decides where each
-        # runs and hands them back in the order they were given, so big
-        # objects still precede small ones in the result.
-        object_patches = pmap(
-            restore_patch,
-            big_patches + small_patches,
-            shared = (wavelet_cube, label_cube, extent_sep, ecc_sep,
-                      lvl_sep_lin, lvl_sep_big, lvl_sep_op, gamma,
-                      rm_gamma_for_big, deconv, cg_max_iter),
-            n_workers = n_cpus,
-        )
-        object_list = [atom for patch in object_patches for atom in patch]
-
-    return object_list
+    return [by_position[position]
+            for position in range(len(interscale_tree_list))]

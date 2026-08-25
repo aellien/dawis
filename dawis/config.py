@@ -69,6 +69,7 @@ __all__ = [
     'BOUNDARY_CONDITIONS',
     'DEFAULT_CG_MAX_ITER',
     'OUTPUT_FORMATS',
+    'PARALLEL_BACKENDS',
     'SEED_BITS',
     'Config',
     'make_rng',
@@ -96,6 +97,12 @@ BOUNDARY_CONDITIONS = ('loop', 'prolongation', 'mirror')
 
 #: Formats the per-iteration atoms and trees can be written in.
 OUTPUT_FORMATS = ('pickle', 'hdf5')
+
+#: Parallel backends a run may name, beside ``None`` for *let the worker count
+#: decide*. Stated here rather than imported from :data:`dawis.parallel.BACKENDS`
+#: for the same reason as :data:`BOUNDARY_CONDITIONS`, and the two lists
+#: agreeing is asserted in ``tests/unit/test_config.py``.
+PARALLEL_BACKENDS = ('serial', 'ray')
 
 #: Width of a generated seed. ``RandomState`` accepts a 32-bit seed, so this
 #: is the whole space it can be drawn from and not a truncation of a wider one.
@@ -162,7 +169,18 @@ class Config:
     ----------
     n_cpus : int, optional
         Workers to spread tree building and restoration over. 1 runs in this
-        process. Default 1.
+        process. Scheduling only: since #56 the worker count cannot change
+        what a run computes, only how fast it computes it. Default 1.
+    backend : str or None, optional
+        Which of :data:`PARALLEL_BACKENDS` spreads that work. ``None``, the
+        default, lets ``n_cpus`` decide — serial on one worker, the default
+        parallel backend above one, which is what DAWIS did before the knob
+        existed. Naming one selects it instead of that guess, for any
+        ``n_cpus`` above 1. It does **not** override ``n_cpus = 1``: a block
+        asking for one worker runs in this process whatever is active, which
+        is :func:`dawis.parallel.pmap`'s rule and not this knob's to break.
+        ``backend = 'ray'`` with ``n_cpus = 1`` therefore stands a cluster up
+        and sends it nothing. Scheduling only, like ``n_cpus``. Default None.
     starting_level : int, optional
         Coarsest wavelet scale the greedy loop starts at. Default 2.
     n_levels : int or None, optional
@@ -265,6 +283,7 @@ class Config:
     """
 
     n_cpus: int = 1
+    backend: str | None = None
     starting_level: int = 2
     n_levels: int | None = None
     tau: float = 0.8
@@ -331,6 +350,12 @@ class Config:
 
         self._one_of('conditions', BOUNDARY_CONDITIONS)
         self._one_of('outfile_format', OUTPUT_FORMATS)
+
+        # None is a value here and not a missing one -- it means *decide from
+        # the worker count* -- so it is excused the closed-set check rather
+        # than added to the set, which would let it be named as a backend.
+        if self.backend is not None:
+            self._one_of('backend', PARALLEL_BACKENDS)
 
         if self.n_levels is not None:
             self._at_least('n_levels', 1)

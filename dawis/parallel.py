@@ -44,8 +44,13 @@ one thing that can currently answer: a caller that wants several workers and
 names no backend gets :data:`DEFAULT_PARALLEL_BACKEND`. That is a deliberate
 decision and not an oversight — it is what the pipeline did with
 ``n_cpus`` before the seam existed, and preserving it is what keeps this
-ticket a move rather than a science change. #53 gives ``Config`` an explicit
-backend knob and the guess goes away.
+ticket a move rather than a science change. :attr:`dawis.config.Config.backend`
+names one outright when the guess is not wanted (#56).
+
+Which backend runs is a scheduling decision and only that. A backend is
+correct exactly insofar as it returns what :class:`SerialBackend` would, so
+swapping one for another — or changing the worker count — cannot move a
+result. Restoration is where that was not true before #56, and it is now.
 
 Two ways to use it
 ------------------
@@ -78,6 +83,7 @@ __all__ = [
     'RayBackend',
     'SerialBackend',
     'active_backend',
+    'cut_into_patches',
     'make_backend',
     'parallel_backend',
     'pmap',
@@ -371,6 +377,43 @@ class parallel_backend:
     def __exit__(self, *exception: Any) -> bool:
         self.stop()
         return False
+
+
+def cut_into_patches(work: Sequence[Any], size_patch: int) -> list[list[Any]]:
+    """Cut a sequence of independent items into consecutive patches.
+
+    The other half of what a block does before it calls :func:`pmap`: the
+    block decides *what* is independent, this decides how many of them travel
+    together. Both science blocks that spread work cut it this way, so the
+    cut lives here rather than twice over in them.
+
+    Parameters
+    ----------
+    work : sequence
+        Independent items, in the order they should be worked.
+    size_patch : int
+        Items per patch. The last patch is whatever is left and may be
+        shorter. Values below one are read as one — a patch of no items is
+        not a unit of work, and rounding up is what stops the knob losing an
+        item or asking :func:`range` for a step of zero.
+
+    Returns
+    -------
+    list of list
+        The patches, covering ``work`` exactly once and in order. An empty
+        ``work`` gives no patches at all, which is what makes an iteration
+        that found nothing cost nothing.
+
+    Examples
+    --------
+    >>> cut_into_patches([1, 2, 3, 4, 5], 2)
+    [[1, 2], [3, 4], [5]]
+    >>> cut_into_patches([], 2)
+    []
+    """
+    size_patch = max(size_patch, 1)
+    return [list(work[start : start + size_patch])
+            for start in range(0, len(work), size_patch)]
 
 
 def pmap(
