@@ -115,3 +115,49 @@ def inpaint_with_gaussian_noise(
     image += mask
     
     return image
+
+def subtract_background(
+    image: np.ndarray,
+    n_sigmas: float = 3,
+    bins: int = 200,
+) -> tuple[np.ndarray, float, float]:
+    """Measure the sky background of an image and take it out.
+
+    Everything downstream assumes the noise is centred on zero — the
+    inpainting draws are, the wavelet thresholds are quoted in sigmas of it —
+    so this is the first thing a run does to its image.
+
+    The image is modified in place as well as returned, which is what keeps its
+    dtype: subtracting a float64 mean out of place would promote a float32
+    image and move every number that follows.
+
+    Parameters
+    ----------
+    image : numpy.ndarray
+        The image to level. Modified in place.
+    n_sigmas : float, optional
+        Clipping threshold handed to :func:`sample_noise`. Default 3.
+    bins : int, optional
+        Histogram bins handed to :func:`sample_noise`. Default 200.
+
+    Returns
+    -------
+    image : numpy.ndarray
+        The image with the background removed — the same object that was
+        passed in.
+    mean : float
+        The background that was subtracted.
+    sigma : float
+        Width of the noise distribution, which the inpainting draws from and
+        the detection thresholds are quoted in.
+
+    See Also
+    --------
+    sample_noise : Measures the distribution these two numbers describe.
+    """
+
+    noise_pixels, _ = sample_noise(image, n_sigmas = n_sigmas, bins = bins)
+    mean, sigma = np.mean(noise_pixels), np.std(noise_pixels)
+    image -= mean
+
+    return image, mean, sigma

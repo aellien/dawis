@@ -100,3 +100,34 @@ def haar_atrous(
     wavelet_dc = wavelet_datacube(array = wavelet_array, wavelet_type = 'HAAR', fheader = fheader)
 
     return coarse_dc, wavelet_dc
+
+
+def max_levels(shape: tuple[int, ...]) -> int:
+    """Deepest à trous decomposition an image of this shape supports.
+
+    Each wavelet plane doubles the size of the structure it is sensitive to, so
+    plane ``n`` describes structure about ``2**n`` pixels across. Past the point
+    where that exceeds the image there is nothing left to describe, and this is
+    that point: the largest ``n`` with ``2**n`` no wider than the shortest side.
+
+    Parameters
+    ----------
+    shape : tuple of int
+        Shape of the image, as ``numpy.ndarray.shape``.
+
+    Returns
+    -------
+    int
+        Number of wavelet planes, the ``n_levels`` the transforms take.
+
+    Examples
+    --------
+    >>> max_levels((900, 900))
+    9
+    >>> max_levels((256, 256))
+    8
+    >>> max_levels((900, 256))
+    8
+    """
+
+    return int(np.min(np.floor(np.log2(shape))))

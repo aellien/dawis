@@ -14,6 +14,7 @@ import pytest
 from scipy.ndimage import convolve1d
 
 import dawis
+from dawis.wavelets import max_levels
 
 #: The B3-spline scaling filter the transform is defined from.
 BSPL_FILTER = np.array([1.0, 4.0, 6.0, 4.0, 1.0]) / 16.0
@@ -173,3 +174,37 @@ def test_a_point_source_spreads_further_at_coarser_scales():
         "scale ordering broken: the footprint of a point source must grow "
         f"with scale, got footprints {widths}"
     )
+
+
+#: Shapes and the deepest decomposition each supports. The pipeline's own two
+#: images are the first entries: the 900x900 gallery and its 256x256 cutout.
+DECOMPOSITION_DEPTHS = [
+    ((900, 900), 9),
+    ((256, 256), 8),
+    ((1024, 1024), 10),
+    ((1023, 1023), 9),
+    ((900, 256), 8),
+]
+
+
+@pytest.mark.parametrize("shape, expected", DECOMPOSITION_DEPTHS)
+def test_max_levels_is_the_deepest_the_shortest_side_supports(shape, expected):
+    """Plane ``n`` describes structure about ``2**n`` pixels across.
+
+    Past the point where that exceeds the image there is nothing left to
+    describe, so the count is the largest ``n`` with ``2**n`` no wider than the
+    shortest side. The pipeline computed this inline before #49; it is a fact
+    about the transform, not about the loop.
+    """
+    assert max_levels(shape) == expected
+    assert 2 ** max_levels(shape) <= min(shape)
+
+
+def test_max_levels_produces_a_decomposition_the_transform_accepts():
+    """The count is only useful if the transform will actually run it."""
+    rng = np.random.default_rng(20260823)
+    image = rng.normal(size=(64, 64))
+
+    cube = dawis.bspl_atrous(image, max_levels(image.shape))
+
+    assert cube.array.shape[2] == 6

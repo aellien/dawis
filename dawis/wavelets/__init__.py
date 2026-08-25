@@ -11,12 +11,21 @@ pipeline runs, :func:`atrous` the general-filter version, and
 :func:`pg_noise_bissection` estimates the noise, :func:`anscombe_transform`
 applies the map and :func:`inverse_anscombe` undoes it.
 
+Two small pieces of the pipeline's own arithmetic came here with #49, because
+both are facts about the transform rather than about the loop that runs it.
+:func:`max_levels` is how deep an image of a given shape can be decomposed.
+:class:`AnscombeStabilisation` is the stabilising map of one run, fitted once
+against the input image and applied to every residual after it — which is what
+the pipeline was doing by hand, with the offset that keeps the square root
+real carried alongside in a local.
+
 The old flat modules ``dawis.atrous``, ``dawis.wavelet_transforms`` and
 ``dawis.anscombe_transforms`` re-export every name below and are deleted once
 no caller names them.
 """
 
 from dawis.wavelets.anscombe import (
+    AnscombeStabilisation,
     anscombe_transform,
     inverse_anscombe,
     pg_noise_bissection,
@@ -26,15 +35,17 @@ from dawis.wavelets.atrous import (
     boundary_conditions,
     ser_iuwt_decomposition,
 )
-from dawis.wavelets.transforms import bspl_atrous, haar_atrous
+from dawis.wavelets.transforms import bspl_atrous, haar_atrous, max_levels
 
 __all__ = [
+    'AnscombeStabilisation',
     'anscombe_transform',
     'atrous',
     'boundary_conditions',
     'bspl_atrous',
     'haar_atrous',
     'inverse_anscombe',
+    'max_levels',
     'pg_noise_bissection',
     'ser_iuwt_decomposition',
 ]

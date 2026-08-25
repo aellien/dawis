@@ -14,6 +14,7 @@ transform needs, :func:`anscombe_transform` applies it, and
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
 import numpy as np
 from astropy.stats import sigma_clip
@@ -228,3 +229,107 @@ def inverse_anscombe(
              - 3.0 * gain ** 2 / 8.0
              - sigma ** 2
              + gain * mean ) / gain
+
+
+def _shifted(image: np.ndarray, offset: float) -> np.ndarray:
+    """A copy of ``image`` with ``offset`` taken out of it, in place.
+
+    In place on the copy, so the copy keeps the dtype of the image: an
+    out-of-place subtraction of a float64 offset would promote a float32
+    image and move every number computed after it.
+    """
+
+    shifted = np.copy(image)
+    shifted -= offset
+
+    return shifted
+
+
+@dataclass(frozen = True)
+class AnscombeStabilisation:
+    """The variance-stabilising map of one run, measured once and reused.
+
+    :func:`anscombe_transform` needs three noise parameters and a non-negative
+    image, and both are properties of the image a run starts from rather than
+    of the array handed to any one call. Measuring them per iteration would
+    re-estimate the noise of a residual that the run is deliberately emptying,
+    so a run fits this once, against its input image, and applies it to every
+    residual afterwards.
+
+    Parameters
+    ----------
+    offset : float
+        Subtracted from an image before the transform, putting its minimum at
+        zero. The transform takes a square root, so a negative pixel would
+        return NaN.
+    sigma, mean, gain : float
+        The Poisson-Gaussian noise parameters, as
+        :func:`pg_noise_bissection` searched them out.
+
+    See Also
+    --------
+    pg_noise_bissection : The search :meth:`fit` runs.
+    anscombe_transform : The map :meth:`transform` applies.
+
+    Examples
+    --------
+    >>> stabilisation = AnscombeStabilisation.fit(image)     # doctest: +SKIP
+    >>> stabilised = stabilisation.transform(residuals)      # doctest: +SKIP
+    """
+
+    offset: float
+    sigma: float
+    mean: float
+    gain: float
+
+    @classmethod
+    def fit(
+        cls,
+        image: np.ndarray,
+        max_err: float = 1E-4,
+        n_sigmas: int = 3,
+    ) -> AnscombeStabilisation:
+        """Measure the map from the image a run starts from.
+
+        Parameters
+        ----------
+        image : numpy.ndarray
+            The image, with its sky background already removed. Not modified.
+        max_err : float, optional
+            Bisection tolerance handed to :func:`pg_noise_bissection`.
+            Default 1e-4.
+        n_sigmas : int, optional
+            Clipping threshold handed to :func:`pg_noise_bissection`.
+            Default 3.
+
+        Returns
+        -------
+        AnscombeStabilisation
+            The fitted map.
+        """
+
+        offset = np.nanmin(image)
+        sigma, mean, gain = pg_noise_bissection(_shifted(image, offset),
+                                                max_err = max_err,
+                                                n_sigmas = n_sigmas)
+
+        return cls(offset = offset, sigma = sigma, mean = mean, gain = gain)
+
+    def transform(self, image: np.ndarray) -> np.ndarray:
+        """Apply the fitted map to an image.
+
+        Parameters
+        ----------
+        image : numpy.ndarray
+            Image to stabilise, normally the run's current residual. Not
+            modified.
+
+        Returns
+        -------
+        numpy.ndarray
+            The stabilised image, whose noise has unit standard deviation at
+            every flux level.
+        """
+
+        return anscombe_transform(_shifted(image, self.offset),
+                                  self.sigma, self.mean, self.gain)

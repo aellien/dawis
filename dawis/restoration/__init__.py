@@ -15,7 +15,7 @@ tree building say where a structure is and which scales it spans; this block
 turns that into an image, and the pipeline subtracts it from the running
 residual before analysing what is left.
 
-Three modules.
+Four modules.
 
 :mod:`dawis.restoration.synthesis` is the entry point.
 :func:`restore_objects_default` walks the trees of one iteration —
@@ -31,7 +31,17 @@ the interscale maximum. Only the ADJOINT branch of the solver reads it.
 :mod:`dawis.restoration.inpainting` closes the loop. A slightly over-restored
 atom digs a hole in the residual, and the next iteration would detect that
 hole as structure, so the residual is refilled with noise measured from
-itself before the next pass.
+itself before the next pass. :func:`subtract_background` measures the same
+noise once, at the start of a run, and levels the image on it — everything
+downstream assumes the noise is centred on zero.
+
+:mod:`dawis.restoration.accumulation` holds the running images themselves.
+:class:`Reconstruction` is the residual, the restored image, the restored
+image split by wavelet scale and the accumulated detection error, together
+with the one operation that advances all four: subtract an iteration's atoms
+from the first and add them to the rest. It arrived here with #49, which took
+that loop out of the pipeline: the pipeline says *when* atoms are subtracted,
+and this says what subtracting them means.
 
 The conjugate-gradient solver is not here, and #44 asked for it. It lives on
 the tree, as
@@ -48,6 +58,7 @@ The old flat modules ``dawis.restore_objects``, ``dawis.deconvolution`` and
 names them.
 """
 
+from dawis.restoration.accumulation import Reconstruction
 from dawis.restoration.deconvolution import (
     B2spline,
     pad,
@@ -58,6 +69,7 @@ from dawis.restoration.deconvolution import (
 from dawis.restoration.inpainting import (
     inpaint_with_gaussian_noise,
     sample_noise,
+    subtract_background,
 )
 from dawis.restoration.synthesis import (
     restore_object,
@@ -68,6 +80,7 @@ from dawis.restoration.synthesis import (
 
 __all__ = [
     'B2spline',
+    'Reconstruction',
     'inpaint_with_gaussian_noise',
     'pad',
     'restore_object',
@@ -76,6 +89,7 @@ __all__ = [
     'restored_object',
     'richardson_lucy_np',
     'sample_noise',
+    'subtract_background',
     'twod_B2spline',
     'unpad',
 ]

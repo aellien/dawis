@@ -12,6 +12,7 @@ import pytest
 from astropy.stats import sigma_clip
 
 import dawis
+from dawis.wavelets import AnscombeStabilisation
 
 
 #: Noise parameters covering unit gain, amplification and attenuation.
@@ -106,3 +107,51 @@ def test_estimated_noise_parameters_stabilise_the_noise(gain, photons):
         "noise estimation broken: the estimated parameters left the "
         f"transformed background with spread {spread:.4f} instead of 1"
     )
+
+
+def test_the_stabilisation_is_fitted_once_and_reused():
+    """``AnscombeStabilisation`` is the map of one run, not of one array.
+
+    The pipeline used to carry the offset and the three noise parameters as
+    four loose locals and reapply them by hand every iteration (#49). Fitting
+    against the input image and transforming a residual must give exactly what
+    that did.
+    """
+    rng = np.random.default_rng(20260823)
+    image = rng.normal(20.0, 3.0, (64, 64))
+    residuals = rng.normal(0.0, 3.0, (64, 64))
+
+    stabilisation = AnscombeStabilisation.fit(image, max_err=1e-4, n_sigmas=3)
+
+    shifted = np.copy(image)
+    offset = np.nanmin(shifted)
+    shifted -= offset
+    sigma, mean, gain = dawis.pg_noise_bissection(shifted, max_err=1e-4, n_sigmas=3)
+    by_hand = dawis.anscombe_transform(residuals - offset, sigma, mean, gain)
+
+    assert (stabilisation.offset, stabilisation.sigma,
+            stabilisation.mean, stabilisation.gain) == (offset, sigma, mean, gain)
+    np.testing.assert_array_equal(stabilisation.transform(residuals), by_hand)
+
+
+def test_the_offset_puts_the_minimum_at_zero():
+    """The transform takes a square root, so a negative pixel returns NaN."""
+    rng = np.random.default_rng(20260823)
+    image = rng.normal(-50.0, 2.0, (64, 64))
+
+    stabilisation = AnscombeStabilisation.fit(image)
+
+    assert stabilisation.offset == np.nanmin(image)
+    assert np.isfinite(stabilisation.transform(image)).all()
+
+
+def test_transforming_does_not_modify_the_image_it_is_given():
+    """The residual the loop hands over is the array the loop keeps working on."""
+    rng = np.random.default_rng(20260823)
+    image = rng.normal(20.0, 3.0, (64, 64))
+    residuals = rng.normal(0.0, 3.0, (64, 64))
+    untouched = np.copy(residuals)
+
+    AnscombeStabilisation.fit(image).transform(residuals)
+
+    np.testing.assert_array_equal(residuals, untouched)
