@@ -126,9 +126,43 @@ def effective_config(entry, passed: dict) -> dict:
     return config
 
 
+def is_array_in(dawis) -> bool:
+    """Whether this tree has the array-in entry point of #54.
+
+    Two APIs are driven from this file and both must keep working. The 1.0
+    tree takes an array and a ``Config``; ``legacy`` and ``legacy-seeded`` —
+    which every golden is *recorded* from — take fifteen keywords and a path.
+    Branching on the capability rather than on a branch name means a
+    recording made on either tree is still comparable against this one.
+    """
+    return hasattr(dawis, "run")
+
+
+def golden_config(dawis, cg_max_iter: int, seed: int = TEST_SEED):
+    """The published configuration as a ``Config``, for the array-in entry point.
+
+    The same ``GOLDEN_PARAMS`` the keyword entry point is handed, filtered
+    against the dataclass the way :func:`golden_kwargs` filters against a
+    signature, so neither tier restates a knob.
+    """
+    Config = dawis.Config
+    knobs = {
+        name: value
+        for name, value in GOLDEN_PARAMS.items()
+        if name in Config.__dataclass_fields__
+    }
+    # Forced rather than inherited, for the reason :func:`pin_cg_max_iter`
+    # gives: the default differs per branch, so inheriting it would compare a
+    # golden recorded at one value against a run at another.
+    return Config(seed=seed, cg_max_iter=cg_max_iter, **knobs)
+
+
 def golden_kwargs(dawis, work_dir: Path, infile: str,
                   seed: int = TEST_SEED) -> dict:
     """The exact keyword arguments a golden run passes to the entry point.
+
+    The keyword entry point, that is — the one ``legacy-seeded`` records
+    from. The array-in tree builds a :func:`golden_config` instead.
 
     Kept separate from :func:`run_golden` so the recording scripts can write
     the resolved set into provenance without restating any of it.
@@ -191,9 +225,22 @@ def run_golden(dawis, image: np.ndarray, work_dir: Path, infile: str,
                cg_max_iter: int, seed: int = TEST_SEED) -> GoldenRun:
     """Run the published configuration on ``image`` and return what it wrote.
 
-    The pipeline entry point reads its input from a FITS file, so ``image`` is
-    written into ``work_dir`` first.
+    On the 1.0 tree the image goes straight in as an array (#54), which is the
+    whole point of the array-in entry point: the harness needs no filesystem
+    to drive a run. ``infile`` then only names the run, so the output stem —
+    and therefore every golden path — is unchanged.
+
+    ``legacy`` and ``legacy-seeded`` read their input from a FITS file, so
+    there ``image`` is written into ``work_dir`` first.
     """
+    name = infile[:-5]
+
+    if is_array_in(dawis):
+        config = golden_config(dawis, cg_max_iter, seed)
+        with pin_cg_max_iter(dawis, cg_max_iter):
+            dawis.run(image, config, outdir=str(work_dir), name=name)
+        return GoldenRun(work_dir / name)
+
     from astropy.io import fits
 
     fits.PrimaryHDU(np.asarray(image)).writeto(
@@ -209,7 +256,7 @@ def run_golden(dawis, image: np.ndarray, work_dir: Path, infile: str,
     with pin_cg_max_iter(dawis, cg_max_iter):
         dawis.synthesis_by_analysis(**kwargs)
 
-    return GoldenRun(work_dir / infile[:-5])
+    return GoldenRun(work_dir / name)
 
 
 #: Per-atom columns of the golden catalogue. ``flux`` and ``peak`` are derived

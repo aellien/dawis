@@ -406,7 +406,7 @@ def restore_objects_default(
     Notes
     -----
     ``oimage``, ``cg_gamma`` and ``niter`` are accepted and not read. They are
-    kept because ``dawis.synthesis_by_analysis`` passes them positionally.
+    kept because the pipeline passes them positionally.
     """
 
     if (len(interscale_tree_list) < size_patch_big) or (n_cpus == 1):

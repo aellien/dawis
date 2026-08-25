@@ -29,7 +29,6 @@ the clothes of a library choice, so it is asserted rather than left in prose.
 from __future__ import annotations
 
 import dataclasses
-import logging
 from pathlib import Path
 
 import numpy as np
@@ -37,6 +36,9 @@ import pytest
 from astropy.io import fits
 
 import dawis
+from tinyrun import TINY_NAME, TINY_PARAMS, run_quiet
+from tinyrun import tiny_image as make_tiny_image
+
 from dawis.config import (
     BOUNDARY_CONDITIONS,
     DEFAULT_CG_MAX_ITER,
@@ -92,35 +94,31 @@ def test_the_solver_inherits_that_cap_when_nobody_passes_one():
     assert signature.parameters['max_iter'].default == DEFAULT_CG_MAX_ITER
 
 
-def test_the_entry_point_and_the_configuration_agree_on_every_default():
-    """One knob, one default, in two places until #54 makes it one.
+def test_every_knob_has_exactly_one_default():
+    """One knob, one default, in one place (#54).
 
-    ``synthesis_by_analysis`` still takes its knobs as keywords and builds a
-    ``Config`` out of them, so every default is written twice. Nothing in the
-    language ties the two together, and a pair that drifts is exactly the
-    ``7c5ba8e`` failure this ticket exists to close — a default that moved
-    with no configuration file mentioning it either way. #54 replaces the
-    keyword wall with the ``Config`` itself and this test retires with it.
+    ``synthesis_by_analysis`` used to restate all twenty-nine knobs as
+    keywords and build a ``Config`` out of them, so every default was written
+    twice with nothing in the language tying the two together. A pair that
+    drifts is exactly the ``7c5ba8e`` failure — a default that moved with no
+    configuration file mentioning it either way. #54 deleted the keyword wall:
+    the entry point takes the ``Config`` itself, so there is no second copy
+    left to drift.
     """
     import inspect
 
-    signature = inspect.signature(dawis.synthesis_by_analysis)
-    where_a_run_reads_and_writes = {'indir', 'infile', 'outdir'}
+    where_a_run_reads_and_writes = {'image', 'config', 'outdir', 'name',
+                                    'header'}
+    signature = inspect.signature(dawis.run)
 
-    for name, field in Config.__dataclass_fields__.items():
-        assert name in signature.parameters, (
-            '%s is a knob the entry point cannot set' % name)
-        assert signature.parameters[name].default == field.default, (
-            '%s defaults to %r at the entry point but %r on Config'
-            % (name, signature.parameters[name].default, field.default))
+    assert set(signature.parameters) == where_a_run_reads_and_writes, (
+        'the entry point takes what a run works on and where it writes, and '
+        'nothing else')
 
-    unheld = {
-        name for name in signature.parameters
-        if name not in where_a_run_reads_and_writes
-        and name not in Config.__dataclass_fields__
-    }
-    assert unheld == set(), (
-        'these entry-point knobs are not held by Config: %s' % sorted(unheld))
+    restated = set(signature.parameters) & set(Config.__dataclass_fields__)
+    assert restated == set(), (
+        'these knobs have a second default at the entry point: %s'
+        % sorted(restated))
 
 
 def test_the_configuration_cannot_be_changed_after_it_is_checked():
@@ -387,48 +385,23 @@ def test_the_two_consumers_share_one_stream_rather_than_restarting_it():
 # asked to be still can be.
 
 
-TINY_INFILE = 'tiny.fits'
-
-#: Knobs that keep the run small. Everything else takes its default, which is
-#: the point: the defaults have to survive a small image.
-TINY_PARAMS = dict(max_iter = 2, data_dump = False, resume = False)
-
-
 @pytest.fixture
 def tiny_image() -> np.ndarray:
     """A 64x64 noise frame with one source bright enough to be restored."""
-    rng = np.random.default_rng(7)
-    image = rng.normal(100.0, 5.0, (64, 64)).astype('float32')
-    image[28:36, 28:36] += 300.0
-    return image
+    return make_tiny_image()
 
 
 def run_tiny(image: np.ndarray, directory: Path, **overrides) -> Path:
     """Run the whole pipeline on ``image`` in ``directory``, and return its stem.
 
-    The root logger is emptied first. ``logging.basicConfig`` is a no-op once
-    the root logger has handlers, and both pytest and the previous run leave
-    some there, so without this a run writes its log — and its seed — into
-    whatever file was attached before it. One run per process is the
-    real-world case, so this is a test-only inconvenience rather than a defect
-    in the run; #55 owns how the pipeline attaches its handlers.
+    The image goes in as an array (#54) — no FITS file is written, which is
+    the property the array-in entry point exists to give the test suite.
     """
     directory.mkdir(parents = True, exist_ok = True)
-    fits.PrimaryHDU(image).writeto(directory / TINY_INFILE, overwrite = True)
+    config = Config(**dict(TINY_PARAMS, **overrides))
+    run_quiet(image, config, outdir = str(directory), name = TINY_NAME)
 
-    root = logging.getLogger()
-    saved = list(root.handlers)
-    root.handlers.clear()
-    try:
-        dawis.synthesis_by_analysis(
-            indir = str(directory), infile = TINY_INFILE, outdir = str(directory),
-            **dict(TINY_PARAMS, **overrides))
-    finally:
-        for handler in root.handlers:
-            handler.close()
-        root.handlers[:] = saved
-
-    return directory / TINY_INFILE[:-5]
+    return directory / TINY_NAME
 
 
 def logged_seed(stem: Path) -> int:
@@ -509,14 +482,16 @@ def test_a_depth_rule_fires_even_when_the_image_supplies_the_depth(tiny_image,
         'the run solved something before the contradiction was caught')
 
 
-def test_a_run_refuses_a_contradictory_configuration_before_it_reads_anything(
-        tmp_path):
-    """The check fires at the entry point, on an input that does not exist.
+def test_a_contradictory_configuration_never_becomes_a_run(tmp_path):
+    """The check fires where the configuration is built, not where it is used.
 
-    If the run had opened its image first, this would be a ``FileNotFoundError``
-    instead — so the error type is the assertion.
+    Before #54 the entry point took the knobs and built the ``Config``, so the
+    earliest a contradiction could surface was inside the run. Now the caller
+    builds it, and a configuration that cannot work has no ``run`` call to
+    reach at all — which is why the assertion is that construction raises and
+    ``tmp_path`` stays empty.
     """
     with pytest.raises(ConfigError):
-        dawis.synthesis_by_analysis(
-            indir = str(tmp_path), infile = 'absent.fits', outdir = str(tmp_path),
-            starting_level = 9, n_levels = 9)
+        Config(starting_level = 9, n_levels = 9)
+
+    assert list(tmp_path.iterdir()) == []

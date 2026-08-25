@@ -7,16 +7,16 @@ to the published 3539 s baseline recorded on #5, even though the shipping
 configuration has moved (the CG solver's ``max_iter`` returns to the published
 200 -- RFC #29).
 
-One invocation measures one configuration: a full ``synthesis_by_analysis``
+One invocation measures one configuration: a full synthesis-by-analysis
 run on the 900x900 reference image, and writes ``benchmark.json`` into the
 output directory with wall time overall, wall time per pipeline phase (the
 restoration stage in particular), peak RSS, atom and iteration counts, and the
 full configuration plus machine identification needed to reproduce it.
 
 Two ``max_iter`` knobs exist and they are unrelated. ``--pipeline-max-iter``
-caps the number of greedy outer iterations (``synthesis_by_analysis``'s own
-``max_iter``). ``--cg-max-iter`` is the conjugate-gradient solver's iteration
-cap inside ``interscale_tree.CG_minimization``, which is the knob #29 restores
+caps the number of greedy outer iterations (``Config.max_iter`` on the 1.0
+tree). ``--cg-max-iter`` is the conjugate-gradient solver's iteration cap
+inside ``interscale_tree.CG_minimization``, which is the knob #29 restores
 from 3 to 200 and the one this benchmark sweeps.
 
 Usage
@@ -33,6 +33,7 @@ Aggregate finished runs into a markdown table::
     python benchmarks/run_benchmark.py --report ~/bench
 """
 import argparse
+import dataclasses
 import glob
 import inspect
 import json
@@ -434,31 +435,62 @@ def run(args):
 
     cg_default, cg_counter = force_cg_max_iter(args.cg_max_iter)
 
-    entry = dawis.synthesis_by_analysis
-    entry_params = inspect.signature(entry).parameters
-    supports_seed = "seed" in entry_params
-    # `gif` is a parameter on `legacy` and `legacy-seeded`; #46 took the
-    # animation off the loop and removed it from the 1.0 tree, where the
-    # frames are rebuilt afterwards by `dawis.viz.rebuild_animation`.
-    supports_gif = "gif" in entry_params
-
-    kwargs = dict(
+    knobs = dict(
         REFERENCE_PARAMS,
-        indir=indir,
-        infile=infile,
-        outdir=args.outdir,
         n_cpus=args.n_cpus,
         max_iter=args.pipeline_max_iter,
         data_dump=args.data_dump,
         resume=False,
     )
 
-    # `seed` exists on legacy-seeded and on the 1.0 tree, not on legacy.
-    if supports_seed:
-        kwargs["seed"] = args.seed
-    if supports_gif:
-        kwargs["gif"] = args.gif
-    elif args.gif:
+    # Two entry points are measured by this one script. The 1.0 tree takes a
+    # path, a `Config` and an output directory (#54); `legacy` and
+    # `legacy-seeded` take fifteen keywords. Branching on the capability
+    # rather than on a branch name keeps one benchmark comparable across all
+    # three, which is the whole reason the script exists.
+    is_array_in = hasattr(dawis, "run_fits")
+
+    if is_array_in:
+        fields = dawis.Config.__dataclass_fields__
+        config_passed = {
+            name: value for name, value in knobs.items() if name in fields
+        }
+        config_passed["seed"] = args.seed
+        # Recorded, not obeyed: `force_cg_max_iter` patches the solver itself,
+        # so this is what the configuration *says* the run used.
+        config_passed["cg_max_iter"] = args.cg_max_iter
+        config_object = dawis.Config(**config_passed)
+        supports_seed = True
+        supports_gif = False
+
+        def call():
+            dawis.run_fits(image_path, config_object, outdir=args.outdir)
+
+        resolved_config = dataclasses.asdict(config_object)
+    else:
+        entry = dawis.synthesis_by_analysis
+        entry_params = inspect.signature(entry).parameters
+        supports_seed = "seed" in entry_params
+        # `gif` is a parameter on `legacy` and `legacy-seeded`; #46 took the
+        # animation off the loop and removed it from the 1.0 tree, where the
+        # frames are rebuilt afterwards by `dawis.viz.rebuild_animation`.
+        supports_gif = "gif" in entry_params
+
+        config_passed = dict(knobs, indir=indir, infile=infile,
+                             outdir=args.outdir)
+
+        # `seed` exists on legacy-seeded, not on legacy.
+        if supports_seed:
+            config_passed["seed"] = args.seed
+        if supports_gif:
+            config_passed["gif"] = args.gif
+
+        def call():
+            entry(**config_passed)
+
+        resolved_config = effective_config(entry, config_passed)
+
+    if args.gif and not supports_gif:
         raise SystemExit(
             "--gif: this tree draws no frames during a run (#46); rebuild them "
             "afterwards with dawis.viz.rebuild_animation"
@@ -475,7 +507,7 @@ def run(args):
     t0 = time.time()
     status, err = "ok", None
     try:
-        entry(**kwargs)
+        call()
     except BaseException as exc:  # noqa: BLE001 - a benchmark records anything
         status = "error"
         err = "%s: %s" % (type(exc).__name__, exc)
@@ -500,8 +532,8 @@ def run(args):
         cg_calls=cg_counter["calls"],
         seed=args.seed if supports_seed else None,
         seed_supported=supports_seed,
-        config=effective_config(entry, kwargs),
-        config_passed=kwargs,
+        config=resolved_config,
+        config_passed=config_passed,
         source=dict(
             package_dir=package_dir,
             git=git_state(os.path.dirname(package_dir)),

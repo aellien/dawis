@@ -6,6 +6,18 @@ that stands above the noise, restores that structure as atoms, subtracts them
 from a running residual, and does it again on what is left — coarsening the
 scale it works at each time a scale stops paying.
 
+:func:`run` is how it is called, and it takes **an array and a**
+:class:`~dawis.config.Config` — never a path (#54). That is what makes the
+whole toolbox testable: a block below the pipeline never opens a file, so the
+regression harness can drive a run on a synthetic array and a caller can work
+entirely in memory. FITS is a format the image may happen to arrive in, and
+:func:`run_fits` is the one place on the run path that opens one, reading the
+file and delegating immediately.
+
+A run answers with a :class:`~dawis.results.RunResult`. It still writes its
+outputs — Phase A does not change what lands on disk — but nothing has to be
+read back to see what happened.
+
 What is here is the *order* of those steps, the conditions under which the loop
 stops, and the files a run leaves behind. What is not here is any of the
 mathematics: every number this file produces is produced by a call into a
@@ -29,13 +41,18 @@ One iteration, in the order it runs::
     restore the trees as atoms  dawis.restoration
     subtract, and measure       dawis.restoration, dawis.convergence
 
+Before the first of those, the input is measured and anything concerning about
+it is warned about — zeros, NaNs, a saturated plateau, an integer dtype. It is
+recorded on the result and it never stops the run (#4); see
+:mod:`dawis.results`.
+
 Two things a run does are deliberately *not* done here. It does not draw: the
 convergence plot and the animation are rebuilt afterwards by :mod:`dawis.viz`
 from the files below, which took the frame writing off the loop (#46). And it
 does not choose a parallel backend: it says how many workers a worker count
 means and :mod:`dawis.parallel` decides the rest (#47).
 
-Files a run writes, all hanging off ``<outdir>/<infile without .fits>``:
+Files a run writes, all hanging off ``<outdir>/<name>``:
 
 =========================== ================================================
 ``.log.txt``                the run log
@@ -49,6 +66,10 @@ Files a run writes, all hanging off ``<outdir>/<infile without .fits>``:
 ``.scl.restored.fits``      the same sum, split by wavelet scale
 ``.cpar.txt``               the convergence trace
 =========================== ================================================
+
+``name`` is what that stem is called. :func:`run_fits` takes it from the input
+filename, so a run driven from ``ngc1275.fits`` writes ``ngc1275.restored.fits``
+exactly as it always did.
 
 The atom dumps are also how a run resumes: an iteration whose atoms are
 already on disk is read back rather than recomputed. That is resume by file
@@ -66,10 +87,10 @@ from datetime import datetime
 
 from astropy.io import fits
 
-from dawis.config import DEFAULT_CG_MAX_ITER, Config, make_rng, resolve_seed
+from dawis.config import Config, make_rng, resolve_seed
 from dawis.convergence import CONVERGENCE_HEADER, ConvergenceMonitor
 from dawis.detection import make_regions_full_props, ms_detect_and_deblend
-from dawis.exceptions import ConfigError
+from dawis.exceptions import ConfigError, DawisDimensionError
 from dawis.io import (
     read_image,
     read_ol_from_hdf5,
@@ -86,10 +107,21 @@ from dawis.restoration import (
     restore_objects_default,
     subtract_background,
 )
+from dawis.results import RunResult, inspect_image
 from dawis.trees import make_interscale_trees
 from dawis.wavelets import AnscombeStabilisation, bspl_atrous, max_levels
 
-__all__ = ['synthesis_by_analysis']
+__all__ = ['DEFAULT_RUN_NAME', 'FITS_EXTENSION', 'run', 'run_fits']
+
+#: Stem every output of an array-in run hangs off, when the caller names none.
+#:
+#: :func:`run_fits` has a better answer — the input filename — but an array
+#: carries no name, and a run has to call its files something.
+DEFAULT_RUN_NAME = 'dawis'
+
+#: Extension :func:`run_fits` accepts, and the length of it that is stripped to
+#: make the run's name.
+FITS_EXTENSION = '.fits'
 
 
 def _dump_path(outpath: str, kind: str, it: int, extension: str) -> str:
@@ -117,113 +149,131 @@ def _start_logging(outpath: str) -> None:
     logging.basicConfig( level = logging.DEBUG, handlers = [ file_handler, stdout_handler ])
 
 
+def run_fits(path: str, config: Config | None = None, *,
+             outdir: str = '.', name: str | None = None) -> RunResult:
+    """Run the pipeline on a FITS image. The thin wrapper, and the only one.
 
-def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2, tau = 0.8, n_levels = None, n_sigmas = 5, deblend_contrast = 0.1,\
-                                gamma = 0.2, min_span = 2, max_span = 3, lvl_sep_big = 6, rm_gamma_for_big = False, lvl_deblend = 3, outfile_format = 'pickle', \
-                                extent_sep = 0.1, ecc_sep = 0.95, lvl_sep_lin = 2, lvl_sep_op = 3, ceps = 1E-3, scale_lvl_eps = 1, conditions = 'loop', deconv = False,\
-                                max_iter = 500, size_patch = 100, inpaint_res = True, data_dump = True, iptd_sigma = 3, resume = True, seed = None,\
-                                cg_max_iter = DEFAULT_CG_MAX_ITER):
-    """Run the DAWIS synthesis-by-analysis pipeline on a FITS image.
-
-    Every keyword below is a field of :class:`dawis.config.Config`, and this
-    function's first act is to build one out of them. That is where the
-    checking happens — including the rules that no single argument is wrong
-    on its own for, such as ``starting_level`` at or above ``n_levels``, which
-    used to produce a silent no-op run. #54 replaces this wall of keywords
-    with the ``Config`` itself.
+    DAWIS works on arrays; FITS is how an image usually reaches it. This is
+    the only place in the package that opens one — it reads the file, keeps
+    the header so the outputs carry the astrometry of the input, and hands the
+    array to :func:`run`. Nothing below this function ever sees a path (#54).
 
     Parameters
     ----------
-    indir, infile, outdir : str
-        Directory the image is read from, its filename — which must end in
-        ``.fits`` — and the directory every output is written to. The only
-        three arguments that are *not* configuration: they say where one run
-        reads and writes, not what it does.
-    n_cpus : int, optional
-        Workers to spread the tree building and the restoration over. One
-        runs in this process; more asks :mod:`dawis.parallel` for a backend.
-        Default 1.
-    starting_level : int, optional
-        Coarsest wavelet scale the loop starts at. Default 2.
-    n_levels : int or None, optional
-        Wavelet planes to decompose onto. Default None takes the deepest the
-        image supports, from :func:`~dawis.wavelets.max_levels`.
-    tau, min_span, max_span, lvl_sep_big, size_patch : optional
-        Handed to :func:`~dawis.trees.make_interscale_trees`, which decides
-        which regions belong to the same structure.
-    n_sigmas, deblend_contrast, lvl_deblend : optional
-        Handed to :func:`~dawis.detection.ms_detect_and_deblend`, which decides
-        what counts as a detection and where blended sources split.
-    gamma, rm_gamma_for_big, extent_sep, ecc_sep, lvl_sep_lin, lvl_sep_op, deconv : optional
-        Handed to :func:`~dawis.restoration.restore_objects_default`, which
-        decides how each tree is synthesised back into an image.
-    conditions : {'loop', 'prolongation', 'mirror'}, optional
-        Boundary condition of the wavelet transform. Default ``'loop'``.
-    ceps : float, optional
-        Convergence threshold. A scale stops when its window-averaged
-        normalised epsilon falls below this. Default 1e-3.
-    scale_lvl_eps : float, optional
-        Factor on that epsilon, for raising or lowering the threshold without
-        touching ``ceps``. Default 1.
-    max_iter : int, optional
-        Hard cap on greedy iterations, counted across every scale. Default
-        500. Not to be confused with ``cg_max_iter``.
-    inpaint_res : bool, optional
-        Refill the holes subtraction digs in the residual before each
-        iteration. Default True.
-    iptd_sigma : float, optional
-        Depth, in sigmas of the noise, below which a residual pixel is
-        inpainted. Default 3.
-    outfile_format : {'pickle', 'hdf5'}, optional
-        Format the per-iteration atoms and trees are written in. Default
-        ``'pickle'``.
-    data_dump : bool, optional
-        Also write the regions and the running images of every iteration.
-        Default True.
-    resume : bool, optional
-        Read an iteration back from disk when its atoms are already there,
-        instead of recomputing it. Default True.
-    seed : int or None, optional
-        Seed of the one generator this run threads to every random consumer.
-        Default None draws fresh entropy, which is the science default; the
-        seed it drew is written into the run log either way, so the run stays
-        reproducible after the fact. See :mod:`dawis.config`.
-    cg_max_iter : int, optional
-        Iteration cap of the conjugate-gradient solver each atom is
-        synthesised by. Default :data:`~dawis.config.DEFAULT_CG_MAX_ITER`, the
-        published 200; **#26 owns the question of what it should be.**
+    path : str
+        The FITS file to run on. Its primary HDU is the image, and its name
+        must end in ``.fits``.
+    config : Config, optional
+        The knobs of the run. Default builds a :class:`~dawis.config.Config`
+        of published defaults.
+    outdir : str, optional
+        Directory every output is written into. Default the working directory.
+    name : str, optional
+        Stem the outputs are named after. Default is the input filename
+        without its ``.fits``, which is what DAWIS has always written.
+
+    Returns
+    -------
+    RunResult
+        What the run produced — see :func:`run`.
 
     Raises
     ------
     ConfigError
-        If ``infile`` does not end in ``.fits``, or if any knob is out of
-        range or contradicts another — see :class:`dawis.config.Config`.
+        If ``path`` does not end in ``.fits``. Checked before the file is
+        opened, so a mistyped extension is a configuration error and not a
+        confusing read failure halfway down astropy.
+
+    Examples
+    --------
+    >>> from dawis import Config, run_fits            # doctest: +SKIP
+    >>> result = run_fits('ngc1275.fits', Config(n_cpus = 4),
+    ...                   outdir = 'out')             # doctest: +SKIP
+    """
+
+    if not path.endswith(FITS_EXTENSION):
+        raise ConfigError('Incorrect file extension --> %s does not end in %s'
+                          % (path, FITS_EXTENSION))
+
+    image, header = read_image(path)
+
+    if name is None:
+        name = os.path.basename(path)[:-len(FITS_EXTENSION)]
+
+    return run(image, config, outdir = outdir, name = name, header = header)
+
+
+def run(image, config: Config | None = None, *, outdir: str = '.',
+        name: str = DEFAULT_RUN_NAME,
+        header: fits.Header | None = None) -> RunResult:
+    """Run the DAWIS synthesis-by-analysis pipeline on an image array.
+
+    The front door of the package. It takes what a run *works on* — an array —
+    and what a run *does* — a :class:`~dawis.config.Config` — and keeps them
+    apart from where it reads and writes, because the same configuration is
+    meant to be run over many images.
+
+    Every knob lives on the configuration and is checked when that is built,
+    which is why this signature is three arguments and not thirty. The one
+    rule that cannot be checked there is checked here: ``n_levels`` defaults
+    to ``None``, meaning the image decides the depth, so the configuration is
+    rebuilt the moment there is an image to ask — still before the first
+    wavelet transform.
+
+    Parameters
+    ----------
+    image : numpy.ndarray
+        The 2D image to run on. Not modified: the sky background comes out of
+        a copy.
+    config : Config, optional
+        The knobs of the run. Default builds a :class:`~dawis.config.Config`
+        of published defaults.
+    outdir : str, optional
+        Directory every output is written into. Default the working directory.
+    name : str, optional
+        Stem the outputs are named after — see the file table in the module
+        docstring. Default ``'dawis'``; :func:`run_fits` passes the input
+        filename instead.
+    header : astropy.io.fits.Header, optional
+        Header copied onto the images the run writes, so they carry the
+        astrometry of the image they came from. Default None, which writes
+        them with no astrometry.
+
+    Returns
+    -------
+    RunResult
+        The images the run produced, the configuration it used with
+        ``n_levels`` resolved, the seed it drew, and the diagnostics measured
+        on ``image``. The same information is on disk under ``outdir``.
+
+    Raises
+    ------
+    DawisDimensionError
+        If ``image`` is not 2D.
+    ConfigError
+        If a configuration rule that needed the image's depth is broken — see
+        :class:`dawis.config.Config`.
 
     Notes
     -----
-    Nothing is returned. A run is its output directory — see the file table in
-    the module docstring — and :func:`dawis.viz.rebuild_convergence_plot` and
-    :func:`dawis.viz.rebuild_animation` draw it from there.
+    Anything concerning about ``image`` is warned about and never fatal (#4):
+    the numbers land on :attr:`~dawis.results.RunResult.diagnostics` and the
+    concerning ones go to the log. See :mod:`dawis.results`.
+
+    :func:`dawis.viz.rebuild_convergence_plot` and
+    :func:`dawis.viz.rebuild_animation` draw a finished run from
+    :attr:`~dawis.results.RunResult.outpath`.
+
+    Examples
+    --------
+    >>> from dawis import Config, run                 # doctest: +SKIP
+    >>> result = run(image, Config(seed = 1), outdir = 'out')  # doctest: +SKIP
+    >>> result.n_atoms                                # doctest: +SKIP
+    463
     """
 
-    # Check infile extension
-    if infile[-5:] != '.fits':
-        raise ConfigError('Incorrect file extension --> %s does not end in .fits'
-                          % infile)
-
-    # Everything else is checked in one place, before the image is even
-    # opened. A `Config` that constructs is a run that can finish.
-    config = Config(n_cpus = n_cpus, starting_level = starting_level, n_levels = n_levels,
-                    tau = tau, n_sigmas = n_sigmas, deblend_contrast = deblend_contrast,
-                    gamma = gamma, min_span = min_span, max_span = max_span,
-                    lvl_sep_big = lvl_sep_big, rm_gamma_for_big = rm_gamma_for_big,
-                    lvl_deblend = lvl_deblend, outfile_format = outfile_format,
-                    extent_sep = extent_sep, ecc_sep = ecc_sep, lvl_sep_lin = lvl_sep_lin,
-                    lvl_sep_op = lvl_sep_op, ceps = ceps, scale_lvl_eps = scale_lvl_eps,
-                    conditions = conditions, deconv = deconv, max_iter = max_iter,
-                    size_patch = size_patch, inpaint_res = inpaint_res,
-                    iptd_sigma = iptd_sigma, data_dump = data_dump, resume = resume,
-                    seed = seed, cg_max_iter = cg_max_iter)
+    if config is None:
+        config = Config()
 
     # The run's one generator, made once here and threaded to every consumer
     # that draws: the Anscombe fit, the Anscombe transform of each residual,
@@ -246,12 +296,12 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
     with parallel_backend(n_workers = config.n_cpus):
 
         # Logs
-        outpath = os.path.join( outdir, infile[:-5] )
+        outpath = os.path.join( outdir, name )
         _start_logging(outpath)
         logging.info(datetime.now())
         start_time_algo = datetime.now()
-        logging.info('DAWIS\nInfile = %s\nInput Directory = %s\nOutput Directory = %s\nN_cpus = %d\nTau = %f\nGamma = %f\nmin_span = %d\nmax_span = %d\nConvergence Epsilon = %f'\
-                                        %(infile, indir, outdir, config.n_cpus, config.tau, config.gamma, config.min_span, config.max_span, config.ceps))
+        logging.info('DAWIS\nRun = %s\nOutput Directory = %s\nN_cpus = %d\nTau = %f\nGamma = %f\nmin_span = %d\nmax_span = %d\nConvergence Epsilon = %f'\
+                                        %(name, outdir, config.n_cpus, config.tau, config.gamma, config.min_span, config.max_span, config.ceps))
         # The seed goes in the log whether it was asked for or not. An
         # unseeded run is the science default, and this line is the whole
         # reason that default costs nothing: it is what makes the run
@@ -259,20 +309,35 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
         logging.info('Random seed = %d%s\n'
                      %(run_seed, '' if config.seed is not None else ' (generated)'))
 
-        #  FITS header & image properties
-        im, header = read_image(os.path.join(indir, infile))
+        # What the run was handed. Warn, never block (#4): the astronomer
+        # usually knows their image has a blank border, and a pipeline that
+        # refuses one is a pipeline nobody can use.
+        diagnostics = inspect_image(image)
+        logging.info('Input image: %s\n' %(diagnostics.summary()))
+        for line in diagnostics.warnings:
+            logging.warning('/!\\ Input /!\\ %s', line)
+
+        # Not one of those warnings, and deliberately fatal: a cube is not an
+        # image the run could do anything with, so there is nothing to warn
+        # about and proceed to. Every diagnostic above is still logged first,
+        # because they say what was handed over.
+        if diagnostics.ndim != 2:
+            raise DawisDimensionError(
+                'DAWIS runs on one image at a time -->', diagnostics.ndim, 2)
+
         if not config.n_levels:
             # Re-checked with the number the image supplied, so the rules that
             # compare a scale index against the depth of the decomposition are
             # not skipped just because the depth was left to the image.
-            config = replace(config, n_levels = max_levels(im.shape))
+            config = replace(config, n_levels = max_levels(diagnostics.shape))
         n_levels = config.n_levels
         logging.info('Image of size %d x %d\n--> n_levels = %d, corresponding to maximum size %d pixels\n' \
-                                    %(im.shape[0], im.shape[1], n_levels, 2**n_levels) )
+                                    %(diagnostics.shape[0], diagnostics.shape[1], n_levels, 2**n_levels) )
 
         # Noise properties. The background goes out of the image here, so that
-        # zero is the centre of the noise everywhere below.
-        im, mean, sigma = subtract_background(im, n_sigmas = 3, bins = 200)
+        # zero is the centre of the noise everywhere below. Out of a copy: the
+        # array belongs to the caller.
+        im, mean, sigma = subtract_background(image, n_sigmas = 3, bins = 200)
         logging.info('Noise properties for inpainting: sigma = %1.3e, mean = %1.3e\n' %(sigma, mean))
 
         # Anscombe transform parameters, measured once against the input image
@@ -286,9 +351,10 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
 
         #===========================================================================
 
-        run = Reconstruction(im, n_levels)
+        reconstruction = Reconstruction(im, n_levels)
         monitor = ConvergenceMonitor(scale_lvl_eps = config.scale_lvl_eps)
         it = 1
+        n_atoms = 0
 
         for level in range( config.starting_level, n_levels ):
 
@@ -300,8 +366,8 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
 
                 # inpaint bad reconstruction pixels and NaN pixels with noise draws
                 if config.inpaint_res:
-                    run.inpaint(mean = mean, sigma = sigma, iptd_sigma = config.iptd_sigma,
-                                rng = rng)
+                    reconstruction.inpaint(mean = mean, sigma = sigma,
+                                           iptd_sigma = config.iptd_sigma, rng = rng)
 
                 # Check if resume run
                 pickle_dump = _dump_path(outpath, 'ol', it, 'pkl')
@@ -324,12 +390,12 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
 
                     # Anscombe transform & thresholding
                     logging.info('[ %s ] Start wavelet transform and detection'%datetime.now())
-                    aim = stabilisation.transform(run.residuals, rng = rng)
+                    aim = stabilisation.transform(reconstruction.residuals, rng = rng)
                     awdc = bspl_atrous(aim, level, header, config.conditions)
 
                     # Labels & true wavelet coefficients
                     ldc, dea = ms_detect_and_deblend(awdc, n_sigmas = config.n_sigmas, lvl_deblend = config.lvl_deblend, deblend_contrast = config.deblend_contrast, verbose = True)
-                    wdc = bspl_atrous(run.residuals, level, header, config.conditions)
+                    wdc = bspl_atrous(reconstruction.residuals, level, header, config.conditions)
 
                     # Regions of significance
                     rl = make_regions_full_props(wdc, ldc, verbose = True)
@@ -350,7 +416,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
 
                     # Restoration of detected objects
                     logging.info('[ %s ] Start object restoration'%datetime.now())
-                    ol = restore_objects_default(itl, run.residuals, 0.01, 15, wdc, ldc, size_patch_small = 1, \
+                    ol = restore_objects_default(itl, reconstruction.residuals, 0.01, 15, wdc, ldc, size_patch_small = 1, \
                                                        gamma = config.gamma, \
                                                        extent_sep = config.extent_sep, \
                                                        ecc_sep = config.ecc_sep, \
@@ -366,11 +432,13 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
 
                 # Atom
                 logging.info('[ %s ] Add atoms to restored images.'%datetime.now())
-                atom = run.add(ol)
+                atom = reconstruction.add(ol)
+                n_atoms += len(ol)
 
                 # Convergence
-                step = monitor.update(level, it, atom, run.residuals, run.restored,
-                                      len(ol), datetime.now() - start_time_it)
+                step = monitor.update(level, it, atom, reconstruction.residuals,
+                                      reconstruction.restored, len(ol),
+                                      datetime.now() - start_time_it)
                 logging.info('Convergence : res = %f rec = %f' %(step.flux_res, step.flux_rec ))
                 logging.info('Number Objects = %d, Normalized Epsilon = %f, Window Normalized Epsilon = %f' \
                                             %( step.n_atoms, step.normeps, step.avnormeps ))
@@ -389,9 +457,9 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
                     if config.data_dump:
                         logging.info('[ %s ] Dumping data in %s' %(datetime.now(), outdir) )
                         write_regions_to_pickle( rl, _dump_path(outpath, 'rl', it, 'pkl'), overwrite = True)
-                        _write_fits( _dump_path(outpath, 'res', it, 'fits'), run.residuals )
-                        _write_fits( _dump_path(outpath, 'rec', it, 'fits'), run.restored )
-                        _write_fits( _dump_path(outpath, 'dei', it, 'fits'), run.det_err )
+                        _write_fits( _dump_path(outpath, 'res', it, 'fits'), reconstruction.residuals )
+                        _write_fits( _dump_path(outpath, 'rec', it, 'fits'), reconstruction.restored )
+                        _write_fits( _dump_path(outpath, 'dei', it, 'fits'), reconstruction.det_err )
 
                 logging.info('[ %s ]End of iteration (time: %s)\n\n'%(datetime.now(), datetime.now() - start_time_it ))
                 it += 1
@@ -408,12 +476,12 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
     #===========================================================================
     # Write results to disk
     logging.info('Finished iterating.\nWriting results to disk in %s' %(outdir) )
-    _write_fits( ''.join(( outpath, '.residuals.fits' )), run.residuals, header )
-    _write_fits( ''.join(( outpath, '.restored.fits' )), run.restored, header )
+    _write_fits( ''.join(( outpath, '.residuals.fits' )), reconstruction.residuals, header )
+    _write_fits( ''.join(( outpath, '.restored.fits' )), reconstruction.restored, header )
     # The detection error, not a second copy of the restored image: the old
     # code built the right HDU and then wrote the wrong one (#49).
-    _write_fits( ''.join(( outpath, '.deterror.fits' )), run.det_err, header )
-    _write_fits( ''.join(( outpath, '.scl.restored.fits' )), run.restored_per_level, header )
+    _write_fits( ''.join(( outpath, '.deterror.fits' )), reconstruction.det_err, header )
+    _write_fits( ''.join(( outpath, '.scl.restored.fits' )), reconstruction.restored_per_level, header )
 
     with open( ''.join(( outpath, '.cpar.txt' )), 'w+') as conv:
         conv.write('%s\n' %(CONVERGENCE_HEADER))
@@ -428,3 +496,19 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
                  "    rebuild_animation('%s')" %(outpath, outpath))
 
     logging.info( datetime.now() - start_time_algo )
+
+    return RunResult(
+        config = config,
+        seed = run_seed,
+        diagnostics = diagnostics,
+        outpath = outpath,
+        # The trace, not the counter: an iteration that found no region breaks
+        # out before it is measured, so `it` can stand one ahead of what the
+        # run actually did.
+        n_iterations = len(monitor.rows),
+        n_atoms = n_atoms,
+        restored = reconstruction.restored,
+        residuals = reconstruction.residuals,
+        det_err = reconstruction.det_err,
+        restored_per_level = reconstruction.restored_per_level,
+    )

@@ -36,13 +36,46 @@ def test_the_background_comes_out_of_the_image():
     assert levelled.mean() == pytest.approx(0.0, abs=1.0)
 
 
-def test_the_image_is_levelled_in_place():
-    """The caller keeps working on the array it passed in."""
+def test_the_callers_image_is_not_modified():
+    """A run levels a copy, never the array it was handed (#54).
+
+    The array-in entry point takes an image the caller still owns — a fixture,
+    a slice of a mosaic, a read-only view — so subtracting the sky out of it
+    would change what the caller holds.
+    """
     image = noisy_image()
+    before = np.copy(image)
+
+    levelled, mean, _ = subtract_background(image)
+
+    assert levelled is not image
+    np.testing.assert_array_equal(image, before)
+    np.testing.assert_allclose(levelled, before - mean)
+
+
+def test_a_read_only_image_can_be_levelled():
+    """The pipeline fixtures hand out read-only arrays on purpose."""
+    image = noisy_image()
+    image.setflags(write=False)
 
     levelled, _, _ = subtract_background(image)
 
-    assert levelled is image
+    assert levelled.flags.writeable
+
+
+def test_a_non_floating_image_is_converted_rather_than_refused():
+    """An integer array cannot hold a fractional background (#54).
+
+    Subtracting one in place raises rather than truncating, so the dtype
+    warning the input diagnostics emit would be a warning about a run that
+    dies anyway. It is converted instead, and the warning says so.
+    """
+    image = (noisy_image() * 10).astype(np.int32)
+
+    levelled, mean, _ = subtract_background(image)
+
+    assert levelled.dtype == np.float64
+    np.testing.assert_allclose(levelled, image - mean)
 
 
 def test_a_float32_image_stays_float32():

@@ -3,7 +3,7 @@
 DAWIS works on arrays. FITS is how an image reaches it, and the target
 architecture (#4) confines that to one thin wrapper so no block below the
 pipeline ever opens a file: :func:`~dawis.run` takes an array, and
-``run_fits`` (#54) will take a path and call this.
+:func:`~dawis.run_fits` takes a path and calls this (#54).
 
 Read only. The pipeline still writes its residual, restored and per-scale
 images with astropy directly; that side moves when the object store is

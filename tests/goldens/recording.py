@@ -270,14 +270,31 @@ def machine_table() -> list[str]:
     ))
 
 
-def config_table(dawis, kwargs: dict) -> list[str]:
-    """The ``[config]`` table: every pipeline parameter, defaults resolved."""
-    from goldenrun import effective_config
+def config_table(dawis, work_dir: Path, infile: str,
+                 cg_max_iter: int) -> list[str]:
+    """The ``[config]`` table: every pipeline parameter, defaults resolved.
 
-    config = effective_config(dawis.synthesis_by_analysis, kwargs)
-    # Paths identify this machine, not the run's behaviour.
-    for name in ("indir", "outdir", "infile"):
-        config.pop(name, None)
+    Resolved out of whichever entry point the recorded tree has. The 1.0 tree
+    takes a ``Config`` (#54), whose fields *are* the resolved set; ``legacy``
+    and ``legacy-seeded`` take keywords, so there the defaults are read off
+    the signature. Either way provenance records every knob and not only the
+    ones the tier names.
+    """
+    import dataclasses
+
+    import goldenrun
+
+    if goldenrun.is_array_in(dawis):
+        config = dataclasses.asdict(goldenrun.golden_config(dawis, cg_max_iter))
+    else:
+        config = goldenrun.effective_config(
+            dawis.synthesis_by_analysis,
+            goldenrun.golden_kwargs(dawis, work_dir, infile),
+        )
+        # Paths identify this machine, not the run's behaviour.
+        for name in ("indir", "outdir", "infile"):
+            config.pop(name, None)
+
     return toml_table("config", config, comment=(
         "Every pipeline parameter with the value this run actually used,\n"
         "defaults resolved."

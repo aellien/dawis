@@ -1,8 +1,8 @@
 """DAWIS — Detection Algorithm with Wavelets for Intracluster light Studies.
 
 A toolbox of wavelet-based analysis methods (#4).
-:func:`synthesis_by_analysis` is the composition the science is done with;
-everything it calls is a building block that can be run on its own.
+:func:`run` drives the composition the science is done with; everything it
+calls is a building block that can be run on its own.
 
 The layout is one subpackage per block::
 
@@ -15,11 +15,16 @@ The layout is one subpackage per block::
     dawis.io            FITS, the object store, the legacy pickle format
     dawis.viz           every line of matplotlib
 
-with four modules at the top level, above the blocks because they are not one
+with five modules at the top level, above the blocks because they are not one
 block's business: :mod:`dawis.cubes` (the containers), :mod:`dawis.config`
-(the knobs of a run) and :mod:`dawis.exceptions` are shared vocabulary,
-:mod:`dawis.parallel` is the parallelism seam, and :mod:`dawis.convergence` is
-the stopping test the pipelines share. ``cli`` joins them in Phase B.
+(the knobs of a run), :mod:`dawis.results` (what a run reports) and
+:mod:`dawis.exceptions` are shared vocabulary, :mod:`dawis.parallel` is the
+parallelism seam, and :mod:`dawis.convergence` is the stopping test the
+pipelines share. ``cli`` joins them in Phase B.
+
+:func:`run` takes an array and a :class:`~dawis.config.Config` and returns a
+:class:`~dawis.results.RunResult`; :func:`run_fits` opens a FITS file and
+delegates to it. Nothing below the pipeline sees a path (#54).
 
 This module re-exports the public names of the blocks so the flat spellings
 users already have — ``dawis.bspl_atrous``, ``dawis.hard_threshold`` — keep
@@ -92,7 +97,8 @@ from dawis.io import (
     write_ol_to_pickle,
     write_regions_to_pickle,
 )
-from dawis.pipelines import synthesis_by_analysis
+from dawis.pipelines import run, run_fits
+from dawis.results import InputDiagnostics, RunResult
 from dawis.restoration import (
     Atom,
     B2spline,
@@ -137,8 +143,10 @@ __all__ = [
     'DawisDimensionError',
     'DawisError',
     'DawisValueError',
+    'InputDiagnostics',
     'LabelCube',
     'Reconstruction',
+    'RunResult',
     'SupportCube',
     'WaveletCube',
     'anscombe_transform',
@@ -176,10 +184,11 @@ __all__ = [
     'restore_objects_default',
     'restore_patch',
     'richardson_lucy_np',
+    'run',
+    'run_fits',
     'sample_noise',
     'ser_iuwt_decomposition',
     'subtract_background',
-    'synthesis_by_analysis',
     'table_noise_stds',
     'twod_B2spline',
     'unpad',

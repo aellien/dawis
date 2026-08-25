@@ -86,7 +86,7 @@ def test_dawis_imports_without_matplotlib():
         "builtins.__import__ = blocked\n"
         "import dawis\n"
         "assert not any(m.startswith('matplotlib') for m in sys.modules)\n"
-        "print(dawis.synthesis_by_analysis.__name__)\n"
+        "print(dawis.run.__name__)\n"
     )
     done = subprocess.run(
         [sys.executable, "-c", blocked], capture_output=True, text=True
@@ -98,7 +98,10 @@ def test_the_pipeline_takes_no_animation_knob():
     """The animation is not a flag on the solver any more, but a tool."""
     import inspect
 
-    assert "gif" not in inspect.signature(dawis.synthesis_by_analysis).parameters
+    from dawis.config import Config
+
+    assert "gif" not in inspect.signature(dawis.run).parameters
+    assert "gif" not in Config.__dataclass_fields__
 
 
 # --- the per-type cube dispatch -------------------------------------------

@@ -98,8 +98,6 @@ def main():
     image_rtol = 1e-5
     atom_rtol = 1e-4
 
-    kwargs = goldenrun.golden_kwargs(dawis, work_dir, tier1.TIER1_INFILE)
-
     lines = [
         "# Provenance of the Tier 1 cutout goldens (#36).",
         "#",
@@ -150,7 +148,7 @@ def main():
         "cutout converges well inside it, so this run converged rather than\n"
         "hitting the cap."
     ))
-    lines += recording.config_table(dawis, kwargs)
+    lines += recording.config_table(dawis, work_dir, tier1.TIER1_INFILE, tier1.CG_MAX_ITER)
     lines += recording.toml_table("tolerances", {
         "residual_sigma": sigma,
         "image_atol": image_atol,

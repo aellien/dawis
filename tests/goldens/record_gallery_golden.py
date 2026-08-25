@@ -102,8 +102,6 @@ def main():
     image_rtol = 1e-5
     atom_rtol = 1e-4
 
-    kwargs = goldenrun.golden_kwargs(dawis, work_dir, tier2.TIER2_INFILE)
-
     lines = [
         "# Provenance of the Tier 2 full-image goldens (#37).",
         "#",
@@ -152,7 +150,7 @@ def main():
         "legacy-seeded but 3 on the tree the refactor branched from.\n"
         "pipeline_max_iter is the unrelated cap on the greedy outer loop."
     ))
-    lines += recording.config_table(dawis, kwargs)
+    lines += recording.config_table(dawis, work_dir, tier2.TIER2_INFILE, tier2.CG_MAX_ITER)
     lines += recording.toml_table("tolerances", {
         "residual_sigma": sigma,
         "image_atol": image_atol,

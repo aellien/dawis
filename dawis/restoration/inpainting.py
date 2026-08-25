@@ -133,14 +133,25 @@ def subtract_background(
     inpainting draws are, the wavelet thresholds are quoted in sigmas of it —
     so this is the first thing a run does to its image.
 
-    The image is modified in place as well as returned, which is what keeps its
-    dtype: subtracting a float64 mean out of place would promote a float32
-    image and move every number that follows.
+    The caller's array is never written to: the entry point of #54 takes an
+    image the caller still owns — a fixture, a slice of a mosaic, a read-only
+    view — and a run that scribbled the sky out of it would change what the
+    caller holds. A copy is levelled instead, and the subtraction stays *in
+    place on that copy*, which is what keeps the dtype: subtracting a float64
+    mean out of place would promote a float32 image and move every number that
+    follows.
+
+    A non-floating image is the one exception, because there the dtype cannot
+    be kept: an integer array has nowhere to put a fractional background, and
+    subtracting one in place raises rather than truncating. It is converted to
+    float64, which is what :func:`~dawis.results.inspect_image` warns about
+    before a run starts — the input diagnostics of #4 warn and never block, so
+    this is what makes the dtype warning a warning.
 
     Parameters
     ----------
     image : numpy.ndarray
-        The image to level. Modified in place.
+        The image to level. Not modified.
     n_sigmas : float, optional
         Clipping threshold handed to :func:`sample_noise`. Default 3.
     bins : int, optional
@@ -149,8 +160,9 @@ def subtract_background(
     Returns
     -------
     image : numpy.ndarray
-        The image with the background removed — the same object that was
-        passed in.
+        A copy of the image with the background removed, in the dtype of the
+        image that was passed in — or in float64, if that dtype was not a
+        floating one.
     mean : float
         The background that was subtracted.
     sigma : float
@@ -164,6 +176,9 @@ def subtract_background(
 
     noise_pixels, _ = sample_noise(image, n_sigmas = n_sigmas, bins = bins)
     mean, sigma = np.mean(noise_pixels), np.std(noise_pixels)
-    image -= mean
+    levelled = np.array(image)
+    if not np.issubdtype(levelled.dtype, np.floating):
+        levelled = levelled.astype(float)
+    levelled -= mean
 
-    return image, mean, sigma
+    return levelled, mean, sigma

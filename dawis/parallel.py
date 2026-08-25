@@ -42,7 +42,7 @@ configuration get.
 Asking for more than one worker is asking for parallelism, and there is only
 one thing that can currently answer: a caller that wants several workers and
 names no backend gets :data:`DEFAULT_PARALLEL_BACKEND`. That is a deliberate
-decision and not an oversight — it is what ``synthesis_by_analysis`` did with
+decision and not an oversight — it is what the pipeline did with
 ``n_cpus`` before the seam existed, and preserving it is what keeps this
 ticket a move rather than a science change. #53 gives ``Config`` an explicit
 backend knob and the guess goes away.
@@ -316,7 +316,7 @@ class parallel_backend:
             ...
 
     :meth:`start` and :meth:`stop` are also public, because
-    ``dawis.synthesis_by_analysis`` sets the backend up at the top of a long
+    ``dawis.run`` sets the backend up at the top of a long
     function and tears it down at the bottom. That call site becomes a plain
     ``with`` when the pipeline is carved (#49).
 

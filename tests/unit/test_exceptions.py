@@ -206,10 +206,16 @@ def test_a_non_string_boundary_condition_is_a_plain_type_error():
         boundary_conditions(np.zeros(4, dtype=int), 4, conditions=3)
 
 
-def test_a_non_fits_input_is_a_config_error():
-    """The pipeline's own argument check, failing before the solver starts."""
+def test_a_non_fits_input_is_a_config_error(tmp_path):
+    """The FITS wrapper's own argument check, before it opens anything.
+
+    The path is checked before the file is, so a mistyped extension is a
+    configuration error rather than whatever astropy says about a file it
+    cannot read — and here, on a path that does not exist at all, a run that
+    opened first would raise ``FileNotFoundError`` instead.
+    """
     with pytest.raises(ConfigError, match=r'does not end in \.fits'):
-        dawis.synthesis_by_analysis('indir', 'image.txt', 'outdir')
+        dawis.run_fits(str(tmp_path / 'image.txt'))
 
 
 def test_an_untyped_fits_file_reads_back_as_an_untyped_cube(tmp_path):

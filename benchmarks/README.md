@@ -2,7 +2,7 @@
 
 Hand-run wall-time measurement for DAWIS. Not a pytest tier, not CI.
 
-`run_benchmark.py` measures one full `synthesis_by_analysis` run on the 900x900
+`run_benchmark.py` measures one full synthesis-by-analysis run on the 900x900
 reference image and writes `benchmark.json` into the run directory: wall time
 overall, wall time per pipeline phase (restoration in particular), peak RSS,
 iteration and atom counts, and the full configuration, source commit and
@@ -19,9 +19,9 @@ refuses to start without it rather than quietly reporting 0 MB.
 
 They are unrelated and both appear in the pipeline.
 
-- `--pipeline-max-iter` caps the greedy outer loop. This is
-  `synthesis_by_analysis`'s own `max_iter`, and the reference parameter set
-  leaves it at 500.
+- `--pipeline-max-iter` caps the greedy outer loop. This is `Config.max_iter`
+  on the 1.0 tree and the entry point's own `max_iter` on `legacy-seeded`, and
+  the reference parameter set leaves it at 500.
 - `--cg-max-iter` is the conjugate-gradient solver's iteration cap inside
   `interscale_tree.CG_minimization`. `restore_object` never passes it, so the
   shipped value is the method's default. RFC #29 restores that default from the
