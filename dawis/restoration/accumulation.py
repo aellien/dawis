@@ -112,7 +112,13 @@ class Reconstruction:
 
         return atom
 
-    def inpaint(self, mean: float, sigma: float, iptd_sigma: float) -> None:
+    def inpaint(
+        self,
+        mean: float,
+        sigma: float,
+        iptd_sigma: float,
+        rng: np.random.RandomState | None = None,
+    ) -> None:
         """Refill the holes this run's subtractions dug in the residual.
 
         Parameters
@@ -124,6 +130,10 @@ class Reconstruction:
         iptd_sigma : float
             Threshold in units of ``sigma``: pixels below minus this many
             sigmas, and NaNs, are replaced with fresh noise draws.
+        rng : numpy.random.RandomState, optional
+            Generator those draws come from, threaded on to
+            :func:`~dawis.restoration.inpainting.inpaint_with_gaussian_noise`.
+            Default None uses the global :mod:`numpy.random` state.
 
         See Also
         --------
@@ -131,4 +141,5 @@ class Reconstruction:
         """
 
         self.residuals = inpaint_with_gaussian_noise(
-            self.residuals, mean = mean, sigma = sigma, iptd_sigma = iptd_sigma)
+            self.residuals, mean = mean, sigma = sigma, iptd_sigma = iptd_sigma,
+            rng = rng)

@@ -61,10 +61,12 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from dataclasses import replace
 from datetime import datetime
 
 from astropy.io import fits
 
+from dawis.config import DEFAULT_CG_MAX_ITER, Config, make_rng, resolve_seed
 from dawis.convergence import CONVERGENCE_HEADER, ConvergenceMonitor
 from dawis.detection import make_regions_full_props, ms_detect_and_deblend
 from dawis.exceptions import ConfigError
@@ -115,17 +117,28 @@ def _start_logging(outpath: str) -> None:
     logging.basicConfig( level = logging.DEBUG, handlers = [ file_handler, stdout_handler ])
 
 
+
 def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2, tau = 0.8, n_levels = None, n_sigmas = 5, deblend_contrast = 0.1,\
                                 gamma = 0.2, min_span = 2, max_span = 3, lvl_sep_big = 6, rm_gamma_for_big = False, lvl_deblend = 3, outfile_format = 'pickle', \
                                 extent_sep = 0.1, ecc_sep = 0.95, lvl_sep_lin = 2, lvl_sep_op = 3, ceps = 1E-3, scale_lvl_eps = 1, conditions = 'loop', deconv = False,\
-                                max_iter = 500, size_patch = 100, inpaint_res = True, data_dump = True, iptd_sigma = 3, resume = True):
+                                max_iter = 500, size_patch = 100, inpaint_res = True, data_dump = True, iptd_sigma = 3, resume = True, seed = None,\
+                                cg_max_iter = DEFAULT_CG_MAX_ITER):
     """Run the DAWIS synthesis-by-analysis pipeline on a FITS image.
+
+    Every keyword below is a field of :class:`dawis.config.Config`, and this
+    function's first act is to build one out of them. That is where the
+    checking happens — including the rules that no single argument is wrong
+    on its own for, such as ``starting_level`` at or above ``n_levels``, which
+    used to produce a silent no-op run. #54 replaces this wall of keywords
+    with the ``Config`` itself.
 
     Parameters
     ----------
     indir, infile, outdir : str
         Directory the image is read from, its filename — which must end in
-        ``.fits`` — and the directory every output is written to.
+        ``.fits`` — and the directory every output is written to. The only
+        three arguments that are *not* configuration: they say where one run
+        reads and writes, not what it does.
     n_cpus : int, optional
         Workers to spread the tree building and the restoration over. One
         runs in this process; more asks :mod:`dawis.parallel` for a backend.
@@ -153,7 +166,8 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
         Factor on that epsilon, for raising or lowering the threshold without
         touching ``ceps``. Default 1.
     max_iter : int, optional
-        Hard cap on iterations, counted across every scale. Default 500.
+        Hard cap on greedy iterations, counted across every scale. Default
+        500. Not to be confused with ``cg_max_iter``.
     inpaint_res : bool, optional
         Refill the holes subtraction digs in the residual before each
         iteration. Default True.
@@ -169,11 +183,21 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
     resume : bool, optional
         Read an iteration back from disk when its atoms are already there,
         instead of recomputing it. Default True.
+    seed : int or None, optional
+        Seed of the one generator this run threads to every random consumer.
+        Default None draws fresh entropy, which is the science default; the
+        seed it drew is written into the run log either way, so the run stays
+        reproducible after the fact. See :mod:`dawis.config`.
+    cg_max_iter : int, optional
+        Iteration cap of the conjugate-gradient solver each atom is
+        synthesised by. Default :data:`~dawis.config.DEFAULT_CG_MAX_ITER`, the
+        published 200; **#26 owns the question of what it should be.**
 
     Raises
     ------
     ConfigError
-        If ``infile`` does not end in ``.fits``.
+        If ``infile`` does not end in ``.fits``, or if any knob is out of
+        range or contradicts another — see :class:`dawis.config.Config`.
 
     Notes
     -----
@@ -187,6 +211,30 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
         raise ConfigError('Incorrect file extension --> %s does not end in .fits'
                           % infile)
 
+    # Everything else is checked in one place, before the image is even
+    # opened. A `Config` that constructs is a run that can finish.
+    config = Config(n_cpus = n_cpus, starting_level = starting_level, n_levels = n_levels,
+                    tau = tau, n_sigmas = n_sigmas, deblend_contrast = deblend_contrast,
+                    gamma = gamma, min_span = min_span, max_span = max_span,
+                    lvl_sep_big = lvl_sep_big, rm_gamma_for_big = rm_gamma_for_big,
+                    lvl_deblend = lvl_deblend, outfile_format = outfile_format,
+                    extent_sep = extent_sep, ecc_sep = ecc_sep, lvl_sep_lin = lvl_sep_lin,
+                    lvl_sep_op = lvl_sep_op, ceps = ceps, scale_lvl_eps = scale_lvl_eps,
+                    conditions = conditions, deconv = deconv, max_iter = max_iter,
+                    size_patch = size_patch, inpaint_res = inpaint_res,
+                    iptd_sigma = iptd_sigma, data_dump = data_dump, resume = resume,
+                    seed = seed, cg_max_iter = cg_max_iter)
+
+    # The run's one generator, made once here and threaded to every consumer
+    # that draws: the Anscombe fit, the Anscombe transform of each residual,
+    # and the inpainting. They used to be independent unseeded calls into the
+    # global `numpy.random` state, which is why two runs of the same input
+    # took different trajectories (#53). A fourth consumer, the bootstrap
+    # noise cube inside the interscale trees, was deleted with the rest of the
+    # unreachable synthesis block in #38 and has no site left to thread.
+    run_seed = resolve_seed(config.seed)
+    rng = make_rng(run_seed)
+
     # What a worker is, for the length of this run. One worker selects the
     # serial backend, more than one the default parallel backend; the adapter
     # attaches to a cluster that is already up and starts one only if none is,
@@ -195,7 +243,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
     # released on the way out, including out through an exception, which the
     # pre-#47 code never managed: its shutdown sat on a misspelt flag and was
     # unreachable.
-    with parallel_backend(n_workers = n_cpus):
+    with parallel_backend(n_workers = config.n_cpus):
 
         # Logs
         outpath = os.path.join( outdir, infile[:-5] )
@@ -203,12 +251,22 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
         logging.info(datetime.now())
         start_time_algo = datetime.now()
         logging.info('DAWIS\nInfile = %s\nInput Directory = %s\nOutput Directory = %s\nN_cpus = %d\nTau = %f\nGamma = %f\nmin_span = %d\nmax_span = %d\nConvergence Epsilon = %f'\
-                                        %(infile, indir, outdir, n_cpus, tau, gamma, min_span, max_span, ceps))
+                                        %(infile, indir, outdir, config.n_cpus, config.tau, config.gamma, config.min_span, config.max_span, config.ceps))
+        # The seed goes in the log whether it was asked for or not. An
+        # unseeded run is the science default, and this line is the whole
+        # reason that default costs nothing: it is what makes the run
+        # repeatable afterwards.
+        logging.info('Random seed = %d%s\n'
+                     %(run_seed, '' if config.seed is not None else ' (generated)'))
 
         #  FITS header & image properties
         im, header = read_image(os.path.join(indir, infile))
-        if not n_levels:
-            n_levels = max_levels(im.shape)
+        if not config.n_levels:
+            # Re-checked with the number the image supplied, so the rules that
+            # compare a scale index against the depth of the decomposition are
+            # not skipped just because the depth was left to the image.
+            config = replace(config, n_levels = max_levels(im.shape))
+        n_levels = config.n_levels
         logging.info('Image of size %d x %d\n--> n_levels = %d, corresponding to maximum size %d pixels\n' \
                                     %(im.shape[0], im.shape[1], n_levels, 2**n_levels) )
 
@@ -218,40 +276,44 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
         logging.info('Noise properties for inpainting: sigma = %1.3e, mean = %1.3e\n' %(sigma, mean))
 
         # Anscombe transform parameters, measured once against the input image
-        # and applied to every residual the loop produces.
-        stabilisation = AnscombeStabilisation.fit(im, max_err = 1E-4, n_sigmas = 3)
+        # and applied to every residual the loop produces. The fit draws too --
+        # every bisection step stabilises the image and fills its NaNs -- so it
+        # takes the run's generator like everything else.
+        stabilisation = AnscombeStabilisation.fit(im, max_err = 1E-4, n_sigmas = 3,
+                                                  rng = rng)
         logging.info('Noise parametric values for Anscombe transform: sigma = %1.3e, mean = %1.3e, gain = %1.3e\n' \
                                     %(stabilisation.sigma, stabilisation.mean, stabilisation.gain))
 
         #===========================================================================
 
         run = Reconstruction(im, n_levels)
-        monitor = ConvergenceMonitor(scale_lvl_eps = scale_lvl_eps)
+        monitor = ConvergenceMonitor(scale_lvl_eps = config.scale_lvl_eps)
         it = 1
 
-        for level in range( starting_level, n_levels ):
+        for level in range( config.starting_level, n_levels ):
 
             monitor.begin_level()
-            while monitor.avnormeps > ceps :
+            while monitor.avnormeps > config.ceps :
 
                 start_time_it = datetime.now()
                 logging.info('[ %s ] Level = %d Iteration = %d ---------------' %(datetime.now(), level, it))
 
                 # inpaint bad reconstruction pixels and NaN pixels with noise draws
-                if inpaint_res:
-                    run.inpaint(mean = mean, sigma = sigma, iptd_sigma = iptd_sigma)
+                if config.inpaint_res:
+                    run.inpaint(mean = mean, sigma = sigma, iptd_sigma = config.iptd_sigma,
+                                rng = rng)
 
                 # Check if resume run
                 pickle_dump = _dump_path(outpath, 'ol', it, 'pkl')
                 hdf5_dump = _dump_path(outpath, 'ol', it, 'hdf5')
                 resumed = True
 
-                if resume and os.path.exists(pickle_dump):
+                if config.resume and os.path.exists(pickle_dump):
 
                     logging.info('Found %s.\nResuming iteration' %(pickle_dump))
                     ol = read_ol_from_pickle(pickle_dump)
 
-                elif resume and os.path.exists(hdf5_dump):
+                elif config.resume and os.path.exists(hdf5_dump):
 
                     logging.info('Found %s --> resuming iteration' %(hdf5_dump))
                     ol = read_ol_from_hdf5(hdf5_dump)
@@ -262,12 +324,12 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
 
                     # Anscombe transform & thresholding
                     logging.info('[ %s ] Start wavelet transform and detection'%datetime.now())
-                    aim = stabilisation.transform(run.residuals)
-                    awdc = bspl_atrous(aim, level, header, conditions)
+                    aim = stabilisation.transform(run.residuals, rng = rng)
+                    awdc = bspl_atrous(aim, level, header, config.conditions)
 
                     # Labels & true wavelet coefficients
-                    ldc, dea = ms_detect_and_deblend(awdc, n_sigmas = n_sigmas, lvl_deblend = lvl_deblend, deblend_contrast = deblend_contrast, verbose = True)
-                    wdc = bspl_atrous(run.residuals, level, header, conditions)
+                    ldc, dea = ms_detect_and_deblend(awdc, n_sigmas = config.n_sigmas, lvl_deblend = config.lvl_deblend, deblend_contrast = config.deblend_contrast, verbose = True)
+                    wdc = bspl_atrous(run.residuals, level, header, config.conditions)
 
                     # Regions of significance
                     rl = make_regions_full_props(wdc, ldc, verbose = True)
@@ -276,12 +338,12 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
 
                     # Interscale trees
                     logging.info('[ %s ] Start interscale trees'%datetime.now())
-                    itl = make_interscale_trees(rl, wdc, ldc, dea, tau = tau, \
-                                                        min_span = min_span, \
-                                                        max_span = max_span, \
-                                                        lvl_sep_big = lvl_sep_big, \
-                                                        n_cpus = n_cpus, \
-                                                        size_patch = size_patch, \
+                    itl = make_interscale_trees(rl, wdc, ldc, dea, tau = config.tau, \
+                                                        min_span = config.min_span, \
+                                                        max_span = config.max_span, \
+                                                        lvl_sep_big = config.lvl_sep_big, \
+                                                        n_cpus = config.n_cpus, \
+                                                        size_patch = config.size_patch, \
                                                         verbose = True)
                     if not itl:
                         break
@@ -289,17 +351,18 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
                     # Restoration of detected objects
                     logging.info('[ %s ] Start object restoration'%datetime.now())
                     ol = restore_objects_default(itl, run.residuals, 0.01, 15, wdc, ldc, size_patch_small = 1, \
-                                                       gamma = gamma, \
-                                                       extent_sep = extent_sep, \
-                                                       ecc_sep = ecc_sep, \
-                                                       lvl_sep_lin = lvl_sep_lin, \
-                                                       lvl_sep_big = lvl_sep_big, \
-                                                       lvl_sep_op = lvl_sep_op, \
-                                                       rm_gamma_for_big = rm_gamma_for_big, \
+                                                       gamma = config.gamma, \
+                                                       extent_sep = config.extent_sep, \
+                                                       ecc_sep = config.ecc_sep, \
+                                                       lvl_sep_lin = config.lvl_sep_lin, \
+                                                       lvl_sep_big = config.lvl_sep_big, \
+                                                       lvl_sep_op = config.lvl_sep_op, \
+                                                       rm_gamma_for_big = config.rm_gamma_for_big, \
                                                        size_patch_big = 1, \
                                                        size_big_objects = 512, \
-                                                       deconv = deconv, \
-                                                       n_cpus = n_cpus ) # objects in original image pixel value range
+                                                       deconv = config.deconv, \
+                                                       cg_max_iter = config.cg_max_iter, \
+                                                       n_cpus = config.n_cpus ) # objects in original image pixel value range
 
                 # Atom
                 logging.info('[ %s ] Add atoms to restored images.'%datetime.now())
@@ -316,14 +379,14 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
                 # already dumped, by the run that computed it.
                 if not resumed:
 
-                    if outfile_format == 'hdf5':
+                    if config.outfile_format == 'hdf5':
                         write_itl_to_hdf5( itl, _dump_path(outpath, 'itl', it, 'hdf5') )
                         write_ol_to_hdf5( ol, hdf5_dump )
-                    elif outfile_format == 'pickle':
+                    elif config.outfile_format == 'pickle':
                         write_itl_to_pickle( itl, _dump_path(outpath, 'itl', it, 'pkl') )
                         write_ol_to_pickle( ol, pickle_dump )
 
-                    if data_dump:
+                    if config.data_dump:
                         logging.info('[ %s ] Dumping data in %s' %(datetime.now(), outdir) )
                         write_regions_to_pickle( rl, _dump_path(outpath, 'rl', it, 'pkl'), overwrite = True)
                         _write_fits( _dump_path(outpath, 'res', it, 'fits'), run.residuals )
@@ -336,10 +399,10 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
                 # before: the resume branch had its own `continue`, which
                 # jumped over this check, so `max_iter` was not a cap on a
                 # resumed run at all.
-                if it > max_iter:
+                if it > config.max_iter:
                     break
 
-            if it > max_iter:
+            if it > config.max_iter:
                 break
 
     #===========================================================================

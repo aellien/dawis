@@ -25,6 +25,7 @@ def pg_noise_bissection(
     max_err: float = 1E-6,
     n_sigmas: int = 3,
     verbose: bool = False,
+    rng: np.random.RandomState | None = None,
 ) -> tuple[float, float, float]:
     """Estimate the Poisson-Gaussian noise parameters of an image.
 
@@ -47,6 +48,12 @@ def pg_noise_bissection(
         standard deviations. Default is 3.
     verbose : bool, optional
         Log the bracket at every step. Default is False.
+    rng : numpy.random.RandomState, optional
+        Generator handed to every :func:`anscombe_transform` this search
+        makes — one per bisection step, each drawing its own NaN fill. Those
+        draws are part of a run's random stream, so a run threads its one
+        generator in here as well. Default None uses the global
+        :mod:`numpy.random` state.
 
     Returns
     -------
@@ -87,7 +94,7 @@ def pg_noise_bissection(
         mean = ( mean_min + mean_max ) / 2.0    # iteration are the mean of max
         gain = ( gain_min + gain_max ) / 2.0    # and min noise parameters.
        
-        sigma_ansc = np.nanstd(sigma_clip(anscombe_transform(noise_pts, sigma = sigma, mean = mean, gain = gain), \
+        sigma_ansc = np.nanstd(sigma_clip(anscombe_transform(noise_pts, sigma = sigma, mean = mean, gain = gain, rng = rng), \
                                         sigma = n_sigmas, sigma_lower = n_sigmas, masked = False))
 
         if sigma_ansc <= 1.0:  # gaussian distribution countepart
@@ -116,6 +123,7 @@ def anscombe_transform(
     mean: float = 0.0,
     gain: float = 1.0,
     n_sigmas_clip: int = 3,
+    rng: np.random.RandomState | None = None,
 ) -> np.ndarray:
     """Stabilise the variance of a Poisson-Gaussian image.
 
@@ -145,6 +153,11 @@ def anscombe_transform(
     n_sigmas_clip : int, optional
         Clipping threshold, in standard deviations, used to measure the
         statistics the NaN fill is drawn from. Default is 3.
+    rng : numpy.random.RandomState, optional
+        Generator the NaN fill draws from. A run threads its own so the
+        stabilisation is part of one reproducible stream (#53). Default None
+        uses the global :mod:`numpy.random` state, which is what a caller
+        using this transform on its own gets.
 
     Returns
     -------
@@ -157,8 +170,8 @@ def anscombe_transform(
 
     Notes
     -----
-    The NaN fill uses the global numpy random state, so this function is only
-    reproducible once that state has been seeded.
+    Without ``rng`` the NaN fill uses the global numpy random state, so the
+    function is only reproducible once that state has been seeded.
     """
 
     out_image = np.copy( image )
@@ -169,7 +182,7 @@ def anscombe_transform(
     mean_ans = np.nanmean(clip_ans)
     mask = np.zeros(out_image.shape)
     mask[ np.where( np.isnan( out_image ) == True ) ] = 1
-    draws = np.random.normal(mean_ans, std_ans, mask.shape)
+    draws = (np.random if rng is None else rng).normal(mean_ans, std_ans, mask.shape)
     mask *= draws
     out_image[ np.where( np.isnan( out_image ) == True ) ] = 0.0
     out_image += mask
@@ -288,6 +301,7 @@ class AnscombeStabilisation:
         image: np.ndarray,
         max_err: float = 1E-4,
         n_sigmas: int = 3,
+        rng: np.random.RandomState | None = None,
     ) -> AnscombeStabilisation:
         """Measure the map from the image a run starts from.
 
@@ -301,6 +315,11 @@ class AnscombeStabilisation:
         n_sigmas : int, optional
             Clipping threshold handed to :func:`pg_noise_bissection`.
             Default 3.
+        rng : numpy.random.RandomState, optional
+            Generator handed to the bisection. Fitting draws — every step of
+            the search stabilises the image and fills its NaNs — so a run
+            threads its generator here too, before the loop starts. Default
+            None uses the global :mod:`numpy.random` state.
 
         Returns
         -------
@@ -311,11 +330,16 @@ class AnscombeStabilisation:
         offset = np.nanmin(image)
         sigma, mean, gain = pg_noise_bissection(_shifted(image, offset),
                                                 max_err = max_err,
-                                                n_sigmas = n_sigmas)
+                                                n_sigmas = n_sigmas,
+                                                rng = rng)
 
         return cls(offset = offset, sigma = sigma, mean = mean, gain = gain)
 
-    def transform(self, image: np.ndarray) -> np.ndarray:
+    def transform(
+        self,
+        image: np.ndarray,
+        rng: np.random.RandomState | None = None,
+    ) -> np.ndarray:
         """Apply the fitted map to an image.
 
         Parameters
@@ -323,6 +347,10 @@ class AnscombeStabilisation:
         image : numpy.ndarray
             Image to stabilise, normally the run's current residual. Not
             modified.
+        rng : numpy.random.RandomState, optional
+            Generator the NaN fill draws from, threaded on to
+            :func:`anscombe_transform`. Default None uses the global
+            :mod:`numpy.random` state.
 
         Returns
         -------
@@ -332,4 +360,5 @@ class AnscombeStabilisation:
         """
 
         return anscombe_transform(_shifted(image, self.offset),
-                                  self.sigma, self.mean, self.gain)
+                                  self.sigma, self.mean, self.gain,
+                                  rng = rng)

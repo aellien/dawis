@@ -69,6 +69,7 @@ def inpaint_with_gaussian_noise(
     mean: float,
     sigma: float,
     iptd_sigma: float,
+    rng: np.random.RandomState | None = None,
 ) -> np.ndarray:
     """Replace deep negative pixels and NaNs with Gaussian noise.
 
@@ -89,6 +90,11 @@ def inpaint_with_gaussian_noise(
     iptd_sigma : float
         Threshold in units of ``sigma``. Pixels below minus this many sigmas
         are inpainted.
+    rng : numpy.random.RandomState, optional
+        Generator the fill draws from. A run threads its own so every
+        iteration's inpainting is part of one reproducible stream (#53).
+        Default None uses the global :mod:`numpy.random` state, which is what
+        a caller inpainting an image on its own gets.
 
     Returns
     -------
@@ -108,7 +114,7 @@ def inpaint_with_gaussian_noise(
     mask = np.zeros(image.shape)
     mask[ image < -abs(iptd_sigma * sigma) ] = 1.
     mask[np.where(np.isnan(image) == True)] = 1.
-    draws = np.random.normal(0, sigma, image.shape)
+    draws = (np.random if rng is None else rng).normal(0, sigma, image.shape)
     mask *= draws
     image[ image < -abs(iptd_sigma * sigma) ] = 0.
     image[ np.where(np.isnan(image) == True)] = 0.

@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from dawis.config import DEFAULT_CG_MAX_ITER
 from dawis.cubes import LabelCube, WaveletCube
 from dawis.parallel import pmap
 
@@ -125,6 +126,7 @@ def restore_patch(
     gamma: float,
     rm_gamma_for_big: bool,
     deconv: bool,
+    cg_max_iter: int = DEFAULT_CG_MAX_ITER,
 ) -> list[Atom]:
     """Synthesise one patch of trees into atoms.
 
@@ -158,6 +160,9 @@ def restore_patch(
         ``lvl_sep_big``.
     deconv : bool
         Whether the solver deconvolves each plane by the B3-spline kernel.
+    cg_max_iter : int, optional
+        Iteration cap handed to the solver. Default
+        :data:`~dawis.config.DEFAULT_CG_MAX_ITER`.
 
     Returns
     -------
@@ -176,7 +181,8 @@ def restore_patch(
                                                                               lvl_sep_lin, \
                                                                               lvl_sep_big, \
                                                                               lvl_sep_op, \
-                                                                              deconv )
+                                                                              deconv, \
+                                                                              cg_max_iter )
 
         if (rm_gamma_for_big == False) or (tree.interscale_maximum.level < lvl_sep_big):
             image = image * gamma  # add attenuation factor
@@ -203,6 +209,7 @@ def restore_object(
     lvl_sep_big: int,
     lvl_sep_op: int = 2,
     deconv: bool = True,
+    cg_max_iter: int = DEFAULT_CG_MAX_ITER,
     verbose: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, str, bool, float, float]:
     """Synthesise one interscale tree into an image.
@@ -241,6 +248,10 @@ def restore_object(
     deconv : bool, optional
         Whether the solver deconvolves each plane by the B3-spline kernel.
         Default True.
+    cg_max_iter : int, optional
+        Iteration cap handed to the solver. Default
+        :data:`~dawis.config.DEFAULT_CG_MAX_ITER`, the published 200 — see
+        that constant for why it is a knob and who owns it.
     verbose : bool, optional
         Passed through to the solver. Default False.
 
@@ -273,16 +284,19 @@ def restore_object(
     if (( interscale_tree.extent < extent_sep ) or (  interscale_tree.eccentricity >= ecc_sep )) & ( interscale_tree.interscale_maximum.level < lvl_sep_lin ) :
         
         image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_cube, label_cube, filter = haar, \
-                                                        synthesis_operator = 'SUM', deconv = deconv, verbose = verbose )
+                                                        synthesis_operator = 'SUM', deconv = deconv, \
+                                                        max_iter = cg_max_iter, verbose = verbose )
         filter_kw = 'HAAR'
 
     else:
         if interscale_tree.interscale_maximum.level <= lvl_sep_op:
             image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_cube, label_cube, filter = bspl, \
-                                                    synthesis_operator = 'SUM', deconv = deconv, verbose = verbose )
+                                                    synthesis_operator = 'SUM', deconv = deconv, \
+                                                    max_iter = cg_max_iter, verbose = verbose )
         else:
             image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_cube, label_cube, filter = bspl, \
-                                                    synthesis_operator = 'ADJOINT', deconv = deconv, verbose = verbose )
+                                                    synthesis_operator = 'ADJOINT', deconv = deconv, \
+                                                    max_iter = cg_max_iter, verbose = verbose )
         filter_kw = 'BSPL'
 
     if interscale_tree.det_err_tube(wavelet_cube, label_cube).shape[2] > 1:
@@ -316,6 +330,7 @@ def restore_objects_default(
     size_patch_big: int = 1,
     size_big_objects: int = 512,
     n_cpus: int = 1,
+    cg_max_iter: int = DEFAULT_CG_MAX_ITER,
 ) -> list[Atom]:
     """Synthesise a list of interscale trees into atoms.
 
@@ -378,6 +393,9 @@ def restore_objects_default(
         patching. Default 512.
     n_cpus : int, optional
         Worker count. 1 forces the serial branch. Default 1.
+    cg_max_iter : int, optional
+        Iteration cap handed to the solver, on both branches. Default
+        :data:`~dawis.config.DEFAULT_CG_MAX_ITER`, the published 200.
 
     Returns
     -------
@@ -406,6 +424,7 @@ def restore_objects_default(
                                                                                   lvl_sep_big, \
                                                                                   lvl_sep_op, \
                                                                                   deconv, \
+                                                                                  cg_max_iter, \
                                                                                   verbose = True )
 
             if (rm_gamma_for_big == False) or (tree.interscale_maximum.level < lvl_sep_big):
@@ -477,7 +496,7 @@ def restore_objects_default(
             big_patches + small_patches,
             shared = (wavelet_cube, label_cube, extent_sep, ecc_sep,
                       lvl_sep_lin, lvl_sep_big, lvl_sep_op, gamma,
-                      rm_gamma_for_big, deconv),
+                      rm_gamma_for_big, deconv, cg_max_iter),
             n_workers = n_cpus,
         )
         object_list = [atom for patch in object_patches for atom in patch]

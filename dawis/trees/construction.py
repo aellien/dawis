@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from dawis.config import DEFAULT_CG_MAX_ITER
 from dawis.cubes import LabelCube, WaveletCube
 from dawis.detection import region
 from dawis.restoration.deconvolution import richardson_lucy_np, twod_B2spline
@@ -338,7 +339,7 @@ class interscale_tree(object):
         synthesis_operator: str = 'ADJOINT',
         step_size: str = 'FR',
         sigma_flux: float = 1E-3,
-        max_iter: int = 3,
+        max_iter: int = DEFAULT_CG_MAX_ITER,
         verbose: bool = False,
     ) -> tuple[np.ndarray, float, float]:
         """Synthesise the tree into an image by conjugate gradient descent.
@@ -376,8 +377,13 @@ class interscale_tree(object):
             Relative flux change below which the descent stops. Default is
             1E-3.
         max_iter : int, optional
-            Iteration cap. Default is 3; the published configuration is 200,
-            at which the ``sigma_flux`` test does the stopping.
+            Iteration cap. Default :data:`~dawis.config.DEFAULT_CG_MAX_ITER`,
+            the published 200, at which the ``sigma_flux`` test does the
+            stopping rather than the cap. `7c5ba8e` cut it to 3 in 2024 and
+            #32 reverted that drift; **#26 owns the question of what it should
+            be** and sweeps it. A run sets it through
+            :attr:`dawis.config.Config.cg_max_iter`, which reaches here
+            through :func:`~dawis.restoration.synthesis.restore_object`.
         verbose : bool, optional
             Print the convergence line when the flux test fires. Default is
             False.

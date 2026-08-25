@@ -381,10 +381,15 @@ def effective_config(entry, passed):
 def force_cg_max_iter(max_iter):
     """Pin the CG solver's iteration cap and count how often it is called.
 
-    ``restore_object`` calls ``CG_minimization`` without passing ``max_iter``,
-    so the shipped value is whatever the method's default happens to be. The
-    benchmark sweeps that value, so it is forced here rather than edited into
-    the tree under measurement. Returns (original_default, call_counter).
+    The benchmark sweeps that cap, so it is forced here rather than edited
+    into the tree under measurement. Patching the bound method still beats
+    passing the argument, and for the same reason it always did: the same
+    forced value then applies to whichever branch is running, including
+    ``legacy-seeded``, whose ``restore_object`` passes nothing at all. Since
+    #53 the 1.0 tree does pass it — ``Config.cg_max_iter`` reaches the solver
+    through ``restore_object`` — and the wrapper overrides that too, because it
+    sets the keyword after the caller has. Returns (original_default,
+    call_counter).
     """
     from dawis.trees import interscale_tree
 

@@ -68,10 +68,11 @@ BLOCKS = {
 }
 
 #: What may sit at the top level beside the blocks: the vocabulary every block
-#: shares, and the two seams that are not blocks. ``config`` and ``cli`` of #4
-#: join them with #53 and #54.
+#: shares, and the two seams that are not blocks. ``config`` joined them with
+#: #53; ``cli`` of #4 lands in Phase B.
 TOP_LEVEL_MODULES = {
     '__init__',
+    'config',
     'convergence',
     'cubes',
     'exceptions',

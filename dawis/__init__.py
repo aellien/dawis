@@ -16,10 +16,10 @@ The layout is one subpackage per block::
     dawis.viz           every line of matplotlib
 
 with four modules at the top level, above the blocks because they are not one
-block's business: :mod:`dawis.cubes` (the containers) and
-:mod:`dawis.exceptions` are shared vocabulary, :mod:`dawis.parallel` is the
-parallelism seam, and :mod:`dawis.convergence` is the stopping test the
-pipelines share. ``config`` and ``cli`` join them with #53 and #54.
+block's business: :mod:`dawis.cubes` (the containers), :mod:`dawis.config`
+(the knobs of a run) and :mod:`dawis.exceptions` are shared vocabulary,
+:mod:`dawis.parallel` is the parallelism seam, and :mod:`dawis.convergence` is
+the stopping test the pipelines share. ``cli`` joins them in Phase B.
 
 This module re-exports the public names of the blocks so the flat spellings
 users already have — ``dawis.bspl_atrous``, ``dawis.hard_threshold`` — keep
@@ -40,12 +40,17 @@ would be this package promising scipy's surface as its own. Import them from
 Two things are deliberately not re-exported flat, and are reached through
 their module instead. :mod:`dawis.parallel` and :mod:`dawis.convergence` are
 machinery rather than vocabulary — ``dawis.parallel.pmap``,
-``dawis.convergence.ConvergenceMonitor``. And :mod:`dawis.viz` is not
+``dawis.convergence.ConvergenceMonitor``. :mod:`dawis.config` is both, and is
+split: :class:`~dawis.config.Config` is what a user writes and is re-exported
+flat, while the seed machinery around it — ``dawis.config.resolve_seed``,
+``dawis.config.make_rng``, ``dawis.config.DEFAULT_CG_MAX_ITER`` — is what a
+pipeline calls and stays on the module. And :mod:`dawis.viz` is not
 imported at all: importing it imports matplotlib, the optional ``[viz]``
 extra, and ``import dawis`` must work without it. Draw things with an
 explicit ``import dawis.viz``.
 """
 
+from dawis.config import Config
 from dawis.cubes import (
     CoarseCube,
     Cube,
@@ -126,6 +131,7 @@ __all__ = [
     'Atom',
     'B2spline',
     'CoarseCube',
+    'Config',
     'ConfigError',
     'Cube',
     'DawisDimensionError',

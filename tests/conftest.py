@@ -17,6 +17,7 @@ solver knob — in ``tests/tier1.py`` and ``tests/tier2.py``.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
@@ -33,6 +34,12 @@ from goldenrun import (
 )
 from tier1 import TIER1_PARAMS, cutout_of, run_tier1
 from tier2 import run_tier2
+
+if TYPE_CHECKING:
+    # Imported for the annotation only. Every fixture here reaches for `dawis`
+    # inside its own body rather than at module scope, so that collecting the
+    # suite does not require the package to be importable.
+    from dawis.config import Config
 
 
 @pytest.fixture(scope="session")
@@ -73,18 +80,27 @@ def cutout(gallery_image: np.ndarray) -> np.ndarray:
 
 
 @pytest.fixture
-def seeded_config() -> dict:
-    """Pipeline knobs for a deterministic test run.
+def seeded_config() -> "Config":
+    """A ``Config`` for a deterministic test run.
 
-    Returned as a plain mapping of keyword arguments because ``Config`` does
-    not exist yet; it lands in #53 and this fixture becomes a ``Config``
-    instance then.
+    The shared golden parameters with the test seed pinned. Keys ``Config``
+    does not have are dropped — ``gif`` is one, a parameter of the
+    ``legacy-seeded`` entry point that #46 removed — because the golden set is
+    filtered against whichever entry point is being driven, and this fixture
+    describes the 1.0 tree only.
 
     The ``max_iter`` here is the *outer* greedy loop's. The conjugate-gradient
-    solver has an unrelated knob of the same name, pinned separately — see
-    ``tier1.CG_MAX_ITER``.
+    solver has an unrelated knob of the same name, now ``Config.cg_max_iter``,
+    pinned separately for Tier 1 — see ``tier1.CG_MAX_ITER``.
     """
-    return dict(TIER1_PARAMS, seed=TEST_SEED)
+    from dawis.config import Config
+
+    knobs = dict(TIER1_PARAMS, seed=TEST_SEED)
+    return Config(**{
+        name: value
+        for name, value in knobs.items()
+        if name in Config.__dataclass_fields__
+    })
 
 
 @pytest.fixture

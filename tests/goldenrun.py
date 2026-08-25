@@ -83,15 +83,16 @@ SHIPPING_CG_MAX_ITER = 200
 def pin_cg_max_iter(dawis, max_iter: int):
     """Force the CG solver's iteration cap for the duration of a run.
 
-    ``restore_object`` never passes this argument, so the value in effect is
-    whatever ``interscale_tree.CG_minimization``'s default happens to be — 200
-    on ``legacy-seeded``, 3 on the drifted tree the refactor branched from.
-    Both tiers therefore force it rather than inheriting it, which removes that
-    drift from the comparison.
+    Both tiers force this rather than inheriting it, which removes from the
+    comparison a default that differs per branch: 200 on ``legacy-seeded``, 3
+    on the drifted tree the refactor branched from, and 200 again on the 1.0
+    tree since #53 restored it as ``Config.cg_max_iter``.
 
     Patching the bound method beats editing the tree under test: the same
     pinned value then applies to whichever branch is running, which is what
-    makes a golden recorded on ``legacy-seeded`` comparable at all.
+    makes a golden recorded on ``legacy-seeded`` comparable at all. It also
+    still wins where the caller passes the argument — ``restore_object`` does
+    since #53 — because the wrapper sets the keyword after the caller has.
     """
     interscale_tree = dawis.interscale_tree
     original = interscale_tree.CG_minimization
@@ -145,9 +146,11 @@ def golden_kwargs(dawis, work_dir: Path, infile: str,
         infile=infile,
         outdir=str(work_dir),
     )
-    # `seed` is a parameter on `legacy-seeded` and lands on the 1.0 tree in
+    # `seed` is a parameter on `legacy-seeded` and landed on the 1.0 tree with
     # #53. Where it is absent the caller pins the global generator instead —
-    # see :func:`run_golden`.
+    # see :func:`run_golden`. Both branches produce the same draws: the 1.0
+    # tree threads a `numpy.random.RandomState` built from this seed, which is
+    # the same Mersenne Twister stream `numpy.random.seed` pins.
     if "seed" in accepted:
         kwargs["seed"] = seed
     return kwargs
