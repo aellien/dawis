@@ -30,6 +30,8 @@ of planes. Its output is the atom.
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 
 from dawis.config import DEFAULT_CG_MAX_ITER
@@ -37,6 +39,8 @@ from dawis.cubes import LabelCube, WaveletCube
 from dawis.detection import region
 from dawis.restoration.deconvolution import richardson_lucy_np, twod_B2spline
 from dawis.wavelets import atrous
+
+log = logging.getLogger(__name__)
 
 # ``interscale_tree.plot`` moved to
 # :func:`dawis.viz.trees.plot_interscale_tree` with #46; nothing outside
@@ -456,7 +460,8 @@ class interscale_tree(object):
             diff_flux = abs( total_flux - old_total_flux ) / old_total_flux
             if diff_flux < sigma_flux:
                 if verbose == True:
-                    print( "flux convergence", diff_flux, np.max(reconstructed), np.shape(reconstructed) )
+                    log.info('flux convergence %s %s %s', diff_flux,
+                             np.max(reconstructed), np.shape(reconstructed))
                 break
 
             else:

@@ -37,26 +37,30 @@ def tiny_image(seed: int = 7) -> np.ndarray:
 
 
 def run_quiet(*args, **kwargs) -> 'RunResult':
-    """Call ``dawis.run`` without letting it steal pytest's log handlers.
+    """Call ``dawis.run`` with its stdout handler suppressed.
 
-    The pipeline attaches its own file and stdout handlers through
-    ``logging.basicConfig``, which is a no-op once the root logger has any —
-    and both pytest and the previous run leave some there. Without this a run
-    would write its log, and therefore its seed, into whatever file was
-    attached before it. One run per process is the real-world case, so this is
-    a test-only inconvenience rather than a defect in the run; #55 owns how the
-    pipeline attaches its handlers.
+    A run that finds no logging configured attaches a stdout handler, so that
+    the default experience of DAWIS is not twenty silent minutes (#55). Under
+    pytest that is noise on every test that drives a run, and the run's own
+    log file is what these tests read anyway.
+
+    Installing a handler that discards *is* "the caller configured logging",
+    so the run adds no second stream. From then on the caller's level is the
+    one that decides what reaches the run's log file, which is why this sets
+    it explicitly rather than leaving it to be inherited. ``propagate`` goes
+    off so the records do not land in pytest's capture either.
     """
     import logging
 
     import dawis
+    from dawis.logs import PACKAGE_LOGGER
 
-    root = logging.getLogger()
-    saved = list(root.handlers)
-    root.handlers.clear()
+    package = logging.getLogger(PACKAGE_LOGGER)
+    saved = (list(package.handlers), package.level, package.propagate)
+    package.handlers = [logging.NullHandler()]
+    package.setLevel(logging.DEBUG)
+    package.propagate = False
     try:
         return dawis.run(*args, **kwargs)
     finally:
-        for handler in root.handlers:
-            handler.close()
-        root.handlers[:] = saved
+        package.handlers, package.level, package.propagate = saved

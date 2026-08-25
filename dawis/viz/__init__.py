@@ -40,27 +40,19 @@ The old flat module ``dawis.gif`` held the animation names until #50 deleted
 it.
 """
 
-import logging
-
-# matplotlib's font manager logs a handful of DEBUG lines the first time it is
-# imported, and a DAWIS run configures the root logger at DEBUG — so quieten it
-# here, before the imports below pull matplotlib in. The old ``dawis.gif`` did
-# the same, but after its own import, which was too late to have any effect.
-logging.getLogger('matplotlib').setLevel(logging.WARNING)
-
-from dawis.viz.animation import make_gif, plot_frame, rebuild_animation  # noqa: E402
-from dawis.viz.convergence import (  # noqa: E402
+from dawis.viz.animation import make_gif, plot_frame, rebuild_animation
+from dawis.viz.convergence import (
     plot_convergence,
     rebuild_convergence_plot,
 )
-from dawis.viz.cubes import (  # noqa: E402
+from dawis.viz.cubes import (
     plot_cube,
     plot_label_counts,
     plot_noise_histogram,
     plot_wavelet_stds,
 )
-from dawis.viz.regions import plot_region  # noqa: E402
-from dawis.viz.trees import plot_interscale_tree  # noqa: E402
+from dawis.viz.regions import plot_region
+from dawis.viz.trees import plot_interscale_tree
 
 __all__ = [
     'make_gif',

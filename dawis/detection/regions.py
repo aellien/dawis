@@ -21,6 +21,8 @@ from skimage.measure import regionprops
 
 from dawis.detection.noise import table_noise_stds
 
+log = logging.getLogger(__name__)
+
 # ``region.plot`` moved to :func:`dawis.viz.regions.plot_region` with #46;
 # nothing outside :mod:`dawis.viz` imports matplotlib.
 
@@ -158,7 +160,6 @@ def make_regions_full_props(
                                         y_min = y_min ) )
 
     if verbose == True:
-        log = logging.getLogger(__name__)
         log.info('Found %d regions of significance.' %(len(region_list)))
 
     return region_list

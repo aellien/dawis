@@ -42,6 +42,8 @@ from dawis.detection import region
 from dawis.parallel import pmap
 from dawis.trees.construction import interscale_tree
 
+log = logging.getLogger(__name__)
+
 
 def interscale_connectivity(
     interscale_maximum_list: list[region],
@@ -228,7 +230,6 @@ def make_interscale_trees(
         while region_list[i].level in levels_rejected :
             i += 1
             if i >= len(region_list):
-                log = logging.getLogger(__name__)
                 log.info("No interscale maximum found. Please consider lowering parameters 'tau' or 'min_span' if this keeps happening at every level.")
                 return None # Regions are all in rejected levels (0 or last)
                 
@@ -244,7 +245,6 @@ def make_interscale_trees(
         interscale_maximum_list = region_list
     
 
-    log = logging.getLogger(__name__)
     log.info('Estimating global interscale maxima: %d found.' %(len(interscale_maximum_list)))
 
     # What is independent is one root: attaching regions to it reads the

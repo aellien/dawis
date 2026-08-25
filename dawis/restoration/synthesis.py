@@ -41,6 +41,8 @@ from dawis.config import DEFAULT_CG_MAX_ITER
 from dawis.cubes import LabelCube, WaveletCube
 from dawis.parallel import pmap
 
+log = logging.getLogger(__name__)
+
 # Annotations only. dawis.trees imports the deconvolution of this package, so
 # importing it back at runtime would close a cycle. The alias is needed
 # because restore_object's first parameter is itself named interscale_tree.
@@ -413,7 +415,7 @@ def restore_objects_default(
 
         object_list = []
         bspl = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
-        logging.info('Not parallelizing - %d Objects.'%(len(interscale_tree_list)))
+        log.info('Not parallelizing - %d Objects.'%(len(interscale_tree_list)))
         for tree in interscale_tree_list:
             image, det_err_image, filter_kw, flag_convergence, sum_wr, norm_wr = restore_object( tree, \
                                                                                   wavelet_cube, \
@@ -439,7 +441,7 @@ def restore_objects_default(
                                                 norm_wr ))
 
     else:
-        logging.info('Size tree patch (%d) greater than %d, distributing.'%(len(interscale_tree_list), size_patch_big ))
+        log.info('Size tree patch (%d) greater than %d, distributing.'%(len(interscale_tree_list), size_patch_big ))
 
         interscale_tree_list.sort(key = lambda x: x.interscale_maximum.area, reverse = True)
 

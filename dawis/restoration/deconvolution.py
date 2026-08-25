@@ -22,11 +22,14 @@ regardless, so passing float32 to save memory does not work.
 
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Sequence
 
 import numpy as np
 from numpy.fft import fftn, ifftn, ifftshift
+
+log = logging.getLogger(__name__)
 
 def pad(
     img: np.ndarray,
@@ -136,7 +139,7 @@ def richardson_lucy_np(
     
     # if noncirc==False and (image.shape != psf.shape) then pad the psf
     if noncirc==False and (image.shape != psf.shape):
-        print('padding psf')
+        log.debug('Padding the PSF to the shape of the image.')
         psf,_=pad(psf, image.shape, 'constant')
     
     HTones = np.ones_like(image)

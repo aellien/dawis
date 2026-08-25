@@ -52,6 +52,12 @@ from the files below, which took the frame writing off the loop (#46). And it
 does not choose a parallel backend: it says how many workers a worker count
 means and :mod:`dawis.parallel` decides the rest (#47).
 
+One thing a run does that no block may: it installs logging handlers, for the
+length of the run and no longer. That is what gives the run directory its
+``.log.txt``, and what makes a default run visible in a notebook without any
+setup — and it is confined to this one entry point precisely so that
+importing a block configures nothing. See :mod:`dawis.logs` (#55).
+
 Files a run writes, all hanging off ``<outdir>/<name>``:
 
 =========================== ================================================
@@ -81,7 +87,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 from dataclasses import replace
 from datetime import datetime
 
@@ -101,6 +106,7 @@ from dawis.io import (
     write_ol_to_pickle,
     write_regions_to_pickle,
 )
+from dawis.logs import run_logging
 from dawis.parallel import parallel_backend
 from dawis.restoration import (
     Reconstruction,
@@ -112,6 +118,8 @@ from dawis.trees import make_interscale_trees
 from dawis.wavelets import AnscombeStabilisation, bspl_atrous, max_levels
 
 __all__ = ['DEFAULT_RUN_NAME', 'FITS_EXTENSION', 'run', 'run_fits']
+
+log = logging.getLogger(__name__)
 
 #: Stem every output of an array-in run hangs off, when the caller names none.
 #:
@@ -139,14 +147,6 @@ def _write_fits(path: str, image, header = None) -> None:
     """
 
     fits.PrimaryHDU(image, header = header).writeto(path, overwrite = True)
-
-
-def _start_logging(outpath: str) -> None:
-    """Send this run's log to ``<outpath>.log.txt`` and to stdout."""
-
-    file_handler = logging.FileHandler( filename = ''.join(( outpath, '.log.txt')), mode = 'w' )
-    stdout_handler = logging.StreamHandler( sys.stdout )
-    logging.basicConfig( level = logging.DEBUG, handlers = [ file_handler, stdout_handler ])
 
 
 def run_fits(path: str, config: Config | None = None, *,
@@ -285,230 +285,246 @@ def run(image, config: Config | None = None, *, outdir: str = '.',
     run_seed = resolve_seed(config.seed)
     rng = make_rng(run_seed)
 
-    # What a worker is, for the length of this run. One worker selects the
-    # serial backend, more than one the default parallel backend; the adapter
-    # attaches to a cluster that is already up and starts one only if none is,
-    # and stops only what it started. `dawis.parallel` owns all of that -- this
-    # file names no backend and imports nothing optional. The cluster is
-    # released on the way out, including out through an exception, which the
-    # pre-#47 code never managed: its shutdown sat on a misspelt flag and was
-    # unreachable.
-    with parallel_backend(n_workers = config.n_cpus):
+    # Where the run's output lands, and what its files are called. Named
+    # before anything is set up, because the log file hangs off it too.
+    outpath = os.path.join( outdir, name )
 
-        # Logs
-        outpath = os.path.join( outdir, name )
-        _start_logging(outpath)
-        logging.info(datetime.now())
-        start_time_algo = datetime.now()
-        logging.info('DAWIS\nRun = %s\nOutput Directory = %s\nN_cpus = %d\nTau = %f\nGamma = %f\nmin_span = %d\nmax_span = %d\nConvergence Epsilon = %f'\
-                                        %(name, outdir, config.n_cpus, config.tau, config.gamma, config.min_span, config.max_span, config.ceps))
-        # The seed goes in the log whether it was asked for or not. An
-        # unseeded run is the science default, and this line is the whole
-        # reason that default costs nothing: it is what makes the run
-        # repeatable afterwards.
-        logging.info('Random seed = %d%s\n'
-                     %(run_seed, '' if config.seed is not None else ' (generated)'))
+    # The run's own voice, for the length of the run and no longer. This is
+    # the one place in DAWIS that installs a handler: it gives the run
+    # directory its log file, and adds a stdout handler only when the caller
+    # configured no logging at all, so a default run is not twenty silent
+    # minutes and a configured one is not doubled. See :mod:`dawis.logs`.
+    with run_logging(outpath):
 
-        # What the run was handed. Warn, never block (#4): the astronomer
-        # usually knows their image has a blank border, and a pipeline that
-        # refuses one is a pipeline nobody can use.
-        diagnostics = inspect_image(image)
-        logging.info('Input image: %s\n' %(diagnostics.summary()))
-        for line in diagnostics.warnings:
-            logging.warning('/!\\ Input /!\\ %s', line)
+        # What a worker is, for the length of this run. One worker selects the
+        # serial backend, more than one the default parallel backend; the adapter
+        # attaches to a cluster that is already up and starts one only if none is,
+        # and stops only what it started. `dawis.parallel` owns all of that -- this
+        # file names no backend and imports nothing optional. The cluster is
+        # released on the way out, including out through an exception, which the
+        # pre-#47 code never managed: its shutdown sat on a misspelt flag and was
+        # unreachable.
+        with parallel_backend(n_workers = config.n_cpus):
 
-        # Not one of those warnings, and deliberately fatal: a cube is not an
-        # image the run could do anything with, so there is nothing to warn
-        # about and proceed to. Every diagnostic above is still logged first,
-        # because they say what was handed over.
-        if diagnostics.ndim != 2:
-            raise DawisDimensionError(
-                'DAWIS runs on one image at a time -->', diagnostics.ndim, 2)
+            log.info(datetime.now())
+            start_time_algo = datetime.now()
+            log.info('DAWIS\nRun = %s\nOutput Directory = %s\nN_cpus = %d\nTau = %f\nGamma = %f\nmin_span = %d\nmax_span = %d\nConvergence Epsilon = %f'\
+                                            %(name, outdir, config.n_cpus, config.tau, config.gamma, config.min_span, config.max_span, config.ceps))
+            # The seed goes in the log whether it was asked for or not. An
+            # unseeded run is the science default, and this line is the whole
+            # reason that default costs nothing: it is what makes the run
+            # repeatable afterwards.
+            #
+            # WARNING, alone among the banner lines, and not because anything
+            # is wrong. A caller who configured logging keeps their own level
+            # (#55), and a level of WARNING -- what `logging.basicConfig()`
+            # gives by default -- would otherwise leave the run's `.log.txt`
+            # with no seed in it. That is the one line whose loss cannot be
+            # repaired afterwards: the run is then unrepeatable, and nothing
+            # in the outputs says what it was.
+            log.warning('Random seed = %d%s\n'
+                        %(run_seed, '' if config.seed is not None else ' (generated)'))
 
-        if not config.n_levels:
-            # Re-checked with the number the image supplied, so the rules that
-            # compare a scale index against the depth of the decomposition are
-            # not skipped just because the depth was left to the image.
-            config = replace(config, n_levels = max_levels(diagnostics.shape))
-        n_levels = config.n_levels
-        logging.info('Image of size %d x %d\n--> n_levels = %d, corresponding to maximum size %d pixels\n' \
-                                    %(diagnostics.shape[0], diagnostics.shape[1], n_levels, 2**n_levels) )
+            # What the run was handed. Warn, never block (#4): the astronomer
+            # usually knows their image has a blank border, and a pipeline that
+            # refuses one is a pipeline nobody can use.
+            diagnostics = inspect_image(image)
+            log.info('Input image: %s\n' %(diagnostics.summary()))
+            for line in diagnostics.warnings:
+                log.warning('/!\\ Input /!\\ %s', line)
 
-        # Noise properties. The background goes out of the image here, so that
-        # zero is the centre of the noise everywhere below. Out of a copy: the
-        # array belongs to the caller.
-        im, mean, sigma = subtract_background(image, n_sigmas = 3, bins = 200)
-        logging.info('Noise properties for inpainting: sigma = %1.3e, mean = %1.3e\n' %(sigma, mean))
+            # Not one of those warnings, and deliberately fatal: a cube is not an
+            # image the run could do anything with, so there is nothing to warn
+            # about and proceed to. Every diagnostic above is still logged first,
+            # because they say what was handed over.
+            if diagnostics.ndim != 2:
+                raise DawisDimensionError(
+                    'DAWIS runs on one image at a time -->', diagnostics.ndim, 2)
 
-        # Anscombe transform parameters, measured once against the input image
-        # and applied to every residual the loop produces. The fit draws too --
-        # every bisection step stabilises the image and fills its NaNs -- so it
-        # takes the run's generator like everything else.
-        stabilisation = AnscombeStabilisation.fit(im, max_err = 1E-4, n_sigmas = 3,
-                                                  rng = rng)
-        logging.info('Noise parametric values for Anscombe transform: sigma = %1.3e, mean = %1.3e, gain = %1.3e\n' \
-                                    %(stabilisation.sigma, stabilisation.mean, stabilisation.gain))
+            if not config.n_levels:
+                # Re-checked with the number the image supplied, so the rules that
+                # compare a scale index against the depth of the decomposition are
+                # not skipped just because the depth was left to the image.
+                config = replace(config, n_levels = max_levels(diagnostics.shape))
+            n_levels = config.n_levels
+            log.info('Image of size %d x %d\n--> n_levels = %d, corresponding to maximum size %d pixels\n' \
+                                        %(diagnostics.shape[0], diagnostics.shape[1], n_levels, 2**n_levels) )
 
-        #===========================================================================
+            # Noise properties. The background goes out of the image here, so that
+            # zero is the centre of the noise everywhere below. Out of a copy: the
+            # array belongs to the caller.
+            im, mean, sigma = subtract_background(image, n_sigmas = 3, bins = 200)
+            log.info('Noise properties for inpainting: sigma = %1.3e, mean = %1.3e\n' %(sigma, mean))
 
-        reconstruction = Reconstruction(im, n_levels)
-        monitor = ConvergenceMonitor(scale_lvl_eps = config.scale_lvl_eps)
-        it = 1
-        n_atoms = 0
+            # Anscombe transform parameters, measured once against the input image
+            # and applied to every residual the loop produces. The fit draws too --
+            # every bisection step stabilises the image and fills its NaNs -- so it
+            # takes the run's generator like everything else.
+            stabilisation = AnscombeStabilisation.fit(im, max_err = 1E-4, n_sigmas = 3,
+                                                      rng = rng)
+            log.info('Noise parametric values for Anscombe transform: sigma = %1.3e, mean = %1.3e, gain = %1.3e\n' \
+                                        %(stabilisation.sigma, stabilisation.mean, stabilisation.gain))
 
-        for level in range( config.starting_level, n_levels ):
+            #===========================================================================
 
-            monitor.begin_level()
-            while monitor.avnormeps > config.ceps :
+            reconstruction = Reconstruction(im, n_levels)
+            monitor = ConvergenceMonitor(scale_lvl_eps = config.scale_lvl_eps)
+            it = 1
+            n_atoms = 0
 
-                start_time_it = datetime.now()
-                logging.info('[ %s ] Level = %d Iteration = %d ---------------' %(datetime.now(), level, it))
+            for level in range( config.starting_level, n_levels ):
 
-                # inpaint bad reconstruction pixels and NaN pixels with noise draws
-                if config.inpaint_res:
-                    reconstruction.inpaint(mean = mean, sigma = sigma,
-                                           iptd_sigma = config.iptd_sigma, rng = rng)
+                monitor.begin_level()
+                while monitor.avnormeps > config.ceps :
 
-                # Check if resume run
-                pickle_dump = _dump_path(outpath, 'ol', it, 'pkl')
-                hdf5_dump = _dump_path(outpath, 'ol', it, 'hdf5')
-                resumed = True
+                    start_time_it = datetime.now()
+                    log.info('[ %s ] Level = %d Iteration = %d ---------------' %(datetime.now(), level, it))
 
-                if config.resume and os.path.exists(pickle_dump):
+                    # inpaint bad reconstruction pixels and NaN pixels with noise draws
+                    if config.inpaint_res:
+                        reconstruction.inpaint(mean = mean, sigma = sigma,
+                                               iptd_sigma = config.iptd_sigma, rng = rng)
 
-                    logging.info('Found %s.\nResuming iteration' %(pickle_dump))
-                    ol = read_ol_from_pickle(pickle_dump)
+                    # Check if resume run
+                    pickle_dump = _dump_path(outpath, 'ol', it, 'pkl')
+                    hdf5_dump = _dump_path(outpath, 'ol', it, 'hdf5')
+                    resumed = True
 
-                elif config.resume and os.path.exists(hdf5_dump):
+                    if config.resume and os.path.exists(pickle_dump):
 
-                    logging.info('Found %s --> resuming iteration' %(hdf5_dump))
-                    ol = read_ol_from_hdf5(hdf5_dump)
+                        log.info('Found %s.\nResuming iteration' %(pickle_dump))
+                        ol = read_ol_from_pickle(pickle_dump)
 
-                else:
+                    elif config.resume and os.path.exists(hdf5_dump):
 
-                    resumed = False
+                        log.info('Found %s --> resuming iteration' %(hdf5_dump))
+                        ol = read_ol_from_hdf5(hdf5_dump)
 
-                    # Anscombe transform & thresholding
-                    logging.info('[ %s ] Start wavelet transform and detection'%datetime.now())
-                    aim = stabilisation.transform(reconstruction.residuals, rng = rng)
-                    awdc = bspl_atrous(aim, level, header, config.conditions)
+                    else:
 
-                    # Labels & true wavelet coefficients
-                    ldc, dea = ms_detect_and_deblend(awdc, n_sigmas = config.n_sigmas, lvl_deblend = config.lvl_deblend, deblend_contrast = config.deblend_contrast, verbose = True)
-                    wdc = bspl_atrous(reconstruction.residuals, level, header, config.conditions)
+                        resumed = False
 
-                    # Regions of significance
-                    rl = make_regions_full_props(wdc, ldc, verbose = True)
-                    if not rl:
+                        # Anscombe transform & thresholding
+                        log.info('[ %s ] Start wavelet transform and detection'%datetime.now())
+                        aim = stabilisation.transform(reconstruction.residuals, rng = rng)
+                        awdc = bspl_atrous(aim, level, header, config.conditions)
+
+                        # Labels & true wavelet coefficients
+                        ldc, dea = ms_detect_and_deblend(awdc, n_sigmas = config.n_sigmas, lvl_deblend = config.lvl_deblend, deblend_contrast = config.deblend_contrast, verbose = True)
+                        wdc = bspl_atrous(reconstruction.residuals, level, header, config.conditions)
+
+                        # Regions of significance
+                        rl = make_regions_full_props(wdc, ldc, verbose = True)
+                        if not rl:
+                            break
+
+                        # Interscale trees
+                        log.info('[ %s ] Start interscale trees'%datetime.now())
+                        itl = make_interscale_trees(rl, wdc, ldc, dea, tau = config.tau, \
+                                                            min_span = config.min_span, \
+                                                            max_span = config.max_span, \
+                                                            lvl_sep_big = config.lvl_sep_big, \
+                                                            n_cpus = config.n_cpus, \
+                                                            size_patch = config.size_patch, \
+                                                            verbose = True)
+                        if not itl:
+                            break
+
+                        # Restoration of detected objects
+                        log.info('[ %s ] Start object restoration'%datetime.now())
+                        ol = restore_objects_default(itl, reconstruction.residuals, 0.01, 15, wdc, ldc, size_patch_small = 1, \
+                                                           gamma = config.gamma, \
+                                                           extent_sep = config.extent_sep, \
+                                                           ecc_sep = config.ecc_sep, \
+                                                           lvl_sep_lin = config.lvl_sep_lin, \
+                                                           lvl_sep_big = config.lvl_sep_big, \
+                                                           lvl_sep_op = config.lvl_sep_op, \
+                                                           rm_gamma_for_big = config.rm_gamma_for_big, \
+                                                           size_patch_big = 1, \
+                                                           size_big_objects = 512, \
+                                                           deconv = config.deconv, \
+                                                           cg_max_iter = config.cg_max_iter, \
+                                                           n_cpus = config.n_cpus ) # objects in original image pixel value range
+
+                    # Atom
+                    log.info('[ %s ] Add atoms to restored images.'%datetime.now())
+                    atom = reconstruction.add(ol)
+                    n_atoms += len(ol)
+
+                    # Convergence
+                    step = monitor.update(level, it, atom, reconstruction.residuals,
+                                          reconstruction.restored, len(ol),
+                                          datetime.now() - start_time_it)
+                    log.info('Convergence : res = %f rec = %f' %(step.flux_res, step.flux_rec ))
+                    log.info('Number Objects = %d, Normalized Epsilon = %f, Window Normalized Epsilon = %f' \
+                                                %( step.n_atoms, step.normeps, step.avnormeps ))
+
+                    # Data Dump. An iteration that was read back off disk is
+                    # already dumped, by the run that computed it.
+                    if not resumed:
+
+                        if config.outfile_format == 'hdf5':
+                            write_itl_to_hdf5( itl, _dump_path(outpath, 'itl', it, 'hdf5') )
+                            write_ol_to_hdf5( ol, hdf5_dump )
+                        elif config.outfile_format == 'pickle':
+                            write_itl_to_pickle( itl, _dump_path(outpath, 'itl', it, 'pkl') )
+                            write_ol_to_pickle( ol, pickle_dump )
+
+                        if config.data_dump:
+                            log.info('[ %s ] Dumping data in %s' %(datetime.now(), outdir) )
+                            write_regions_to_pickle( rl, _dump_path(outpath, 'rl', it, 'pkl'), overwrite = True)
+                            _write_fits( _dump_path(outpath, 'res', it, 'fits'), reconstruction.residuals )
+                            _write_fits( _dump_path(outpath, 'rec', it, 'fits'), reconstruction.restored )
+                            _write_fits( _dump_path(outpath, 'dei', it, 'fits'), reconstruction.det_err )
+
+                    log.info('[ %s ]End of iteration (time: %s)\n\n'%(datetime.now(), datetime.now() - start_time_it ))
+                    it += 1
+                    # The cap applies to a resumed iteration too. It did not
+                    # before: the resume branch had its own `continue`, which
+                    # jumped over this check, so `max_iter` was not a cap on a
+                    # resumed run at all.
+                    if it > config.max_iter:
                         break
 
-                    # Interscale trees
-                    logging.info('[ %s ] Start interscale trees'%datetime.now())
-                    itl = make_interscale_trees(rl, wdc, ldc, dea, tau = config.tau, \
-                                                        min_span = config.min_span, \
-                                                        max_span = config.max_span, \
-                                                        lvl_sep_big = config.lvl_sep_big, \
-                                                        n_cpus = config.n_cpus, \
-                                                        size_patch = config.size_patch, \
-                                                        verbose = True)
-                    if not itl:
-                        break
-
-                    # Restoration of detected objects
-                    logging.info('[ %s ] Start object restoration'%datetime.now())
-                    ol = restore_objects_default(itl, reconstruction.residuals, 0.01, 15, wdc, ldc, size_patch_small = 1, \
-                                                       gamma = config.gamma, \
-                                                       extent_sep = config.extent_sep, \
-                                                       ecc_sep = config.ecc_sep, \
-                                                       lvl_sep_lin = config.lvl_sep_lin, \
-                                                       lvl_sep_big = config.lvl_sep_big, \
-                                                       lvl_sep_op = config.lvl_sep_op, \
-                                                       rm_gamma_for_big = config.rm_gamma_for_big, \
-                                                       size_patch_big = 1, \
-                                                       size_big_objects = 512, \
-                                                       deconv = config.deconv, \
-                                                       cg_max_iter = config.cg_max_iter, \
-                                                       n_cpus = config.n_cpus ) # objects in original image pixel value range
-
-                # Atom
-                logging.info('[ %s ] Add atoms to restored images.'%datetime.now())
-                atom = reconstruction.add(ol)
-                n_atoms += len(ol)
-
-                # Convergence
-                step = monitor.update(level, it, atom, reconstruction.residuals,
-                                      reconstruction.restored, len(ol),
-                                      datetime.now() - start_time_it)
-                logging.info('Convergence : res = %f rec = %f' %(step.flux_res, step.flux_rec ))
-                logging.info('Number Objects = %d, Normalized Epsilon = %f, Window Normalized Epsilon = %f' \
-                                            %( step.n_atoms, step.normeps, step.avnormeps ))
-
-                # Data Dump. An iteration that was read back off disk is
-                # already dumped, by the run that computed it.
-                if not resumed:
-
-                    if config.outfile_format == 'hdf5':
-                        write_itl_to_hdf5( itl, _dump_path(outpath, 'itl', it, 'hdf5') )
-                        write_ol_to_hdf5( ol, hdf5_dump )
-                    elif config.outfile_format == 'pickle':
-                        write_itl_to_pickle( itl, _dump_path(outpath, 'itl', it, 'pkl') )
-                        write_ol_to_pickle( ol, pickle_dump )
-
-                    if config.data_dump:
-                        logging.info('[ %s ] Dumping data in %s' %(datetime.now(), outdir) )
-                        write_regions_to_pickle( rl, _dump_path(outpath, 'rl', it, 'pkl'), overwrite = True)
-                        _write_fits( _dump_path(outpath, 'res', it, 'fits'), reconstruction.residuals )
-                        _write_fits( _dump_path(outpath, 'rec', it, 'fits'), reconstruction.restored )
-                        _write_fits( _dump_path(outpath, 'dei', it, 'fits'), reconstruction.det_err )
-
-                logging.info('[ %s ]End of iteration (time: %s)\n\n'%(datetime.now(), datetime.now() - start_time_it ))
-                it += 1
-                # The cap applies to a resumed iteration too. It did not
-                # before: the resume branch had its own `continue`, which
-                # jumped over this check, so `max_iter` was not a cap on a
-                # resumed run at all.
                 if it > config.max_iter:
                     break
 
-            if it > config.max_iter:
-                break
+        #===========================================================================
+        # Write results to disk
+        log.info('Finished iterating.\nWriting results to disk in %s' %(outdir) )
+        _write_fits( ''.join(( outpath, '.residuals.fits' )), reconstruction.residuals, header )
+        _write_fits( ''.join(( outpath, '.restored.fits' )), reconstruction.restored, header )
+        # The detection error, not a second copy of the restored image: the old
+        # code built the right HDU and then wrote the wrong one (#49).
+        _write_fits( ''.join(( outpath, '.deterror.fits' )), reconstruction.det_err, header )
+        _write_fits( ''.join(( outpath, '.scl.restored.fits' )), reconstruction.restored_per_level, header )
 
-    #===========================================================================
-    # Write results to disk
-    logging.info('Finished iterating.\nWriting results to disk in %s' %(outdir) )
-    _write_fits( ''.join(( outpath, '.residuals.fits' )), reconstruction.residuals, header )
-    _write_fits( ''.join(( outpath, '.restored.fits' )), reconstruction.restored, header )
-    # The detection error, not a second copy of the restored image: the old
-    # code built the right HDU and then wrote the wrong one (#49).
-    _write_fits( ''.join(( outpath, '.deterror.fits' )), reconstruction.det_err, header )
-    _write_fits( ''.join(( outpath, '.scl.restored.fits' )), reconstruction.restored_per_level, header )
+        with open( ''.join(( outpath, '.cpar.txt' )), 'w+') as conv:
+            conv.write('%s\n' %(CONVERGENCE_HEADER))
+            for row in monitor.rows:
+                conv.write('%s\n' %(' '.join(row)))
 
-    with open( ''.join(( outpath, '.cpar.txt' )), 'w+') as conv:
-        conv.write('%s\n' %(CONVERGENCE_HEADER))
-        for row in monitor.rows:
-            conv.write('%s\n' %(' '.join(row)))
-
-    # The convergence plot and the animation are drawn from these files by
-    # `dawis.viz`, after the run rather than during it (#46).
-    logging.info('Draw this run with:\n'
+        # The convergence plot and the animation are drawn from these files by
+        # `dawis.viz`, after the run rather than during it (#46).
+        log.info('Draw this run with:\n'
                  '    from dawis.viz import rebuild_animation, rebuild_convergence_plot\n'
                  "    rebuild_convergence_plot('%s')\n"
                  "    rebuild_animation('%s')" %(outpath, outpath))
 
-    logging.info( datetime.now() - start_time_algo )
+        log.info( datetime.now() - start_time_algo )
 
-    return RunResult(
-        config = config,
-        seed = run_seed,
-        diagnostics = diagnostics,
-        outpath = outpath,
-        # The trace, not the counter: an iteration that found no region breaks
-        # out before it is measured, so `it` can stand one ahead of what the
-        # run actually did.
-        n_iterations = len(monitor.rows),
-        n_atoms = n_atoms,
-        restored = reconstruction.restored,
-        residuals = reconstruction.residuals,
-        det_err = reconstruction.det_err,
-        restored_per_level = reconstruction.restored_per_level,
-    )
+        return RunResult(
+            config = config,
+            seed = run_seed,
+            diagnostics = diagnostics,
+            outpath = outpath,
+            # The trace, not the counter: an iteration that found no region breaks
+            # out before it is measured, so `it` can stand one ahead of what the
+            # run actually did.
+            n_iterations = len(monitor.rows),
+            n_atoms = n_atoms,
+            restored = reconstruction.restored,
+            residuals = reconstruction.residuals,
+            det_err = reconstruction.det_err,
+            restored_per_level = reconstruction.restored_per_level,
+        )

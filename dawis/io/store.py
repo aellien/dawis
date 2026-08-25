@@ -46,6 +46,8 @@ from dawis.io.legacy import read_itl_from_pickle, read_ol_from_pickle
 from dawis.restoration import Atom
 from dawis.trees import interscale_tree
 
+log = logging.getLogger(__name__)
+
 
 def object_recursive_save_to_hdf5(o: object, h5grp: h5py.Group) -> None:
     """Recursively save a Python object to an HDF5 group.
@@ -105,7 +107,6 @@ def object_recursive_save_to_hdf5(o: object, h5grp: h5py.Group) -> None:
                     except TypeError:
                         object_recursive_save_to_hdf5(sub_val, sub_h5grp)       
             else:
-                log = logging.getLogger(__name__)
                 log.info('Unknown data structure for %s. NOT SAVING TO HDF5 FILE.' %(attr))
 
 
@@ -273,7 +274,6 @@ def load_atom_from_hdf5_group(grp: h5py.Group) -> Atom:
     for attr_name in grp.keys():
         
         attr = grp[attr_name]
-        #print(attr_name, attr)
         setattr(o, attr_name, np.squeeze(attr[()]))
     return o
 
@@ -368,14 +368,13 @@ def read_image_atoms(
     titl = []
 
     if verbose:
-        log = logging.getLogger(__name__)
         log.info('Reading %s.'%(opath))
         log.info('Reading %s.'%(itpath))
 
     for i, ( op, itlp ) in enumerate( zip( opathl, itpathl )):
         
         if verbose :
-            print('Iteration %d' %(i), end ='\r')
+            log.debug('Iteration %d' %(i))
             
         if file_format == 'pkl':
             ol = read_ol_from_pickle( op )

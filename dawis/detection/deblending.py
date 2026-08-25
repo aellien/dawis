@@ -24,6 +24,8 @@ from photutils.segmentation import deblend_sources, detect_sources
 from dawis.cubes import LabelCube, WaveletCube
 from dawis.detection.noise import table_noise_stds
 
+log = logging.getLogger(__name__)
+
 
 def ms_detect_and_deblend(
     wavelet_cube: WaveletCube,
@@ -87,7 +89,6 @@ def ms_detect_and_deblend(
     """
 
     if verbose == True:
-        log = logging.getLogger(__name__)
         log.info('Labelling regions')
     
     x_axis, y_axis, n_levels = wavelet_cube.shape

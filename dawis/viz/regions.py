@@ -10,6 +10,8 @@ every run imports, headless or not — carries no matplotlib.
 
 from __future__ import annotations
 
+import logging
+
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.offsetbox import AnchoredText
@@ -18,6 +20,8 @@ from dawis.cubes import LabelCube, WaveletCube
 from dawis.detection import region as region_class
 
 __all__ = ['plot_region']
+
+log = logging.getLogger(__name__)
 
 
 def contourable(clip: np.ndarray) -> bool:
@@ -111,7 +115,7 @@ def plot_region(region: region_class, wavelet_cube: WaveletCube,
                            region.bbox[0], region.bbox[2] ), \
                 levels = 0, color = 'black', linewidth = 3 )
     else:
-        print('Region too small for contours.')
+        log.debug('Region too small for contours.')
 
     if save_path != None:
         plt.savefig(save_path, format = 'pdf')

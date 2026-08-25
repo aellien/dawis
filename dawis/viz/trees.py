@@ -11,6 +11,8 @@ the restoration calls once per atom — carries no matplotlib.
 
 from __future__ import annotations
 
+import logging
+
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import SymLogNorm
@@ -20,6 +22,8 @@ from dawis.trees import interscale_tree
 from dawis.viz.regions import contourable
 
 __all__ = ['plot_interscale_tree']
+
+log = logging.getLogger(__name__)
 
 
 def plot_interscale_tree(tree: interscale_tree,
@@ -109,7 +113,7 @@ def plot_interscale_tree(tree: interscale_tree,
                                  levels = 0, \
                                  color = 'cyan')
         else:
-            print('Region too small for contours.')
+            log.debug('Region too small for contours.')
 
         clip[np.where(clip == region.label)] = 1
         label_image += clip

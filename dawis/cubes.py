@@ -5,6 +5,8 @@
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 # MODULES
 
+import logging
+
 import numpy as np
 from astropy.io import fits
 from dawis.exceptions import DawisDimensionError
@@ -15,6 +17,8 @@ import copy
 # became one `plot_cube` dispatching on cube type. Nothing outside
 # :mod:`dawis.viz` imports matplotlib.
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+log = logging.getLogger(__name__)
 
 class Cube(object):
     """Base class for DAWIS cubes. Cubes can either be wavelet planes,
@@ -187,21 +191,20 @@ class Cube(object):
 
 
     def show(self):
-        '''Display useful information about the cube. Version for the base
+        '''Log useful information about the cube. Version for the base
         cube is fairly useless.
+
+        The line goes to this module's logger rather than to stdout, so it
+        lands in a run's log file with everything else and a caller who is
+        running DAWIS inside something larger can filter or silence it.
 
         Examples:
 
-            >>> dc = dawis.Cube( np.zeros((100,100,10), dctype = 'NONE') )
+            >>> dc = dawis.Cube( np.zeros((100,100,10)), dctype = 'NONE' )
             >>> dc.show()
         '''
-        print('\ndctype : %s\nshape : %d x %d x %d\n' %(self.dctype, \
-                                                        self.x_size, \
-                                                        self.y_size, \
-                                                        self.z_size) )
-
-    def help(self):
-        print(help(Cube))
+        log.info('dctype : %s, shape : %d x %d x %d', self.dctype,
+                 self.x_size, self.y_size, self.z_size)
 
     def __str__(self):
         return('\nDAWIS Cube object. Use "show()" method for more details.')
@@ -245,9 +248,9 @@ class SupportCube(Cube):
     def test_gaussianity(self, alpha = 1E-3):
         k, pval = normaltest( self.noise_pixels )
         if pval > alpha:
-            print('/!\ Warning /!\ noise does not look Gaussian : p = %1.5f alpha = %1.5f'%(pval, alpha))
+            log.warning(r'/!\ Warning /!\ noise does not look Gaussian : p = %1.5f alpha = %1.5f'%(pval, alpha))
         else:
-            print('Gaussianity test passed : p = %1.5f alpha = %1.5f'%(pval, alpha))
+            log.info('Gaussianity test passed : p = %1.5f alpha = %1.5f'%(pval, alpha))
         return k, pval
 
 class LabelCube(Cube):

@@ -19,6 +19,8 @@ from skimage.measure import label
 
 from dawis.cubes import LabelCube, SupportCube
 
+log = logging.getLogger(__name__)
+
 
 def label_regions(
     support_cube: SupportCube,
@@ -58,7 +60,6 @@ def label_regions(
     lab_counts = np.zeros(support_cube.z_size)
 
     if verbose == True:
-        log = logging.getLogger(__name__)
         log.info('\nLabelling regions')
 
     for level in range(0, support_cube.z_size):

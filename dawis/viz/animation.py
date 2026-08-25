@@ -48,6 +48,8 @@ from dawis.io import read_ol_from_hdf5, read_ol_from_pickle
 
 __all__ = ['iteration_dumps', 'make_gif', 'plot_frame', 'rebuild_animation']
 
+log = logging.getLogger(__name__)
+
 #: Iteration dumps a run leaves behind, in the two formats the pipeline
 #: writes, mapped to the reader that opens them.
 _DUMP_READERS = {'.pkl': read_ol_from_pickle, '.hdf5': read_ol_from_hdf5}
@@ -170,7 +172,7 @@ def make_gif( framerate: int, outpath: str ) -> None:
 
         run( args_ffmpeg, check = True )
     except (CalledProcessError, OSError) as error:
-        logging.info('Could not assemble the frames into a video: %s', error)
+        log.info('Could not assemble the frames into a video: %s', error)
 
 
 def iteration_dumps(outpath: str) -> list[tuple[int, str]]:
@@ -243,7 +245,6 @@ def rebuild_animation(outpath: str, framerate: int = 3, show_progress: bool = Tr
     off can still be animated.
     """
 
-    log = logging.getLogger(__name__)
 
     dumps = iteration_dumps(outpath)
     if not dumps:

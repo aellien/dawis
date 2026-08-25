@@ -309,8 +309,9 @@ def test_the_warnings_reach_the_runs_log(tiny_image, tmp_path):
     """A number on the result nobody prints is a number nobody reads.
 
     Read out of the run's own log file rather than out of ``caplog``: the
-    pipeline replaces the root logger's handlers with its own, which is what
-    #55 is about, so pytest's capturing handler is not there to see it.
+    run directory's ``.log.txt`` is where a warning has to land for an
+    astronomer to find it months later, and ``run_quiet`` keeps the records
+    off pytest's capture anyway.
     """
     image = np.array(tiny_image)
     image[:, :32] = 0.0

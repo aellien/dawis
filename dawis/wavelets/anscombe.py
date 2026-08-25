@@ -19,6 +19,8 @@ from dataclasses import dataclass
 import numpy as np
 from astropy.stats import sigma_clip
 
+log = logging.getLogger(__name__)
+
 
 def pg_noise_bissection(
     image: np.ndarray,
@@ -86,7 +88,6 @@ def pg_noise_bissection(
     step = 0       # bissection-like method.
 
     if verbose == True:
-        log = logging.getLogger(__name__)
         log.info('bissection-like noise estimation')
 
     while error > max_err:

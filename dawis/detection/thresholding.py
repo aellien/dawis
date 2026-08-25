@@ -21,6 +21,8 @@ from scipy.stats import normaltest, sigmaclip
 from dawis.cubes import SupportCube, WaveletCube
 from dawis.detection.noise import table_noise_stds
 
+log = logging.getLogger(__name__)
+
 
 def hard_threshold(
     wavelet_cube: WaveletCube,
@@ -98,7 +100,6 @@ def hard_threshold(
         conv_table = table_noise_stds(n_levels, wavelet_type = wavelet_type)
 
     if verbose == True:
-        log = logging.getLogger(__name__)
         log.info('\ncreating support cube : hard thresholding')
 
     noise_pixels = np.copy(wavelet_cube.array[:,:,0]).flatten()
@@ -110,8 +111,7 @@ def hard_threshold(
     if noise_pixels[0].size > 0:
         k, pval = normaltest( noise_pixels )
         if pval > alpha:
-            log = logging.getLogger(__name__)
-            log.info('/!\ Warning /!\ noise does not look Gaussian : p = %1.5f alpha = %1.5f'%(pval, alpha))
+            log.warning(r'/!\ Warning /!\ noise does not look Gaussian : p = %1.5f alpha = %1.5f'%(pval, alpha))
 
     for level in range(0, n_levels):
 
