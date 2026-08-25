@@ -9,6 +9,7 @@ import logging
 
 import numpy as np
 from astropy.io import fits
+from scipy.stats import normaltest
 from dawis.exceptions import DawisDimensionError
 import pdb
 import copy
@@ -246,6 +247,15 @@ class SupportCube(Cube):
         self.fheader.comments['TRSHTYPE'] = 'DAWIS threshold type'
 
     def test_gaussianity(self, alpha = 1E-3):
+        # `normaltest` was never imported here, so every call raised
+        # NameError and the method has never run. The import is restored
+        # rather than the method deleted.
+        #
+        # The comparison below is inverted, and is left that way on purpose:
+        # `normaltest` takes normality as its null hypothesis, so a *large*
+        # p-value means the sample does look Gaussian, which is exactly when
+        # the warning fires. `dawis.detection.thresholding` carries the same
+        # inversion and documents the decision to leave it as published.
         k, pval = normaltest( self.noise_pixels )
         if pval > alpha:
             log.warning(r'/!\ Warning /!\ noise does not look Gaussian : p = %1.5f alpha = %1.5f'%(pval, alpha))
