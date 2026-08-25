@@ -21,8 +21,9 @@ block, so a science change is a change to a block and never to a composition.
 today. ``dawis.run`` and ``run_fits`` (#54) become the array-in front door to
 it, and this is where they land.
 
-The old flat module ``dawis.synthesis_by_analysis`` re-exports the entry point
-and is deleted by the contract ticket (#50) once no caller names it.
+The old flat module ``dawis.synthesis_by_analysis`` held the entry point until
+#50 deleted it. ``dawis.synthesis_by_analysis`` still resolves, because the
+package re-exports the *function* under that name; the module is gone.
 
 Note the deliberate shadowing below: the submodule and the function it holds
 share a name, and the import binds the function, which is the name a caller

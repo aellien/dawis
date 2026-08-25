@@ -1,38 +1,187 @@
-# Compatibility, deleted with the shims by the contract ticket (#50): these
-# flat modules were bound onto the ``dawis`` namespace before their carve —
-# the detection ones by #42, ``deconvolution`` and ``inpainting`` by #44,
-# ``store_objects`` by #45 — so
-# they are kept reachable rather than dropped as a side effect of a move.
-# Every shim is imported here, and first: the import machinery binds a
-# submodule onto its parent package, so a shim first imported by a later
-# caller would replace the function of the same name that the star imports
-# below bind. Importing them all now means the star imports have the last
-# word, as they did before the carve.
-from dawis import (  # noqa: F401
-    deconvolution,
-    detect_and_deblend,
+"""DAWIS — Detection Algorithm with Wavelets for Intracluster light Studies.
+
+A toolbox of wavelet-based analysis methods (#4).
+:func:`synthesis_by_analysis` is the composition the science is done with;
+everything it calls is a building block that can be run on its own.
+
+The layout is one subpackage per block::
+
+    dawis.wavelets      the à trous transform and variance stabilisation
+    dawis.detection     thresholds, labels, regions
+    dawis.trees         interscale trees
+    dawis.restoration   atom synthesis, deconvolution, inpainting
+    dawis.selection     atoms into source models (reserved, #17)
+    dawis.pipelines     the compositions users run
+    dawis.io            FITS, the object store, the legacy pickle format
+    dawis.viz           every line of matplotlib
+
+with four modules at the top level, above the blocks because they are not one
+block's business: :mod:`dawis.cubes` (the containers) and
+:mod:`dawis.exceptions` are shared vocabulary, :mod:`dawis.parallel` is the
+parallelism seam, and :mod:`dawis.convergence` is the stopping test the
+pipelines share. ``config`` and ``cli`` join them with #53 and #54.
+
+This module re-exports the public names of the blocks so the flat spellings
+users already have — ``dawis.bspl_atrous``, ``dawis.hard_threshold`` — keep
+working. It is an explicit list: the star imports over fourteen flat modules
+that used to stand here also bound every module those modules imported, so
+``dawis.np``, ``dawis.pdb`` and ``dawis.h5py`` were part of what a caller
+could reach. They are not part of the public surface and they are gone (#50),
+along with the flat modules themselves.
+
+Two names leave with them on purpose, and they are the only two that were
+bound here deliberately rather than by accident: ``normaltest`` and
+``sigmaclip``. Both are :mod:`scipy.stats` functions that
+``dawis.hard_threshold`` imported and the carve kept reachable so no caller
+broke mid-move. DAWIS neither wrote them nor wraps them, so re-exporting them
+would be this package promising scipy's surface as its own. Import them from
+``scipy.stats``.
+
+Two things are deliberately not re-exported flat, and are reached through
+their module instead. :mod:`dawis.parallel` and :mod:`dawis.convergence` are
+machinery rather than vocabulary — ``dawis.parallel.pmap``,
+``dawis.convergence.ConvergenceMonitor``. And :mod:`dawis.viz` is not
+imported at all: importing it imports matplotlib, the optional ``[viz]``
+extra, and ``import dawis`` must work without it. Draw things with an
+explicit ``import dawis.viz``.
+"""
+
+from dawis.cubes import (
+    coarse_datacube,
+    datacube,
+    label_datacube,
+    support_datacube,
+    wavelet_datacube,
+)
+from dawis.detection import (
     hard_threshold,
-    inpainting,
     label_regions,
-    make_regions,
-    store_objects,
+    make_regions_crucial_props,
+    make_regions_full_props,
+    ms_detect_and_deblend,
+    region,
     table_noise_stds,
 )
-from dawis.hard_threshold import normaltest, sigmaclip  # noqa: F401
-# The store leaked ``h5py`` into ``dawis``; the star imports below no longer
-# reach it, because ``synthesis_by_analysis`` names what it imports (#45).
-from dawis.store_objects import h5py  # noqa: F401
+from dawis.exceptions import (
+    DawisDimensionError,
+    DawisError,
+    DawisUnknownType,
+    DawisValueError,
+    DawisWrongType,
+)
+from dawis.io import (
+    load_interscale_tree_from_hdf5_group,
+    load_region_from_hdf5_group,
+    load_restored_object_from_hdf5_group,
+    object_recursive_save_to_hdf5,
+    pkl_to_hdf5,
+    read_image,
+    read_image_atoms,
+    read_itl_from_hdf5,
+    read_itl_from_pickle,
+    read_ol_from_hdf5,
+    read_ol_from_pickle,
+    read_regions_from_pickle,
+    write_itl_to_hdf5,
+    write_itl_to_pickle,
+    write_ol_to_hdf5,
+    write_ol_to_pickle,
+    write_regions_to_pickle,
+)
+from dawis.pipelines import synthesis_by_analysis
+from dawis.restoration import (
+    B2spline,
+    Reconstruction,
+    inpaint_with_gaussian_noise,
+    pad,
+    restore_object,
+    restore_objects_default,
+    restore_patch,
+    restored_object,
+    richardson_lucy_np,
+    sample_noise,
+    subtract_background,
+    twod_B2spline,
+    unpad,
+)
+from dawis.trees import (
+    interscale_connectivity,
+    interscale_tree,
+    make_interscale_trees,
+)
+from dawis.wavelets import (
+    AnscombeStabilisation,
+    anscombe_transform,
+    atrous,
+    boundary_conditions,
+    bspl_atrous,
+    haar_atrous,
+    inverse_anscombe,
+    max_levels,
+    pg_noise_bissection,
+    ser_iuwt_decomposition,
+)
 
-# `dawis.viz` and its shim `dawis.gif` are deliberately absent from both lists
-# below: importing either imports matplotlib, the optional `[viz]` extra, and
-# after #46 `import dawis` never does. Draw things with an explicit
-# `import dawis.viz`.
-from dawis.cubes import *
-from dawis.detection import *
-from dawis.io import *
-from dawis.wavelet_transforms import *
-from dawis.anscombe_transforms import *
-from dawis.make_interscale_trees import *
-from dawis.restore_objects import *
-from dawis.exceptions import *
-from dawis.synthesis_by_analysis import *
+__all__ = [
+    'AnscombeStabilisation',
+    'B2spline',
+    'DawisDimensionError',
+    'DawisError',
+    'DawisUnknownType',
+    'DawisValueError',
+    'DawisWrongType',
+    'Reconstruction',
+    'anscombe_transform',
+    'atrous',
+    'boundary_conditions',
+    'bspl_atrous',
+    'coarse_datacube',
+    'datacube',
+    'haar_atrous',
+    'hard_threshold',
+    'inpaint_with_gaussian_noise',
+    'interscale_connectivity',
+    'interscale_tree',
+    'inverse_anscombe',
+    'label_datacube',
+    'label_regions',
+    'load_interscale_tree_from_hdf5_group',
+    'load_region_from_hdf5_group',
+    'load_restored_object_from_hdf5_group',
+    'make_interscale_trees',
+    'make_regions_crucial_props',
+    'make_regions_full_props',
+    'max_levels',
+    'ms_detect_and_deblend',
+    'object_recursive_save_to_hdf5',
+    'pad',
+    'pg_noise_bissection',
+    'pkl_to_hdf5',
+    'read_image',
+    'read_image_atoms',
+    'read_itl_from_hdf5',
+    'read_itl_from_pickle',
+    'read_ol_from_hdf5',
+    'read_ol_from_pickle',
+    'read_regions_from_pickle',
+    'region',
+    'restore_object',
+    'restore_objects_default',
+    'restore_patch',
+    'restored_object',
+    'richardson_lucy_np',
+    'sample_noise',
+    'ser_iuwt_decomposition',
+    'subtract_background',
+    'support_datacube',
+    'synthesis_by_analysis',
+    'table_noise_stds',
+    'twod_B2spline',
+    'unpad',
+    'wavelet_datacube',
+    'write_itl_to_hdf5',
+    'write_itl_to_pickle',
+    'write_ol_to_hdf5',
+    'write_ol_to_pickle',
+    'write_regions_to_pickle',
+]

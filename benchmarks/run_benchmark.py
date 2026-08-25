@@ -386,7 +386,7 @@ def force_cg_max_iter(max_iter):
     benchmark sweeps that value, so it is forced here rather than edited into
     the tree under measurement. Returns (original_default, call_counter).
     """
-    from dawis.make_interscale_trees import interscale_tree
+    from dawis.trees import interscale_tree
 
     original = interscale_tree.CG_minimization
     default = inspect.signature(original).parameters["max_iter"].default

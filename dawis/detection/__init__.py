@@ -28,8 +28,8 @@ are what the tree builder groups.
 
 The old flat modules ``dawis.hard_threshold``, ``dawis.label_regions``,
 ``dawis.make_regions``, ``dawis.detect_and_deblend`` and
-``dawis.table_noise_stds`` re-export every name below and are deleted once no
-caller names them.
+``dawis.table_noise_stds`` held these names until #50 deleted them. This
+package is the only address they have.
 """
 
 from dawis.detection.deblending import ms_detect_and_deblend

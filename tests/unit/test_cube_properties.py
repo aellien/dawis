@@ -8,13 +8,13 @@ its numbers mean.
 
 from __future__ import annotations
 
-import importlib
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 import dawis
+import dawis.cubes as cubes
 
 #: Shape of the cubes under test: 8 by 6 pixels over 4 scales.
 CUBE_SHAPE = (8, 6, 4)
@@ -142,20 +142,13 @@ def test_region_labels_are_unique_across_the_whole_cube():
     )
 
 
-# The modules are reached through importlib because ``dawis.datacube`` names
-# the class, not the module: the package star-imports the class over it.
 def test_the_cube_classes_live_in_the_top_level_cubes_module():
-    """The cube classes are shared vocabulary, so they sit above the blocks."""
-    cubes = importlib.import_module('dawis.cubes')
+    """The cube classes are shared vocabulary, so they sit above the blocks.
+
+    Named off :mod:`dawis.cubes` and off the package, which re-exports them:
+    the two have to be the same objects, or a caller reaching for one
+    spelling gets a different class from a caller reaching for the other.
+    """
 
     for name in CUBE_CLASSES:
         assert getattr(cubes, name) is getattr(dawis, name)
-
-
-def test_the_old_datacube_module_still_re_exports_the_cube_classes():
-    """A caller naming the old location keeps working until the shim goes."""
-    cubes = importlib.import_module('dawis.cubes')
-    old_module = importlib.import_module('dawis.datacube')
-
-    for name in CUBE_CLASSES:
-        assert getattr(old_module, name) is getattr(cubes, name)

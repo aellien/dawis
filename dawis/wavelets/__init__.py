@@ -20,8 +20,8 @@ the pipeline was doing by hand, with the offset that keeps the square root
 real carried alongside in a local.
 
 The old flat modules ``dawis.atrous``, ``dawis.wavelet_transforms`` and
-``dawis.anscombe_transforms`` re-export every name below and are deleted once
-no caller names them.
+``dawis.anscombe_transforms`` held these names until #50 deleted them. This
+package is the only address they have.
 """
 
 from dawis.wavelets.anscombe import (

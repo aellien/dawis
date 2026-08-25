@@ -27,9 +27,9 @@ matplotlib = pytest.importorskip("matplotlib")
 
 import dawis  # noqa: E402
 import dawis.viz as viz  # noqa: E402
-# Named off `dawis.cubes` rather than off `dawis`: the deprecated shim module
-# `dawis.datacube` rebinds that name on the package as soon as anything
-# imports it, which a legacy pickle does. The shims go with #50.
+# Named off `dawis.cubes` rather than off `dawis`, where the classes are also
+# re-exported: this is the address the carve gave them (#41), and it is the one
+# that stayed put when the flat `dawis.datacube` module went with #50.
 from dawis.cubes import (  # noqa: E402
     coarse_datacube,
     datacube,

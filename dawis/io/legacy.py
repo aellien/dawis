@@ -11,13 +11,16 @@ to read a legacy run without the edge ever pointing back.
 
 A pickle records the *module path* of every class it holds, so a run written
 before the carve names ``dawis.restore_objects.restored_object``,
-``dawis.make_interscale_trees.interscale_tree`` and
-``dawis.make_regions.region``. Those paths resolve today only because the
-flat shims still exist. The contract ticket (#50) deletes them, and deleting
-them breaks this module's whole reason for existing unless it first gains an
-``Unpickler`` that maps the old paths onto the carved classes. No test pins
-this yet: Tier 0 and Tier 1 round-trip pickles written by the current
-classes in the same process, which cannot catch it.
+``dawis.make_interscale_trees.interscale_tree``, ``dawis.make_regions.region``
+and the cube classes under ``dawis.datacube``. Those paths resolved only
+because the flat shims existed, and the contract ticket (#50) deleted them —
+so this module maps them itself, in :class:`_LegacyUnpickler`. Without that
+map a pre-carve file raises ``ModuleNotFoundError`` and the published
+``v0.0.7-h`` outputs stop being readable, which is the one thing this module
+exists to prevent.
+
+The map is a *read* concession only: what this module writes is written under
+the carved paths, so a file written today needs no entry.
 
 .. warning::
 
@@ -28,12 +31,49 @@ from __future__ import annotations
 
 import gc
 import pickle
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, BinaryIO
 
 if TYPE_CHECKING:  # annotations only, so no runtime edge to the other blocks
     from dawis.detection import region
     from dawis.restoration import restored_object
     from dawis.trees import interscale_tree
+
+
+#: Where the classes a pre-carve pickle names used to live, and where each
+#: was carved to. Keyed by module rather than by class because a module moved
+#: as a whole: every class the old module held is now in the new one, under
+#: the same name. Nothing is renamed here — the rename sweep is #51 — so a
+#: name that resolved before the carve resolves after it.
+_PRE_CARVE_MODULES = {
+    'dawis.restore_objects': 'dawis.restoration.synthesis',
+    'dawis.make_interscale_trees': 'dawis.trees.construction',
+    'dawis.make_regions': 'dawis.detection.regions',
+    'dawis.datacube': 'dawis.cubes',
+}
+
+
+class _LegacyUnpickler(pickle.Unpickler):
+    """An unpickler that reads the module paths of the flat package.
+
+    :meth:`pickle.Unpickler.find_class` is the single point every class in a
+    pickle stream is resolved through, so redirecting the four moved modules
+    there covers atoms, trees, regions and cubes at any depth of nesting. A
+    module outside the map is passed through untouched, so numpy and the
+    standard library resolve exactly as they did.
+    """
+
+    def find_class(self, module: str, name: str) -> type:
+        return super().find_class(_PRE_CARVE_MODULES.get(module, module), name)
+
+
+def _load_legacy(infile: BinaryIO) -> object:
+    """Read one pickle stream, resolving pre-carve module paths.
+
+    The one door every reader in this module goes through, so that a format
+    concession is made in a single place rather than three.
+    """
+
+    return _LegacyUnpickler(infile).load()
 
 
 def write_ol_to_pickle(
@@ -88,7 +128,7 @@ def read_ol_from_pickle(filename: str) -> list[restored_object]:
 
     with open(filename, 'rb') as infile:
         gc.collect()
-        object_list = pickle.load(infile)
+        object_list = _load_legacy(infile)
 
     return object_list
 
@@ -145,7 +185,7 @@ def read_itl_from_pickle(filename: str) -> list[interscale_tree]:
 
     with open(filename, 'rb') as infile:
         gc.collect()
-        interscale_tree_list = pickle.load(infile)
+        interscale_tree_list = _load_legacy(infile)
 
     return interscale_tree_list
 
@@ -199,6 +239,6 @@ def read_regions_from_pickle(filename: str) -> list[region]:
     """
 
     with open(filename, 'rb') as infile:
-        region_list = pickle.load(infile)
+        region_list = _load_legacy(infile)
 
     return region_list

@@ -32,10 +32,14 @@ on them said would happen. They sit in :mod:`dawis.io.legacy`, which names
 :class:`~dawis.detection.regions.region` in an annotation alone, behind
 ``TYPE_CHECKING``, so the move adds no runtime edge and closes no cycle.
 
-The old flat module ``dawis.store_objects`` re-exports fourteen of the
-seventeen names below and is deleted by the contract ticket (#50) once no
-caller names it. The other three never lived there: :func:`read_image` is new
-here, and the two region helpers answer to ``dawis.make_regions``.
+The old flat module ``dawis.store_objects`` held fourteen of the seventeen
+names below until #50 deleted it. The other three never lived there:
+:func:`read_image` is new here, and the two region helpers came from
+``dawis.make_regions``.
+
+Pickles written before the carve name the flat modules, so
+:mod:`dawis.io.legacy` maps those paths onto the carved classes when it
+reads. Deleting the shims is what made that map necessary.
 """
 
 from dawis.io.fits import read_image

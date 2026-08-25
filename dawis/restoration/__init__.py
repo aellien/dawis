@@ -54,8 +54,8 @@ the deviation is deliberate and it is a deviation: what belongs here is the
 the solver itself waits for the minimizer interface of #22.
 
 The old flat modules ``dawis.restore_objects``, ``dawis.deconvolution`` and
-``dawis.inpainting`` re-export every name below and are deleted once no caller
-names them.
+``dawis.inpainting`` held these names until #50 deleted them. This package is
+the only address they have.
 """
 
 from dawis.restoration.accumulation import Reconstruction

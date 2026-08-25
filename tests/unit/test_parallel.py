@@ -389,12 +389,20 @@ def test_the_arguments_every_patch_shares_are_passed_once_each(monkeypatch):
     assert shared[4] == 3
 
 
-def test_the_deprecated_flat_module_still_answers_to_the_pre_seam_name():
-    """Renames are a separate pass from moves, so the shim holds the old name."""
-    # By module, not `from dawis import ...`: the package's star imports bind
-    # the *function* `make_interscale_trees` over its own module's name.
-    shim = importlib.import_module('dawis.make_interscale_trees')
+def test_only_one_connectivity_function_survived_the_seam():
+    """#47 collapsed the plain and ``@ray.remote`` copies into one function.
+
+    The two names the pair answered to before the seam, ``_para`` and
+    ``_serial``, lived on the flat ``dawis.make_interscale_trees``, which #50
+    deleted. So the check is that neither address survives anywhere a caller
+    can reach: not on the block, and not on the package.
+    """
+    import dawis
+    import dawis.trees
     from dawis.trees.deblending import interscale_connectivity
 
-    assert shim.interscale_connectivity_serial is interscale_connectivity
-    assert not hasattr(shim, 'interscale_connectivity_para')
+    assert dawis.trees.interscale_connectivity is interscale_connectivity
+    for retired in ('interscale_connectivity_para',
+                    'interscale_connectivity_serial'):
+        assert not hasattr(dawis.trees, retired)
+        assert not hasattr(dawis, retired)

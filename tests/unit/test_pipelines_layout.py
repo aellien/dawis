@@ -59,15 +59,18 @@ def package_modules() -> list[Path]:
 def test_no_block_imports_a_pipeline():
     """The dependency edge runs one way, and only one.
 
-    The shim ``dawis.synthesis_by_analysis`` is the deliberate exception: it is
-    the old flat module's address, kept reachable until the contract ticket
-    (#50) deletes it.
+    The shim ``dawis.synthesis_by_analysis`` used to be a deliberate exception
+    here — the old flat module's address, kept reachable while callers moved.
+    The contract ticket (#50) deleted it, and the package ``__init__`` now
+    imports the entry point from :mod:`dawis.pipelines` directly, so it takes
+    the exemption over: an ``__init__`` that re-exports the public surface is
+    the package speaking for itself, not a block reaching for a pipeline.
     """
-    shim = PACKAGE_ROOT / 'synthesis_by_analysis.py'
     offenders = {
         str(path.relative_to(PACKAGE_ROOT))
         for path in package_modules()
-        if PIPELINES_ROOT not in path.parents and path != shim
+        if PIPELINES_ROOT not in path.parents
+        and path != PACKAGE_ROOT / '__init__.py'
         and any(name.startswith('dawis.pipelines') for name in imported_modules(path))
     }
 

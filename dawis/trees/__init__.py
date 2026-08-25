@@ -33,8 +33,8 @@ The watershed pass that once enforced monomodality inside a tree was deleted
 upstream in ``ae19cb2``, well before this carve; its dead ``monomodality`` and
 ``threshold_rel`` knobs are dropped here.
 
-The old flat module ``dawis.make_interscale_trees`` re-exports every name
-below and is deleted once no caller names it.
+The old flat module ``dawis.make_interscale_trees`` held these names until
+#50 deleted it. This package is the only address they have.
 """
 
 from dawis.trees.construction import interscale_tree

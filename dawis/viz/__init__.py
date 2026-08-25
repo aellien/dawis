@@ -36,16 +36,16 @@ for a year.
 :mod:`dawis.viz.convergence` draws the convergence trace, from the
 ``.cpar.txt`` every run writes.
 
-The old flat module ``dawis.gif`` re-exports the animation names and is
-deleted by the contract ticket (#50).
+The old flat module ``dawis.gif`` held the animation names until #50 deleted
+it.
 """
 
 import logging
 
 # matplotlib's font manager logs a handful of DEBUG lines the first time it is
 # imported, and a DAWIS run configures the root logger at DEBUG — so quieten it
-# here, before the imports below pull matplotlib in. ``dawis.gif`` did the same,
-# but after its own import, which was too late to have any effect.
+# here, before the imports below pull matplotlib in. The old ``dawis.gif`` did
+# the same, but after its own import, which was too late to have any effect.
 logging.getLogger('matplotlib').setLevel(logging.WARNING)
 
 from dawis.viz.animation import make_gif, plot_frame, rebuild_animation  # noqa: E402
