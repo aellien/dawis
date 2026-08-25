@@ -168,17 +168,20 @@ class Cube(object):
 
         hdu = fits.open(filename)
         fheader, data = hdu[0].header, hdu[0].data
-        try:
-            dctype = fheader['DCTYPE']
-            if dctype in ['WAVELET', 'COARSE']:
-                return cls(data, fheader['WAVTYPE'], fheader)
-            elif dctype == 'SUPPORT':
-                return cls(data, fheader['TRSHTYPE'], fheader)
-            elif dctype == 'LABEL':
-                lab_counts = hdu[1].data
-                return cls(data, lab_counts, fheader)
-        except:
-            dctype = 'NONE'
+
+        # A file with no DCTYPE was not written by DAWIS, which is allowed:
+        # it is read as an untyped cube. A file that *says* what it is and
+        # then lacks what that kind needs is broken, and the KeyError or
+        # IndexError from reading it is left to travel.
+        dctype = fheader.get('DCTYPE', 'NONE')
+
+        if dctype in ['WAVELET', 'COARSE']:
+            return cls(data, fheader['WAVTYPE'], fheader)
+        elif dctype == 'SUPPORT':
+            return cls(data, fheader['TRSHTYPE'], fheader)
+        elif dctype == 'LABEL':
+            lab_counts = hdu[1].data
+            return cls(data, lab_counts, fheader)
 
         return cls(data, dctype, fheader)
 

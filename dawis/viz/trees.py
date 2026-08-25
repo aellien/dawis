@@ -17,6 +17,7 @@ from matplotlib.colors import SymLogNorm
 
 from dawis.cubes import LabelCube, WaveletCube
 from dawis.trees import interscale_tree
+from dawis.viz.regions import contourable
 
 __all__ = ['plot_interscale_tree']
 
@@ -60,15 +61,15 @@ def plot_interscale_tree(tree: interscale_tree,
                                                    tree.bbox[1]:tree.bbox[3], \
                                                    0:tree.interscale_maximum.level + 1 ], axis = 2)
 
-    try:
-        norm = kwargs.pop('norm')
+    norm = kwargs.pop('norm', None)
+    if norm is not None:
         im = ax[0].imshow( wavelet_image, \
                 extent = ( tree.bbox[1], tree.bbox[3], \
                            tree.bbox[0], tree.bbox[2] ), \
                 origin = 'lower', \
                 **kwargs )
         plt.colorbar(im, ax = ax[0], orientation = 'vertical')
-    except:
+    else:
         logthresh = 1E-3
         norm = SymLogNorm(logthresh)
         im = ax[0].imshow( wavelet_image, extent = ( tree.bbox[1], tree.bbox[3], \
@@ -101,13 +102,13 @@ def plot_interscale_tree(tree: interscale_tree,
 
         clip[np.where(clip != region.label)] = 0.
 
-        try:
+        if contourable(clip):
             ax[0].contour( clip, region.label,
                                  extent = ( tree.bbox[1], tree.bbox[3], \
                                             tree.bbox[0], tree.bbox[2] ), \
                                  levels = 0, \
                                  color = 'cyan')
-        except:
+        else:
             print('Region too small for contours.')
 
         clip[np.where(clip == region.label)] = 1

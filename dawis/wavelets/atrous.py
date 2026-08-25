@@ -17,7 +17,6 @@ import numpy as np
 from dawis.exceptions import (
     DawisDimensionError,
     DawisValueError,
-    DawisWrongType,
 )
 
 
@@ -58,7 +57,7 @@ def boundary_conditions(
     DawisDimensionError
         If ``position_array`` is not 1D or 3D, or ``sizes`` is not a scalar
         or 1D.
-    DawisWrongType
+    TypeError
         If ``conditions`` is not a string.
     DawisValueError
         If ``conditions`` is not one of the three allowed values.
@@ -71,7 +70,8 @@ def boundary_conditions(
         raise DawisDimensionError('Wrong dimensions for array -->', np.ndim(sizes), [0, 1])
 
     if type(conditions) != str:
-        raise DawisWrongType('Wrong type -->', type(conditions), 'str')
+        raise TypeError('Wrong type --> conditions is %s instead of str'
+                        % type(conditions))
 
     allowed_conditions = ['mirror', 'prolongation', 'loop' ]
 

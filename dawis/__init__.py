@@ -63,11 +63,10 @@ from dawis.detection import (
     table_noise_stds,
 )
 from dawis.exceptions import (
+    ConfigError,
     DawisDimensionError,
     DawisError,
-    DawisUnknownType,
     DawisValueError,
-    DawisWrongType,
 )
 from dawis.io import (
     load_atom_from_hdf5_group,
@@ -127,12 +126,11 @@ __all__ = [
     'Atom',
     'B2spline',
     'CoarseCube',
+    'ConfigError',
     'Cube',
     'DawisDimensionError',
     'DawisError',
-    'DawisUnknownType',
     'DawisValueError',
-    'DawisWrongType',
     'LabelCube',
     'Reconstruction',
     'SupportCube',

@@ -20,6 +20,18 @@ from dawis.detection import region as region_class
 __all__ = ['plot_region']
 
 
+def contourable(clip: np.ndarray) -> bool:
+    """Whether an outline can be drawn over this cutout.
+
+    :func:`matplotlib.pyplot.contour` needs at least a 2x2 grid to place a
+    line between samples, and raises :exc:`TypeError` below that. A region
+    one pixel wide is a normal detection at the finest scale, not a fault,
+    so it is tested for rather than caught: catching would swallow every
+    other :exc:`TypeError` the drawing can raise along with it.
+    """
+    return clip.ndim == 2 and min(clip.shape) >= 2
+
+
 def plot_region(region: region_class, wavelet_cube: WaveletCube,
                 label_cube: LabelCube, name: str | None = None,
                 show: bool = True, save_path: str | None = None,
@@ -88,18 +100,18 @@ def plot_region(region: region_class, wavelet_cube: WaveletCube,
                                             borderpad=0.1, \
                                             prop=dict(size=10)))
 
-    try:
-        clip = label_cube.array[ region.bbox[0]:region.bbox[2], \
-                                       region.bbox[1]:region.bbox[3], \
-                                       int(region.level) ]
-        clip[np.where(clip != region.label)] = 0.
+    clip = label_cube.array[ region.bbox[0]:region.bbox[2], \
+                                   region.bbox[1]:region.bbox[3], \
+                                   int(region.level) ]
+    clip[np.where(clip != region.label)] = 0.
+    if contourable(clip):
         plt.contour( clip, \
                 region.label, \
                 extent = ( region.bbox[1], region.bbox[3], \
                            region.bbox[0], region.bbox[2] ), \
                 levels = 0, color = 'black', linewidth = 3 )
-    except:
-        print('Region too small for countours.')
+    else:
+        print('Region too small for contours.')
 
     if save_path != None:
         plt.savefig(save_path, format = 'pdf')

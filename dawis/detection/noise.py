@@ -16,7 +16,12 @@ from __future__ import annotations
 
 import numpy as np
 
-from dawis.exceptions import DawisUnknownType
+from dawis.exceptions import DawisValueError
+
+#: Wavelet families a noise table was measured for. The cascade below and
+#: the docstring of :func:`table_noise_stds` both state this set; naming it
+#: once keeps the error message from drifting away from the branches.
+WAVELET_FAMILIES = ('BSPL', 'LINEAR', 'HAAR', 'ICBSPL')
 
 
 def table_noise_stds(
@@ -50,7 +55,7 @@ def table_noise_stds(
 
     Raises
     ------
-    DawisUnknownType
+    DawisValueError
         If ``wavelet_type`` is not one of the tabulated families.
 
     Notes
@@ -149,7 +154,8 @@ def table_noise_stds(
 
 
     else:
-        raise DawisUnknownType('Unknown wavelet type -->', wavelet_type)
+        raise DawisValueError('Unknown wavelet type -->', wavelet_type,
+                              list(WAVELET_FAMILIES))
 
     if level_max < np.size(table_noise_stds):
         table_noise_stds = table_noise_stds[0:level_max]

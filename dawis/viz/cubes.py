@@ -185,15 +185,15 @@ def _plot_wavelet_cube(cube: WaveletCube, ncol: int = 5,
                 else:
                     ax = grid[i][j]
 
-                try:
-                    norm = kwargs.pop('norm')
+                norm = kwargs.pop('norm', None)
+                if norm is not None:
                     if lvl == 1:
                         im_norm = ax.imshow(cube.array[:, :, lvl - 1], **kwargs)
                     else:
                         im = ax.imshow(cube.array[:, :, lvl - 1], **kwargs)
                     cax = plt.colorbar(im_norm, ax = ax, aspect = 10, pad = 0, \
                                                     orientation = 'horizontal')
-                except:
+                else:
                     logthresh = 1E-3
                     norm = SymLogNorm(logthresh)
                     if lvl == 1:

@@ -205,6 +205,21 @@ def test_plot_region_draws(detection_cubes, tmp_path):
     assert save_path.is_file()
 
 
+@pytest.mark.parametrize(
+    'shape, expected',
+    [((2, 2), True), ((5, 7), True), ((1, 1), False), ((1, 5), False)],
+)
+def test_contourable_is_the_grid_matplotlib_needs(shape, expected):
+    """The outline guard of #52, which replaced a handler that caught nothing.
+
+    ``plt.contour`` raises ``TypeError`` below a 2x2 grid. A one-pixel region
+    is a normal detection at the finest scale, so the drawers test for it
+    instead of catching — catching would have swallowed every other
+    ``TypeError`` the drawing can raise.
+    """
+    assert viz.regions.contourable(np.zeros(shape)) is expected
+
+
 def test_plot_interscale_tree_draws(detection_cubes, tmp_path):
     """``interscale_tree.plot`` before #46, now a function."""
     from dawis.trees import interscale_tree

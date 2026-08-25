@@ -67,7 +67,7 @@ from astropy.io import fits
 
 from dawis.convergence import CONVERGENCE_HEADER, ConvergenceMonitor
 from dawis.detection import make_regions_full_props, ms_detect_and_deblend
-from dawis.exceptions import DawisWrongType
+from dawis.exceptions import ConfigError
 from dawis.io import (
     read_image,
     read_ol_from_hdf5,
@@ -172,7 +172,7 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
 
     Raises
     ------
-    DawisWrongType
+    ConfigError
         If ``infile`` does not end in ``.fits``.
 
     Notes
@@ -184,7 +184,8 @@ def synthesis_by_analysis(indir, infile, outdir, n_cpus = 1, starting_level = 2,
 
     # Check infile extension
     if infile[-5:] != '.fits':
-        raise DawisWrongType('Incorrect file extension -->', infile[:-5], '.fits')
+        raise ConfigError('Incorrect file extension --> %s does not end in .fits'
+                          % infile)
 
     # What a worker is, for the length of this run. One worker selects the
     # serial backend, more than one the default parallel backend; the adapter

@@ -31,7 +31,7 @@ import glob
 import logging
 import os
 import re
-from subprocess import run
+from subprocess import CalledProcessError, run
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -155,8 +155,12 @@ def make_gif( framerate: int, outpath: str ) -> None:
 
     Notes
     -----
-    Failure is logged, not raised: the frames are the expensive part and they
-    are already on disk, so a missing ``ffmpeg`` costs only the assembly.
+    Failure is logged, not raised, and this is the one place in the package
+    where that is the right answer: the frames are the expensive part and
+    they are already on disk, so a missing or failing ``ffmpeg`` costs only
+    the assembly. It is logged with the error that caused it, and ``check``
+    is set so that a non-zero exit is one of the failures that reaches the
+    log rather than passing unnoticed.
     '''
 
     try:
@@ -164,9 +168,9 @@ def make_gif( framerate: int, outpath: str ) -> None:
                 ''.join(( outpath, '.frame.it%03d.png' )), \
                 ''.join(( outpath, '.run.mp4' )) ]
 
-        run( args_ffmpeg )
-    except:
-        logging.info('Could not create frame gif')
+        run( args_ffmpeg, check = True )
+    except (CalledProcessError, OSError) as error:
+        logging.info('Could not assemble the frames into a video: %s', error)
 
 
 def iteration_dumps(outpath: str) -> list[tuple[int, str]]:
