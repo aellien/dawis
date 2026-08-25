@@ -13,7 +13,7 @@ does not have to be edited when one of them gains a field.
 The readers are not generic, because reading has to know what class to build.
 :func:`read_ol_from_hdf5` and :func:`read_itl_from_hdf5` each rebuild their
 own type from a blank instance, which is why
-:class:`~dawis.restoration.synthesis.restored_object`,
+:class:`~dawis.restoration.synthesis.Atom`,
 :class:`~dawis.trees.construction.interscale_tree` and
 :class:`~dawis.detection.regions.region` all take a ``blank`` constructor
 flag. Those three imports are the only edges this module has to the other
@@ -43,7 +43,7 @@ import numpy as np
 
 from dawis.detection import region
 from dawis.io.legacy import read_itl_from_pickle, read_ol_from_pickle
-from dawis.restoration import restored_object
+from dawis.restoration import Atom
 from dawis.trees import interscale_tree
 
 
@@ -215,12 +215,12 @@ def load_region_from_hdf5_group(grp: h5py.Group) -> region:
     return r
 
 
-def write_ol_to_hdf5(object_list: list[restored_object], filename: str) -> None:
+def write_ol_to_hdf5(object_list: list[Atom], filename: str) -> None:
     """Write a list of atoms to an HDF5 file.
 
     Parameters
     ----------
-    object_list : list of restored_object
+    object_list : list of Atom
         The atoms of one iteration. Atom ``i`` becomes group ``o{i}``.
     filename : str
         Path to write to. Any existing file is replaced.
@@ -232,7 +232,7 @@ def write_ol_to_hdf5(object_list: list[restored_object], filename: str) -> None:
             object_recursive_save_to_hdf5(o, grp)
 
 
-def read_ol_from_hdf5(filename: str) -> list[restored_object]:
+def read_ol_from_hdf5(filename: str) -> list[Atom]:
     """Read a list of atoms back from an HDF5 file.
 
     Parameters
@@ -242,7 +242,7 @@ def read_ol_from_hdf5(filename: str) -> list[restored_object]:
 
     Returns
     -------
-    list of restored_object
+    list of Atom
         The atoms, in the order h5py yields the groups, which is
         alphabetical: ``o10`` precedes ``o2``.
     """
@@ -251,12 +251,12 @@ def read_ol_from_hdf5(filename: str) -> list[restored_object]:
         gc.collect()
         for grp_name in f.keys():
             grp = f[grp_name]
-            o = load_restored_object_from_hdf5_group(grp)
+            o = load_atom_from_hdf5_group(grp)
             ol.append(o)
     return ol
 
 
-def load_restored_object_from_hdf5_group(grp: h5py.Group) -> restored_object:
+def load_atom_from_hdf5_group(grp: h5py.Group) -> Atom:
     """Rebuild one atom from an HDF5 group.
 
     Parameters
@@ -266,10 +266,10 @@ def load_restored_object_from_hdf5_group(grp: h5py.Group) -> restored_object:
 
     Returns
     -------
-    restored_object
+    Atom
         A blank atom with the stored attributes set on it.
     """
-    o = restored_object(blank = True)
+    o = Atom(blank = True)
     for attr_name in grp.keys():
         
         attr = grp[attr_name]
@@ -307,7 +307,7 @@ def read_image_atoms(
     file_format: str = 'hdf5',
     filter_it: str | None = None,
     verbose: bool = True,
-) -> tuple[list[restored_object], list[interscale_tree]]:
+) -> tuple[list[Atom], list[interscale_tree]]:
     """Read a whole run's atoms back off disk, with the tree behind each one.
 
     Parameters
@@ -326,7 +326,7 @@ def read_image_atoms(
 
     Returns
     -------
-    tol : list of restored_object
+    tol : list of Atom
         Every atom of the run, iterations concatenated in filename order.
     titl : list of interscale_tree
         The tree each atom was restored from, at the same index.

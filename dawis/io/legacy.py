@@ -9,18 +9,19 @@ This module is the leaf of :mod:`dawis.io`. It knows about pickle and
 nothing else — no h5py, no astropy — so :mod:`dawis.io.store` can import it
 to read a legacy run without the edge ever pointing back.
 
-A pickle records the *module path* of every class it holds, so a run written
-before the carve names ``dawis.restore_objects.restored_object``,
+A pickle records the *module path and class name* of every class it holds, so
+a run written before the carve names ``dawis.restore_objects.restored_object``,
 ``dawis.make_interscale_trees.interscale_tree``, ``dawis.make_regions.region``
 and the cube classes under ``dawis.datacube``. Those paths resolved only
-because the flat shims existed, and the contract ticket (#50) deleted them —
-so this module maps them itself, in :class:`_LegacyUnpickler`. Without that
-map a pre-carve file raises ``ModuleNotFoundError`` and the published
-``v0.0.7-h`` outputs stop being readable, which is the one thing this module
-exists to prevent.
+because the flat shims existed, and the contract ticket (#50) deleted them; the
+rename sweep (#51) then changed the class names themselves. So this module maps
+both halves itself, in :class:`_LegacyUnpickler`. Without the module map a
+pre-carve file raises ``ModuleNotFoundError``; without the class map it raises
+``AttributeError`` — either way the published ``v0.0.7-h`` outputs stop being
+readable, which is the one thing this module exists to prevent.
 
-The map is a *read* concession only: what this module writes is written under
-the carved paths, so a file written today needs no entry.
+The maps are a *read* concession only: what this module writes is written under
+the carved paths and the current names, so a file written today needs no entry.
 
 .. warning::
 
@@ -35,15 +36,13 @@ from typing import TYPE_CHECKING, BinaryIO
 
 if TYPE_CHECKING:  # annotations only, so no runtime edge to the other blocks
     from dawis.detection import region
-    from dawis.restoration import restored_object
+    from dawis.restoration import Atom
     from dawis.trees import interscale_tree
 
 
 #: Where the classes a pre-carve pickle names used to live, and where each
 #: was carved to. Keyed by module rather than by class because a module moved
-#: as a whole: every class the old module held is now in the new one, under
-#: the same name. Nothing is renamed here — the rename sweep is #51 — so a
-#: name that resolved before the carve resolves after it.
+#: as a whole: every class the old module held is now in the new one.
 _PRE_CARVE_MODULES = {
     'dawis.restore_objects': 'dawis.restoration.synthesis',
     'dawis.make_interscale_trees': 'dawis.trees.construction',
@@ -51,19 +50,38 @@ _PRE_CARVE_MODULES = {
     'dawis.datacube': 'dawis.cubes',
 }
 
+#: What the classes the rename sweep (#51) touched used to be called, keyed by
+#: the module they live in *now* and their old name. Keying on the carved
+#: module rather than the flat one means one table covers both a pre-carve file
+#: (whose module is rewritten by :data:`_PRE_CARVE_MODULES` first) and a file
+#: written between the carve and the rename. ``interscale_tree`` and ``region``
+#: are absent because #51 left their names alone.
+_PRE_RENAME_CLASSES = {
+    ('dawis.restoration.synthesis', 'restored_object'): 'Atom',
+    ('dawis.cubes', 'datacube'): 'Cube',
+    ('dawis.cubes', 'wavelet_datacube'): 'WaveletCube',
+    ('dawis.cubes', 'coarse_datacube'): 'CoarseCube',
+    ('dawis.cubes', 'support_datacube'): 'SupportCube',
+    ('dawis.cubes', 'label_datacube'): 'LabelCube',
+}
+
 
 class _LegacyUnpickler(pickle.Unpickler):
-    """An unpickler that reads the module paths of the flat package.
+    """An unpickler that reads the module paths and names of the flat package.
 
     :meth:`pickle.Unpickler.find_class` is the single point every class in a
-    pickle stream is resolved through, so redirecting the four moved modules
-    there covers atoms, trees, regions and cubes at any depth of nesting. A
-    module outside the map is passed through untouched, so numpy and the
-    standard library resolve exactly as they did.
+    pickle stream is resolved through, so rewriting the four moved modules and
+    the six renamed classes there covers atoms, trees, regions and cubes at any
+    depth of nesting. The module is rewritten first and the name is looked up
+    against the result, so the two maps compose for a file that predates both
+    changes. A module or name outside the maps is passed through untouched, so
+    numpy and the standard library resolve exactly as they did.
     """
 
     def find_class(self, module: str, name: str) -> type:
-        return super().find_class(_PRE_CARVE_MODULES.get(module, module), name)
+        module = _PRE_CARVE_MODULES.get(module, module)
+        name = _PRE_RENAME_CLASSES.get((module, name), name)
+        return super().find_class(module, name)
 
 
 def _load_legacy(infile: BinaryIO) -> object:
@@ -77,7 +95,7 @@ def _load_legacy(infile: BinaryIO) -> object:
 
 
 def write_ol_to_pickle(
-    object_list: list[restored_object],
+    object_list: list[Atom],
     filename: str,
     overwrite: bool = True,
 ) -> None:
@@ -85,7 +103,7 @@ def write_ol_to_pickle(
 
     Parameters
     ----------
-    object_list : list of restored_object
+    object_list : list of Atom
         The atoms of one iteration.
     filename : str
         Path to write to.
@@ -105,7 +123,7 @@ def write_ol_to_pickle(
         pickle.dump(object_list, outfile)
 
 
-def read_ol_from_pickle(filename: str) -> list[restored_object]:
+def read_ol_from_pickle(filename: str) -> list[Atom]:
     """Read a list of atoms back from a pickle file.
 
     Parameters
@@ -115,7 +133,7 @@ def read_ol_from_pickle(filename: str) -> list[restored_object]:
 
     Returns
     -------
-    list of restored_object
+    list of Atom
         The atoms, in the order they were written.
 
     Notes

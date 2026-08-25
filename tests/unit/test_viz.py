@@ -31,11 +31,11 @@ import dawis.viz as viz  # noqa: E402
 # re-exported: this is the address the carve gave them (#41), and it is the one
 # that stayed put when the flat `dawis.datacube` module went with #50.
 from dawis.cubes import (  # noqa: E402
-    coarse_datacube,
-    datacube,
-    label_datacube,
-    support_datacube,
-    wavelet_datacube,
+    CoarseCube,
+    Cube,
+    LabelCube,
+    SupportCube,
+    WaveletCube,
 )
 
 PACKAGE = Path(dawis.__file__).parent
@@ -109,25 +109,25 @@ def cubes():
     """One cube of each type, small enough to draw quickly."""
     array = np.random.default_rng(46).normal(0, 1, (8, 8, 3))
     return {
-        "base": datacube(np.copy(array), dctype="NONE"),
-        "wavelet": wavelet_datacube(np.copy(array), "BSPL"),
-        "coarse": coarse_datacube(np.copy(array), "BSPL"),
-        "support": support_datacube(
+        "base": Cube(np.copy(array), dctype="NONE"),
+        "wavelet": WaveletCube(np.copy(array), "BSPL"),
+        "coarse": CoarseCube(np.copy(array), "BSPL"),
+        "support": SupportCube(
             np.zeros((8, 8, 3)), "HARD", noise_pixels=array[:, :, 0].flatten()
         ),
-        "label": label_datacube(np.zeros((8, 8, 3)), lab_counts=[1, 2, 3]),
+        "label": LabelCube(np.zeros((8, 8, 3)), lab_counts=[1, 2, 3]),
     }
 
 
 def test_plot_cube_dispatches_on_cube_type(cubes):
     """A wavelet cube gets its own branch; every other cube gets the plain one."""
-    base = viz.plot_cube.dispatch(datacube)
-    wavelet = viz.plot_cube.dispatch(wavelet_datacube)
+    base = viz.plot_cube.dispatch(Cube)
+    wavelet = viz.plot_cube.dispatch(WaveletCube)
 
     assert wavelet is not base
-    assert viz.plot_cube.dispatch(coarse_datacube) is base
-    assert viz.plot_cube.dispatch(label_datacube) is base
-    assert viz.plot_cube.dispatch(support_datacube) is base
+    assert viz.plot_cube.dispatch(CoarseCube) is base
+    assert viz.plot_cube.dispatch(LabelCube) is base
+    assert viz.plot_cube.dispatch(SupportCube) is base
 
 
 @pytest.mark.parametrize("kind", ["base", "wavelet", "coarse", "support", "label"])
@@ -165,8 +165,8 @@ def detection_cubes():
     labels[8:14, 8:14, 0] = 1
     labels[6:16, 6:16, 1] = 2
     return (
-        wavelet_datacube(array, "BSPL"),
-        label_datacube(labels, lab_counts=[1, 1, 0]),
+        WaveletCube(array, "BSPL"),
+        LabelCube(labels, lab_counts=[1, 1, 0]),
     )
 
 
@@ -215,8 +215,8 @@ def test_plot_interscale_tree_draws(detection_cubes, tmp_path):
     tree = interscale_tree(
         interscale_maximum=root,
         region_list=[fine, root],
-        wavelet_datacube=wavelet,
-        label_datacube=labels,
+        wavelet_cube=wavelet,
+        label_cube=labels,
         det_err_array=np.zeros((24, 24, 3)),
         clip=4,
     )
@@ -230,7 +230,7 @@ def test_plot_interscale_tree_draws(detection_cubes, tmp_path):
 def test_plot_wavelet_stds_is_broken_by_matplotlib(cubes):
     """The one moved body that cannot run, pinned rather than quietly carried.
 
-    ``wavelet_datacube.std_plot`` set its log scale with ``basey``, which
+    ``WaveletCube.std_plot`` set its log scale with ``basey``, which
     matplotlib removed in 3.3. The defect travelled with the move; this test
     fails the day someone fixes it, which is when the docstring note in
     ``plot_wavelet_stds`` should go too.
@@ -257,7 +257,7 @@ def fake_run(work_dir: Path, n_iterations: int = 3, size: int = 16) -> str:
 
     restored = np.zeros((size, size))
     for it in range(1, n_iterations + 1):
-        atom = dawis.restored_object(
+        atom = dawis.Atom(
             image=np.full((4, 4), float(it)),
             det_err_image=np.zeros((4, 4)),
             bbox=(it, it, it + 4, it + 4),

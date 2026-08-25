@@ -20,7 +20,7 @@ Four modules.
 :mod:`dawis.restoration.synthesis` is the entry point.
 :func:`restore_objects_default` walks the trees of one iteration —
 in process, or over workers, as :mod:`dawis.parallel` decides — and each
-becomes a :class:`restored_object`, an *atom*. :func:`restore_object` makes the per-tree
+becomes an :class:`Atom`. :func:`restore_object` makes the per-tree
 choice of filter and synthesis operator that the solver then runs with.
 
 :mod:`dawis.restoration.deconvolution` holds the optional PSF step inside that
@@ -72,13 +72,14 @@ from dawis.restoration.inpainting import (
     subtract_background,
 )
 from dawis.restoration.synthesis import (
+    Atom,
     restore_object,
     restore_objects_default,
     restore_patch,
-    restored_object,
 )
 
 __all__ = [
+    'Atom',
     'B2spline',
     'Reconstruction',
     'inpaint_with_gaussian_noise',
@@ -86,7 +87,6 @@ __all__ = [
     'restore_object',
     'restore_objects_default',
     'restore_patch',
-    'restored_object',
     'richardson_lucy_np',
     'sample_noise',
     'subtract_background',

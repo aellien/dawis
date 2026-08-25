@@ -17,7 +17,7 @@ from dawis.restoration import Reconstruction
 
 
 class FakeAtom:
-    """The four attributes ``Reconstruction`` reads off a restored object."""
+    """The four attributes ``Reconstruction`` reads off an atom."""
 
     def __init__(self, bbox, image, level, det_err_image=None):
         self.bbox = bbox

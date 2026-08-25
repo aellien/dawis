@@ -52,9 +52,9 @@ from dawis.io.legacy import (
     write_regions_to_pickle,
 )
 from dawis.io.store import (
+    load_atom_from_hdf5_group,
     load_interscale_tree_from_hdf5_group,
     load_region_from_hdf5_group,
-    load_restored_object_from_hdf5_group,
     object_recursive_save_to_hdf5,
     pkl_to_hdf5,
     read_image_atoms,
@@ -65,9 +65,9 @@ from dawis.io.store import (
 )
 
 __all__ = [
+    'load_atom_from_hdf5_group',
     'load_interscale_tree_from_hdf5_group',
     'load_region_from_hdf5_group',
-    'load_restored_object_from_hdf5_group',
     'object_recursive_save_to_hdf5',
     'pkl_to_hdf5',
     'read_image',

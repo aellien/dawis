@@ -15,15 +15,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import SymLogNorm
 
-from dawis.cubes import label_datacube, wavelet_datacube
+from dawis.cubes import LabelCube, WaveletCube
 from dawis.trees import interscale_tree
 
 __all__ = ['plot_interscale_tree']
 
 
 def plot_interscale_tree(tree: interscale_tree,
-                         wavelet_datacube: wavelet_datacube,
-                         label_datacube: label_datacube,
+                         wavelet_cube: WaveletCube,
+                         label_cube: LabelCube,
                          name: str | None = None, show: bool = True,
                          save_path: str | None = None, **kwargs) -> None:
     """Draw a tree: its summed wavelet coefficients beside its regions.
@@ -32,9 +32,9 @@ def plot_interscale_tree(tree: interscale_tree,
     ----------
     tree : dawis.trees.construction.interscale_tree
         The tree to draw.
-    wavelet_datacube : dawis.cubes.wavelet_datacube
+    wavelet_cube : dawis.cubes.WaveletCube
         Wavelet planes the tree was built on.
-    label_datacube : dawis.cubes.label_datacube
+    label_cube : dawis.cubes.LabelCube
         Label cube the tree was built on.
     name : str, optional
         Figure title. Default is the label of the interscale maximum.
@@ -56,7 +56,7 @@ def plot_interscale_tree(tree: interscale_tree,
     else:
         fig.suptitle(name)
 
-    wavelet_image = np.sum(wavelet_datacube.array[ tree.bbox[0]:tree.bbox[2], \
+    wavelet_image = np.sum(wavelet_cube.array[ tree.bbox[0]:tree.bbox[2], \
                                                    tree.bbox[1]:tree.bbox[3], \
                                                    0:tree.interscale_maximum.level + 1 ], axis = 2)
 
@@ -95,7 +95,7 @@ def plot_interscale_tree(tree: interscale_tree,
 
         ax[0].plot( region.y_max, region.x_max, '+' )
 
-        clip = np.copy(label_datacube.array[ tree.bbox[0]:tree.bbox[2], \
+        clip = np.copy(label_cube.array[ tree.bbox[0]:tree.bbox[2], \
                                              tree.bbox[1]:tree.bbox[3], \
                                              int(region.level) ])
 

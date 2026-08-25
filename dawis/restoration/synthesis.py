@@ -2,9 +2,9 @@
 
 The step that costs the run. Detection says where the structures are and
 :mod:`dawis.trees` groups them across scales; this module reconstructs each
-tree as an image and wraps it as a :class:`restored_object` — an *atom*, in
-the vocabulary of ``CONTEXT.md``. The pipeline sums the atoms of an iteration,
-subtracts them from the residual, and goes round again.
+tree as an image and wraps it as an :class:`Atom` — the *atom* of
+``CONTEXT.md``. The pipeline sums the atoms of an iteration, subtracts them
+from the residual, and goes round again.
 
 The solver itself is not here. The conjugate-gradient descent lives on the
 tree, as :meth:`~dawis.trees.construction.interscale_tree.CG_minimization`,
@@ -37,7 +37,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from dawis.cubes import label_datacube, wavelet_datacube
+from dawis.cubes import LabelCube, WaveletCube
 from dawis.parallel import pmap
 
 # Annotations only. dawis.trees imports the deconvolution of this package, so
@@ -47,7 +47,7 @@ if TYPE_CHECKING:
     from dawis.trees import interscale_tree as interscale_tree_type
 
 
-class restored_object(object):
+class Atom(object):
     """One structure reconstructed from an interscale tree — an *atom*.
 
     The output unit of the pipeline: a synthesised image, the bounding box it
@@ -115,8 +115,8 @@ class restored_object(object):
 
 def restore_patch(
     interscale_tree_patch: list[interscale_tree_type],
-    wavelet_datacube: wavelet_datacube,
-    label_datacube: label_datacube,
+    wavelet_cube: WaveletCube,
+    label_cube: LabelCube,
     extent_sep: float,
     ecc_sep: float,
     lvl_sep_lin: int,
@@ -125,7 +125,7 @@ def restore_patch(
     gamma: float,
     rm_gamma_for_big: bool,
     deconv: bool,
-) -> list[restored_object]:
+) -> list[Atom]:
     """Synthesise one patch of trees into atoms.
 
     The unit of work :func:`restore_objects_default` distributes: the same
@@ -137,10 +137,10 @@ def restore_patch(
     ----------
     interscale_tree_patch : list of interscale_tree
         The trees this worker is responsible for.
-    wavelet_datacube : dawis.cubes.wavelet_datacube
+    wavelet_cube : dawis.cubes.WaveletCube
         Wavelet coefficients of the residual being restored.
-    label_datacube : dawis.cubes.label_datacube
-        Region labels matching ``wavelet_datacube``.
+    label_cube : dawis.cubes.LabelCube
+        Region labels matching ``wavelet_cube``.
     extent_sep : float
         Extent below which a tree takes the Haar branch.
     ecc_sep : float
@@ -161,7 +161,7 @@ def restore_patch(
 
     Returns
     -------
-    list of restored_object
+    list of Atom
         One atom per tree in the patch, in the order given.
     """
 
@@ -169,8 +169,8 @@ def restore_patch(
     for tree in interscale_tree_patch:
 
         image, det_err_image, filter_kw, flag_convergence, sum_wr, norm_wr = restore_object( tree, \
-                                                                              wavelet_datacube, \
-                                                                              label_datacube, \
+                                                                              wavelet_cube, \
+                                                                              label_cube, \
                                                                               extent_sep, \
                                                                               ecc_sep, \
                                                                               lvl_sep_lin, \
@@ -183,7 +183,7 @@ def restore_patch(
 
 
 
-        object_patch.append(restored_object(image, det_err_image, tree.bbox, \
+        object_patch.append(Atom(image, det_err_image, tree.bbox, \
                                             tree.interscale_maximum.level, \
                                             tree.interscale_maximum.eccentricity, \
                                             filter_kw, \
@@ -195,8 +195,8 @@ def restore_patch(
 
 def restore_object(
     interscale_tree: interscale_tree_type,
-    wavelet_datacube: wavelet_datacube,
-    label_datacube: label_datacube,
+    wavelet_cube: WaveletCube,
+    label_cube: LabelCube,
     extent_sep: float,
     ecc_sep: float,
     lvl_sep_lin: int,
@@ -223,10 +223,10 @@ def restore_object(
     ----------
     interscale_tree : interscale_tree
         The tree to synthesise.
-    wavelet_datacube : dawis.cubes.wavelet_datacube
+    wavelet_cube : dawis.cubes.WaveletCube
         Wavelet coefficients of the residual being restored.
-    label_datacube : dawis.cubes.label_datacube
-        Region labels matching ``wavelet_datacube``.
+    label_cube : dawis.cubes.LabelCube
+        Region labels matching ``wavelet_cube``.
     extent_sep : float
         Extent below which the Haar branch is taken.
     ecc_sep : float
@@ -272,23 +272,23 @@ def restore_object(
 
     if (( interscale_tree.extent < extent_sep ) or (  interscale_tree.eccentricity >= ecc_sep )) & ( interscale_tree.interscale_maximum.level < lvl_sep_lin ) :
         
-        image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_datacube, label_datacube, filter = haar, \
+        image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_cube, label_cube, filter = haar, \
                                                         synthesis_operator = 'SUM', deconv = deconv, verbose = verbose )
         filter_kw = 'HAAR'
 
     else:
         if interscale_tree.interscale_maximum.level <= lvl_sep_op:
-            image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_datacube, label_datacube, filter = bspl, \
+            image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_cube, label_cube, filter = bspl, \
                                                     synthesis_operator = 'SUM', deconv = deconv, verbose = verbose )
         else:
-            image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_datacube, label_datacube, filter = bspl, \
+            image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_cube, label_cube, filter = bspl, \
                                                     synthesis_operator = 'ADJOINT', deconv = deconv, verbose = verbose )
         filter_kw = 'BSPL'
 
-    if interscale_tree.det_err_tube(wavelet_datacube, label_datacube).shape[2] > 1:
-        det_err_image = np.sum(interscale_tree.det_err_tube(wavelet_datacube, label_datacube), axis = 2)
+    if interscale_tree.det_err_tube(wavelet_cube, label_cube).shape[2] > 1:
+        det_err_image = np.sum(interscale_tree.det_err_tube(wavelet_cube, label_cube), axis = 2)
     else:
-        det_err_image = np.squeeze(interscale_tree.det_err_tube(wavelet_datacube, label_datacube), 2) # from (x, y, 1) to (x, y)    
+        det_err_image = np.squeeze(interscale_tree.det_err_tube(wavelet_cube, label_cube), 2) # from (x, y, 1) to (x, y)    
 
     # Security
     if np.isnan(np.sum(image)):
@@ -302,8 +302,8 @@ def restore_objects_default(
     oimage: np.ndarray,
     cg_gamma: float,
     niter: int,
-    wavelet_datacube: wavelet_datacube,
-    label_datacube: label_datacube,
+    wavelet_cube: WaveletCube,
+    label_cube: LabelCube,
     lvl_sep_big: int,
     rm_gamma_for_big: bool,
     extent_sep: float,
@@ -316,7 +316,7 @@ def restore_objects_default(
     size_patch_big: int = 1,
     size_big_objects: int = 512,
     n_cpus: int = 1,
-) -> list[restored_object]:
+) -> list[Atom]:
     """Synthesise a list of interscale trees into atoms.
 
     The restoration entry point the pipeline calls once per iteration. Two
@@ -346,10 +346,10 @@ def restore_objects_default(
         Not used; see Notes.
     niter : int
         Not used; see Notes.
-    wavelet_datacube : dawis.cubes.wavelet_datacube
+    wavelet_cube : dawis.cubes.WaveletCube
         Wavelet coefficients of the residual being restored.
-    label_datacube : dawis.cubes.label_datacube
-        Region labels matching ``wavelet_datacube``.
+    label_cube : dawis.cubes.LabelCube
+        Region labels matching ``wavelet_cube``.
     lvl_sep_big : int
         Scale at or above which an object counts as big, for
         ``rm_gamma_for_big``.
@@ -381,7 +381,7 @@ def restore_objects_default(
 
     Returns
     -------
-    list of restored_object
+    list of Atom
         One atom per tree. In tree order on the serial branch; big objects
         first, then small, on the parallel one.
 
@@ -398,8 +398,8 @@ def restore_objects_default(
         logging.info('Not parallelizing - %d Objects.'%(len(interscale_tree_list)))
         for tree in interscale_tree_list:
             image, det_err_image, filter_kw, flag_convergence, sum_wr, norm_wr = restore_object( tree, \
-                                                                                  wavelet_datacube, \
-                                                                                  label_datacube, \
+                                                                                  wavelet_cube, \
+                                                                                  label_cube, \
                                                                                   extent_sep, \
                                                                                   ecc_sep, \
                                                                                   lvl_sep_lin, \
@@ -411,7 +411,7 @@ def restore_objects_default(
             if (rm_gamma_for_big == False) or (tree.interscale_maximum.level < lvl_sep_big):
                 image = image * gamma  # add attenuation factor
 
-            object_list.append( restored_object(image, det_err_image, tree.bbox, \
+            object_list.append( Atom(image, det_err_image, tree.bbox, \
                                                 tree.interscale_maximum.level, \
                                                 tree.interscale_maximum.eccentricity, \
                                                 filter_kw, \
@@ -475,7 +475,7 @@ def restore_objects_default(
         object_patches = pmap(
             restore_patch,
             big_patches + small_patches,
-            shared = (wavelet_datacube, label_datacube, extent_sep, ecc_sep,
+            shared = (wavelet_cube, label_cube, extent_sep, ecc_sep,
                       lvl_sep_lin, lvl_sep_big, lvl_sep_op, gamma,
                       rm_gamma_for_big, deconv),
             n_workers = n_cpus,

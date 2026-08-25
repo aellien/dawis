@@ -80,8 +80,8 @@ class region(object):
     
 
 def make_regions_full_props(
-    wavelet_datacube,
-    label_datacube,
+    wavelet_cube,
+    label_cube,
     verbose: bool = False,
 ) -> list[region]:
     """Measure every labelled region of a cube.
@@ -92,9 +92,9 @@ def make_regions_full_props(
 
     Parameters
     ----------
-    wavelet_datacube : dawis.cubes.wavelet_datacube
+    wavelet_cube : dawis.cubes.WaveletCube
         The wavelet planes, supplying pixel intensities.
-    label_datacube : dawis.cubes.label_datacube
+    label_cube : dawis.cubes.LabelCube
         The label cube naming the regions.
     verbose : bool, optional
         Log the total number of regions found. Default is False.
@@ -110,27 +110,27 @@ def make_regions_full_props(
     region's maximum. A region with a flat top therefore gets a peak that
     depends on pixel ordering rather than on the data.
 
-    The conversion table is read for ``wavelet_datacube.z_size`` scales, so
+    The conversion table is read for ``wavelet_cube.z_size`` scales, so
     the wavelet cube and the label cube must have the same depth.
     """
 
     region_list = []
-    conv_table = table_noise_stds(wavelet_datacube.z_size, wavelet_type = wavelet_datacube.wavelet_type)
+    conv_table = table_noise_stds(wavelet_cube.z_size, wavelet_type = wavelet_cube.wavelet_type)
 
-    for level in range(0, label_datacube.z_size):
+    for level in range(0, label_cube.z_size):
 
-        props_skimage = regionprops(label_datacube.array[:,:,level].astype(int), wavelet_datacube.array[:,:,level])
+        props_skimage = regionprops(label_cube.array[:,:,level].astype(int), wavelet_cube.array[:,:,level])
         
         for region_skimage in props_skimage:
 
             x_max, y_max = region_skimage.coords[np.where(\
-                                  wavelet_datacube.array[region_skimage.coords[:,0], \
+                                  wavelet_cube.array[region_skimage.coords[:,0], \
                                                          region_skimage.coords[:,1], \
                                                          level] == region_skimage.max_intensity)][0]
 
 
             x_min, y_min = region_skimage.coords[np.where(\
-                                  wavelet_datacube.array[region_skimage.coords[:,0], \
+                                  wavelet_cube.array[region_skimage.coords[:,0], \
                                                          region_skimage.coords[:,1], \
                                                          level] == region_skimage.min_intensity)][0]
 
@@ -163,7 +163,7 @@ def make_regions_full_props(
 
     return region_list
 
-def make_regions_crucial_props(wavelet_datacube, label_datacube, n_cpus = 1, verbose = False):
+def make_regions_crucial_props(wavelet_cube, label_cube, n_cpus = 1, verbose = False):
     """Measure only peak and area, in parallel. Deprecated and broken.
 
     .. deprecated:: 0.0.7
@@ -176,12 +176,12 @@ def make_regions_crucial_props(wavelet_datacube, label_datacube, n_cpus = 1, ver
        Use :func:`make_regions_full_props`.
     """
 
-    conv_table = table_noise_stds(wavelet_datacube.z_size, wavelet_type = wavelet_datacube.wavelet_type)
+    conv_table = table_noise_stds(wavelet_cube.z_size, wavelet_type = wavelet_cube.wavelet_type)
 
     region_list = []
-    region_tab = np.zeros((int(np.sum(label_datacube.lab_counts)), 12), order = 'F')
-    wavelet_array = np.copy(wavelet_datacube.array, order='F')
-    label_array = np.copy(label_datacube.array, order='F')
+    region_tab = np.zeros((int(np.sum(label_cube.lab_counts)), 12), order = 'F')
+    wavelet_array = np.copy(wavelet_cube.array, order='F')
+    label_array = np.copy(label_cube.array, order='F')
 
     region_tab[:,3] = 1.
     region_tab[:,4] =- 1.
@@ -190,7 +190,7 @@ def make_regions_crucial_props(wavelet_datacube, label_datacube, n_cpus = 1, ver
     local_maxima_regions_para(region_tab, \
                               wavelet_array, \
                               label_array, \
-                              label_datacube.lab_counts, \
+                              label_cube.lab_counts, \
                               n_cpus, \
                               verbose )
 

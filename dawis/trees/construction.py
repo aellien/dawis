@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from dawis.cubes import label_datacube, wavelet_datacube
+from dawis.cubes import LabelCube, WaveletCube
 from dawis.detection import region
 from dawis.restoration.deconvolution import richardson_lucy_np, twod_B2spline
 from dawis.wavelets import atrous
@@ -58,10 +58,10 @@ class interscale_tree(object):
         is the coarsest scale the tree spans.
     region_list : list of dawis.detection.regions.region, optional
         The connected regions, interscale maximum included.
-    wavelet_datacube : dawis.cubes.wavelet_datacube, optional
+    wavelet_cube : dawis.cubes.WaveletCube, optional
         Wavelet planes the regions were measured on. Read once, to size the
         extent; not stored.
-    label_datacube : dawis.cubes.label_datacube, optional
+    label_cube : dawis.cubes.LabelCube, optional
         Label cube the regions were labelled in. Read once, for the cube
         dimensions and the extent; not stored.
     det_err_array : numpy.ndarray, optional
@@ -108,8 +108,8 @@ class interscale_tree(object):
         self,
         interscale_maximum: region | None = None,
         region_list: list[region] | None = None,
-        wavelet_datacube: wavelet_datacube | None = None,
-        label_datacube: label_datacube | None = None,
+        wavelet_cube: WaveletCube | None = None,
+        label_cube: LabelCube | None = None,
         det_err_array: np.ndarray | None = None,
         clip: int = 30,
         blank: bool = False,
@@ -131,11 +131,11 @@ class interscale_tree(object):
             y_max = np.max([ x.bbox[3] for x in self.region_list ])
 
             # Extent
-            clip = np.copy(label_datacube.array[ x_min:x_max, \
+            clip = np.copy(label_cube.array[ x_min:x_max, \
                                                 y_min:y_max, \
                                                     : ])
             self.bbox = (x_min, y_min, x_max, y_max)
-            extent_im = np.sum( self.tubes( wavelet_datacube, label_datacube )[1], axis = 2 )
+            extent_im = np.sum( self.tubes( wavelet_cube, label_cube )[1], axis = 2 )
             n_pix = np.size( np.where( extent_im != 0. )[0] )
             self.extent = n_pix / ( ( x_max - x_min ) * ( y_max - y_min ) )
 
@@ -143,25 +143,25 @@ class interscale_tree(object):
             x_min -= int( ( x_max - x_min ) / 2. )
             x_max += int( ( x_max - x_min ) / 2. )
             if x_min < 0: x_min = 0
-            if x_max > label_datacube.x_size: x_max = label_datacube.x_size
+            if x_max > label_cube.x_size: x_max = label_cube.x_size
 
             y_min -= int( ( y_max - y_min ) / 2. )
             y_max += int( ( y_max - y_min ) / 2. )
             if y_min < 0: y_min = 0
-            if y_max > label_datacube.y_size: y_max = label_datacube.y_size
+            if y_max > label_cube.y_size: y_max = label_cube.y_size
 
             # Clip
             if x_max - x_min < self.clip:
                 x_min = int( (x_max + x_min) / 2. - self.clip / 2. + 1.)   # we resize it to the minclip
                 x_max = int( (x_max + x_min) / 2. + self.clip / 2. + 1.)   # value.
                 if x_min < 0: x_min = 0
-                if x_max > label_datacube.x_size: x_max = label_datacube.x_size
+                if x_max > label_cube.x_size: x_max = label_cube.x_size
 
             if y_max - y_min < self.clip:
                 y_min = int( (y_max + y_min) / 2. - self.clip / 2. + 1.)   # we resize it to the minclip
                 y_max = int( (y_max + y_min) / 2. + self.clip / 2. + 1.)   # value.
                 if y_min < 0: y_min = 0
-                if y_max > label_datacube.y_size: y_max = label_datacube.y_size
+                if y_max > label_cube.y_size: y_max = label_cube.y_size
 
             self.bbox = (x_min, y_min, x_max, y_max)
             self.x_size = x_max - x_min
@@ -173,8 +173,8 @@ class interscale_tree(object):
         
     def det_err_tube(
         self,
-        wavelet_datacube: wavelet_datacube,
-        label_datacube: label_datacube,
+        wavelet_cube: WaveletCube,
+        label_cube: LabelCube,
     ) -> np.ndarray:
         """Build the detection uncertainty of the tree, plane by plane.
 
@@ -184,9 +184,9 @@ class interscale_tree(object):
 
         Parameters
         ----------
-        wavelet_datacube : dawis.cubes.wavelet_datacube
+        wavelet_cube : dawis.cubes.WaveletCube
             Wavelet planes the tree was built on.
-        label_datacube : dawis.cubes.label_datacube
+        label_cube : dawis.cubes.LabelCube
             Label cube the tree was built on.
 
         Returns
@@ -197,7 +197,7 @@ class interscale_tree(object):
             restoration sums it into the uncertainty map of the atom.
         """
 
-        wavelet_tube, support_tube, label_tube = self.tubes(wavelet_datacube, label_datacube)
+        wavelet_tube, support_tube, label_tube = self.tubes(wavelet_cube, label_cube)
         det_err_tube = np.copy(support_tube)
         
         for level in range(0, det_err_tube.shape[2]):
@@ -208,8 +208,8 @@ class interscale_tree(object):
     
     def tubes(
         self,
-        wavelet_datacube: wavelet_datacube,
-        label_datacube: label_datacube,
+        wavelet_cube: WaveletCube,
+        label_cube: LabelCube,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Cut the tree out of the cubes.
 
@@ -219,9 +219,9 @@ class interscale_tree(object):
 
         Parameters
         ----------
-        wavelet_datacube : dawis.cubes.wavelet_datacube
+        wavelet_cube : dawis.cubes.WaveletCube
             Wavelet planes to read the coefficients from.
-        label_datacube : dawis.cubes.label_datacube
+        label_cube : dawis.cubes.LabelCube
             Label cube to read the labels from.
 
         Returns
@@ -251,13 +251,13 @@ class interscale_tree(object):
 
             wavelet_tube[ region.coords[:,0] - self.bbox[0], \
                           region.coords[:,1] - self.bbox[1], \
-                          region.level] = wavelet_datacube.array[ region.coords[:,0], \
+                          region.level] = wavelet_cube.array[ region.coords[:,0], \
                                                           region.coords[:,1], \
                                                           region.level ]
 
             label_tube[ region.coords[:,0] - self.bbox[0], \
                         region.coords[:,1] - self.bbox[1], \
-                        region.level] = label_datacube.array[ region.coords[:,0], \
+                        region.level] = label_cube.array[ region.coords[:,0], \
                                                               region.coords[:,1], \
                                                               region.level ]
 
@@ -331,8 +331,8 @@ class interscale_tree(object):
 
     def CG_minimization(
         self,
-        wavelet_datacube: wavelet_datacube,
-        label_datacube: label_datacube,
+        wavelet_cube: WaveletCube,
+        label_cube: LabelCube,
         filter: np.ndarray,
         deconv: bool = False,
         synthesis_operator: str = 'ADJOINT',
@@ -355,9 +355,9 @@ class interscale_tree(object):
 
         Parameters
         ----------
-        wavelet_datacube : dawis.cubes.wavelet_datacube
+        wavelet_cube : dawis.cubes.WaveletCube
             Wavelet planes the tree was built on.
-        label_datacube : dawis.cubes.label_datacube
+        label_cube : dawis.cubes.LabelCube
             Label cube the tree was built on.
         filter : numpy.ndarray
             1D low-band filter of the à trous transform, normally B3-spline.
@@ -397,7 +397,7 @@ class interscale_tree(object):
         describe the image actually returned rather than the last iterate.
         """
 
-        wavelet_tube, support_tube, label_tube = self.tubes(wavelet_datacube, label_datacube)
+        wavelet_tube, support_tube, label_tube = self.tubes(wavelet_cube, label_cube)
         n_levels = wavelet_tube.shape[2]
 
         if deconv == True:

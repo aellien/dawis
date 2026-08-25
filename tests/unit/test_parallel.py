@@ -341,8 +341,8 @@ def _drive_tree_batching(monkeypatch, n_roots, n_cpus, size_patch):
     roots = [_FakeRegion(index) for index in range(n_roots)]
     trees = deblending.make_interscale_trees(
         region_list=roots,
-        wavelet_datacube='wavelet-cube',
-        label_datacube=_FakeLabelCube(),
+        wavelet_cube='wavelet-cube',
+        label_cube=_FakeLabelCube(),
         det_err_array='errors',
         tau=0.0,
         size_patch=size_patch,

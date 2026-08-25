@@ -6,8 +6,8 @@ block — carries no matplotlib.
 
 :func:`plot_cube` is the grid of planes, and it is one name rather than two.
 The classes carried two versions of it: the plain one on
-:class:`~dawis.cubes.datacube`, and an override on
-:class:`~dawis.cubes.wavelet_datacube` that puts a symmetric-log norm on
+:class:`~dawis.cubes.Cube`, and an override on
+:class:`~dawis.cubes.WaveletCube` that puts a symmetric-log norm on
 coefficients which straddle zero over several decades. Method overriding is
 how the class tree spelled that choice; :func:`functools.singledispatch`
 spells it here, on the same types and with the same result, so a caller
@@ -36,10 +36,10 @@ import numpy as np
 from matplotlib.colors import SymLogNorm
 
 from dawis.cubes import (
-    datacube,
-    label_datacube,
-    support_datacube,
-    wavelet_datacube,
+    Cube,
+    LabelCube,
+    SupportCube,
+    WaveletCube,
 )
 
 __all__ = [
@@ -51,17 +51,17 @@ __all__ = [
 
 
 @singledispatch
-def plot_cube(cube: datacube, ncol: int = 5, name: str | None = None,
+def plot_cube(cube: Cube, ncol: int = 5, name: str | None = None,
               show: bool = True, save_path: str | None = None, **kwargs) -> None:
     """Draw every plane of a cube as a grid of images.
 
     Dispatches on the type of ``cube``: a
-    :class:`~dawis.cubes.wavelet_datacube` gets the symmetric-log treatment
+    :class:`~dawis.cubes.WaveletCube` gets the symmetric-log treatment
     its coefficients need, every other cube gets the plain grid below.
 
     Parameters
     ----------
-    cube : dawis.cubes.datacube
+    cube : dawis.cubes.Cube
         The cube to draw.
     ncol : int, optional
         Number of columns in the grid. Default is 5.
@@ -80,8 +80,8 @@ def plot_cube(cube: datacube, ncol: int = 5, name: str | None = None,
     >>> from numpy.random import normal
     >>> import dawis
     >>> import dawis.viz as viz
-    >>> dc = dawis.datacube(normal(0, 1, (100, 100, 10)), dctype = 'NONE')
-    >>> viz.plot_cube(dc, name = 'Datacube of random values')
+    >>> dc = dawis.Cube(normal(0, 1, (100, 100, 10)), dctype = 'NONE')
+    >>> viz.plot_cube(dc, name = 'Cube of random values')
     >>> viz.plot_cube(dc, ncol = 2, cmap = 'hot', interpolation = 'bicubic')
     """
 
@@ -95,7 +95,7 @@ def plot_cube(cube: datacube, ncol: int = 5, name: str | None = None,
                               gridspec_kw = {'hspace': 0.2, 'wspace': 0.2})
 
     if name == None:
-        fig.suptitle('Datacube of type %s'%(cube.dctype) )
+        fig.suptitle('Cube of type %s'%(cube.dctype) )
     else:
         fig.suptitle(name)
 
@@ -141,12 +141,12 @@ def plot_cube(cube: datacube, ncol: int = 5, name: str | None = None,
 
 
 @plot_cube.register
-def _plot_wavelet_cube(cube: wavelet_datacube, ncol: int = 5,
+def _plot_wavelet_cube(cube: WaveletCube, ncol: int = 5,
                        name: str | None = None, show: bool = True,
                        save_path: str | None = None, **kwargs) -> None:
     """Draw a wavelet cube's planes, on a symmetric-log colour scale.
 
-    The branch :meth:`dawis.cubes.wavelet_datacube.waveplot` was before #46.
+    The branch :meth:`dawis.cubes.WaveletCube.waveplot` was before #46.
     Same arguments as :func:`plot_cube`; a ``norm`` passed in ``kwargs`` is
     honoured and suppresses the symmetric-log default.
     """
@@ -162,7 +162,7 @@ def _plot_wavelet_cube(cube: wavelet_datacube, ncol: int = 5,
                               gridspec_kw = {'hspace': 0.2, 'wspace': 0.2})
 
     if name == None:
-        fig.suptitle('Datacube of type %s'%(cube.dctype) )
+        fig.suptitle('Cube of type %s'%(cube.dctype) )
     else:
         fig.suptitle(name)
 
@@ -226,13 +226,13 @@ def _plot_wavelet_cube(cube: wavelet_datacube, ncol: int = 5,
         plt.close()
 
 
-def plot_wavelet_stds(cube: wavelet_datacube, name: str | None = None, show: bool = True,
+def plot_wavelet_stds(cube: WaveletCube, name: str | None = None, show: bool = True,
                       save_path: str | None = None, **kwargs) -> None:
     """Plot the standard deviation of a wavelet cube against scale.
 
     Parameters
     ----------
-    cube : dawis.cubes.wavelet_datacube
+    cube : dawis.cubes.WaveletCube
         The cube to measure.
     name : str, optional
         Figure title. Default is None, which titles it generically.
@@ -245,7 +245,7 @@ def plot_wavelet_stds(cube: wavelet_datacube, name: str | None = None, show: boo
 
     Notes
     -----
-    Carried through unchanged from ``wavelet_datacube.std_plot``, defect
+    Carried through unchanged from ``WaveletCube.std_plot``, defect
     included: the log scale is set with ``basey``, an argument matplotlib
     removed in 3.3, so this raises ``TypeError`` on any current install. It is
     a one-word fix — ``base`` — but a drawing change rather than a move, so it
@@ -272,13 +272,13 @@ def plot_wavelet_stds(cube: wavelet_datacube, name: str | None = None, show: boo
         plt.close()
 
 
-def plot_noise_histogram(cube: support_datacube, name: str | None = None, show: bool = True,
+def plot_noise_histogram(cube: SupportCube, name: str | None = None, show: bool = True,
                          save_path: str | None = None, **kwargs) -> None:
     """Histogram the noise pixels a support cube kept from thresholding.
 
     Parameters
     ----------
-    cube : dawis.cubes.support_datacube
+    cube : dawis.cubes.SupportCube
         The support cube, carrying the sigma-clipped noise pixels.
     name : str, optional
         Figure title. Default is None, which titles it by cube type.
@@ -293,7 +293,7 @@ def plot_noise_histogram(cube: support_datacube, name: str | None = None, show: 
     fig = plt.figure()
 
     if name == None:
-        fig.suptitle('Datacube of type %s'%(cube.dctype) )
+        fig.suptitle('Cube of type %s'%(cube.dctype) )
     else:
         fig.suptitle(name)
 
@@ -313,13 +313,13 @@ def plot_noise_histogram(cube: support_datacube, name: str | None = None, show: 
         plt.close()
 
 
-def plot_label_counts(cube: label_datacube, name: str | None = None, show: bool = True,
+def plot_label_counts(cube: LabelCube, name: str | None = None, show: bool = True,
                       save_path: str | None = None, **kwargs) -> None:
     """Plot how many labelled regions a label cube holds at each scale.
 
     Parameters
     ----------
-    cube : dawis.cubes.label_datacube
+    cube : dawis.cubes.LabelCube
         The cube to read the per-scale counts from.
     name : str, optional
         Figure title. Default is None, which titles it generically.

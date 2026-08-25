@@ -21,11 +21,11 @@ CUBE_SHAPE = (8, 6, 4)
 
 #: Every cube class, in the one vocabulary the package exports.
 CUBE_CLASSES = (
-    'datacube',
-    'wavelet_datacube',
-    'coarse_datacube',
-    'support_datacube',
-    'label_datacube',
+    'Cube',
+    'WaveletCube',
+    'CoarseCube',
+    'SupportCube',
+    'LabelCube',
 )
 
 
@@ -38,7 +38,7 @@ def planes() -> np.ndarray:
 
 def test_a_cube_reports_the_shape_it_was_built_from(planes):
     """The advertised sizes are the sizes of the array."""
-    cube = dawis.datacube(planes)
+    cube = dawis.Cube(planes)
 
     assert cube.shape == CUBE_SHAPE, (
         f"the cube reports shape {cube.shape} but was built from an array of "
@@ -52,7 +52,7 @@ def test_a_cube_reports_the_shape_it_was_built_from(planes):
 
 def test_a_cube_hands_back_the_plane_that_was_put_in(planes):
     """Slicing by scale returns that scale, unchanged and in order."""
-    cube = dawis.datacube(planes)
+    cube = dawis.Cube(planes)
 
     for scale in range(CUBE_SHAPE[2]):
         np.testing.assert_array_equal(
@@ -66,12 +66,12 @@ def test_a_cube_hands_back_the_plane_that_was_put_in(planes):
 def test_anything_that_is_not_a_stack_of_planes_is_refused(shape):
     """A cube is three-dimensional; nothing else will do."""
     with pytest.raises(dawis.DawisDimensionError):
-        dawis.datacube(np.zeros(shape))
+        dawis.Cube(np.zeros(shape))
 
 
 def test_a_wavelet_cube_remembers_its_wavelet(planes):
     """A wavelet cube carries the transform its numbers came from."""
-    cube = dawis.wavelet_datacube(planes, "BSPL")
+    cube = dawis.WaveletCube(planes, "BSPL")
 
     assert cube.wavelet_type == "BSPL"
     assert cube.fheader["DCTYPE"] == "WAVELET"
@@ -82,7 +82,7 @@ def test_a_support_cube_remembers_its_threshold_and_its_noise(planes):
     """A support cube carries how it was cut and the noise it was cut on."""
     noise = planes[:, :, 0].flatten()
 
-    cube = dawis.support_datacube(planes, "HARD", noise)
+    cube = dawis.SupportCube(planes, "HARD", noise)
 
     assert cube.threshold_type == "HARD"
     assert cube.fheader["DCTYPE"] == "SUPPORT"
@@ -93,7 +93,7 @@ def test_a_label_cube_remembers_how_many_regions_it_holds(planes):
     """A label cube carries the region count of every scale."""
     counts = np.array([3.0, 5.0, 2.0, 0.0])
 
-    cube = dawis.label_datacube(planes, counts)
+    cube = dawis.LabelCube(planes, counts)
 
     np.testing.assert_array_equal(cube.lab_counts, counts)
     assert cube.fheader["LABC"] == counts.sum()
@@ -101,11 +101,11 @@ def test_a_label_cube_remembers_how_many_regions_it_holds(planes):
 
 def test_a_cube_survives_a_trip_to_disk_and_back(planes, tmp_path: Path):
     """Writing a cube to FITS and reading it back changes nothing."""
-    written = dawis.wavelet_datacube(planes.astype(np.float32), "BSPL")
+    written = dawis.WaveletCube(planes.astype(np.float32), "BSPL")
     filename = tmp_path / "cube.fits"
     written.to_fits(filename)
 
-    read_back = dawis.wavelet_datacube.from_fits(filename)
+    read_back = dawis.WaveletCube.from_fits(filename)
 
     np.testing.assert_array_equal(
         read_back.array,
@@ -125,7 +125,7 @@ def test_region_labels_are_unique_across_the_whole_cube():
     for scale in range(CUBE_SHAPE[2]):
         support_array[1, 1, scale] = 1.0
         support_array[5, 4, scale] = 1.0
-    support = dawis.support_datacube(support_array, "HARD", np.zeros(10))
+    support = dawis.SupportCube(support_array, "HARD", np.zeros(10))
 
     labels = dawis.label_regions(support)
 

@@ -37,7 +37,7 @@ import logging
 
 import numpy as np
 
-from dawis.cubes import label_datacube, wavelet_datacube
+from dawis.cubes import LabelCube, WaveletCube
 from dawis.detection import region
 from dawis.parallel import pmap
 from dawis.trees.construction import interscale_tree
@@ -46,8 +46,8 @@ from dawis.trees.construction import interscale_tree
 def interscale_connectivity(
     interscale_maximum_list: list[region],
     region_list: list[region],
-    wavelet_datacube: wavelet_datacube,
-    label_datacube: label_datacube,
+    wavelet_cube: WaveletCube,
+    label_cube: LabelCube,
     det_err_array: np.ndarray,
     level_maximum: int,
     min_span: int = 3,
@@ -72,9 +72,9 @@ def interscale_connectivity(
         The roots to build trees around.
     region_list : list of dawis.detection.regions.region
         Every region detected, on every scale, to draw members from.
-    wavelet_datacube : dawis.cubes.wavelet_datacube
+    wavelet_cube : dawis.cubes.WaveletCube
         Wavelet planes the regions were measured on.
-    label_datacube : dawis.cubes.label_datacube
+    label_cube : dawis.cubes.LabelCube
         Label cube the regions were labelled in.
     det_err_array : numpy.ndarray
         Per-scale detection uncertainty, handed to each tree built.
@@ -115,7 +115,7 @@ def interscale_connectivity(
             pmax_span = max_span
             pmin_span = min_span
 
-        tube = label_datacube.array[interscale_maximum.coords[:,0], interscale_maximum.coords[:,1], :level_maximum + 1]
+        tube = label_cube.array[interscale_maximum.coords[:,0], interscale_maximum.coords[:,1], :level_maximum + 1]
         covered_label_list = list(np.unique(tube))
         
         covered_region_list = [x for x in region_list if x.label in covered_label_list]
@@ -133,14 +133,14 @@ def interscale_connectivity(
             n_rejected += 1
             continue
 
-        interscale_tree_list.append(interscale_tree(interscale_maximum, connected_region_list, wavelet_datacube, label_datacube, det_err_array))
+        interscale_tree_list.append(interscale_tree(interscale_maximum, connected_region_list, wavelet_cube, label_cube, det_err_array))
         
     return interscale_tree_list
 
 def make_interscale_trees(
     region_list: list[region],
-    wavelet_datacube: wavelet_datacube,
-    label_datacube: label_datacube,
+    wavelet_cube: WaveletCube,
+    label_cube: LabelCube,
     det_err_array: np.ndarray,
     tau: float = 0.8,
     min_span: int = 3,
@@ -171,9 +171,9 @@ def make_interscale_trees(
     region_list : list of dawis.detection.regions.region
         Every region detected, on every scale. **Sorted in place** by
         descending normalised intensity.
-    wavelet_datacube : dawis.cubes.wavelet_datacube
+    wavelet_cube : dawis.cubes.WaveletCube
         Wavelet planes the regions were measured on.
-    label_datacube : dawis.cubes.label_datacube
+    label_cube : dawis.cubes.LabelCube
         Label cube the regions were labelled in.
     det_err_array : numpy.ndarray
         Per-scale detection uncertainty, handed to each tree built.
@@ -220,7 +220,7 @@ def make_interscale_trees(
     region_list.sort(key = lambda x: x.norm_max_intensity, reverse = True)
 
     i = 0
-    levels_rejected = [ 0, label_datacube.z_size ]
+    levels_rejected = [ 0, label_cube.z_size ]
     threshold_maximum = region_list[0].norm_max_intensity * tau
     level_maximum = region_list[0].level
 
@@ -264,7 +264,7 @@ def make_interscale_trees(
     tree_patches = pmap(
         interscale_connectivity,
         patches,
-        shared = (region_list, wavelet_datacube, label_datacube, det_err_array,
+        shared = (region_list, wavelet_cube, label_cube, det_err_array,
                   level_maximum, min_span, max_span, lvl_sep_big, min_reg_size,
                   verbose),
         n_workers = workers,

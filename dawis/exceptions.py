@@ -95,5 +95,5 @@ class DawisValueError(DawisError):
 
 if __name__ == '__main__':
 
-    raise DawisDimensionError('Not a datacube -->', 2, 3)
+    raise DawisDimensionError('Not a cube -->', 2, 3)
     raise DawisDimensionError('Not an image -->', 3, 2)

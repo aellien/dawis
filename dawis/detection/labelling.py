@@ -17,13 +17,13 @@ import logging
 import numpy as np
 from skimage.measure import label
 
-from dawis.cubes import label_datacube, support_datacube
+from dawis.cubes import LabelCube, SupportCube
 
 
 def label_regions(
-    support_datacube: support_datacube,
+    support_cube: SupportCube,
     verbose: bool = False,
-) -> label_datacube:
+) -> LabelCube:
     """Label the connected regions of a multiscale support.
 
     Each plane of the support is labelled independently with 4-connectivity,
@@ -32,7 +32,7 @@ def label_regions(
 
     Parameters
     ----------
-    support_datacube : dawis.cubes.support_datacube
+    support_cube : dawis.cubes.SupportCube
         Binary significance cube, as returned by
         :func:`~dawis.detection.thresholding.hard_threshold`.
     verbose : bool, optional
@@ -40,7 +40,7 @@ def label_regions(
 
     Returns
     -------
-    dawis.cubes.label_datacube
+    dawis.cubes.LabelCube
         Integer cube of labels, 0 outside any region, carrying the per-scale
         region counts.
 
@@ -54,15 +54,15 @@ def label_regions(
     plane onwards. The pipeline always decomposes on several scales.
     """
 
-    label_array = np.zeros(support_datacube.shape, order = 'f')
-    lab_counts = np.zeros(support_datacube.z_size)
+    label_array = np.zeros(support_cube.shape, order = 'f')
+    lab_counts = np.zeros(support_cube.z_size)
 
     if verbose == True:
         log = logging.getLogger(__name__)
         log.info('\nLabelling regions')
 
-    for level in range(0, support_datacube.z_size):
-        label_array[:, :, level], lab_counts[level] = label(support_datacube.array[:,:,level], \
+    for level in range(0, support_cube.z_size):
+        label_array[:, :, level], lab_counts[level] = label(support_cube.array[:,:,level], \
                                                       connectivity = 1, \
                                                       return_num = True)
         if level != 0:
@@ -80,6 +80,6 @@ def label_regions(
 
     del temp, reg
 
-    label_dc = label_datacube(label_array, lab_counts, support_datacube.fheader)
+    label_dc = LabelCube(label_array, lab_counts, support_cube.fheader)
 
     return label_dc

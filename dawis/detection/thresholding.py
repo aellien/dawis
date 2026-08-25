@@ -18,17 +18,17 @@ import logging
 import numpy as np
 from scipy.stats import normaltest, sigmaclip
 
-from dawis.cubes import support_datacube, wavelet_datacube
+from dawis.cubes import SupportCube, WaveletCube
 from dawis.detection.noise import table_noise_stds
 
 
 def hard_threshold(
-    wavelet_datacube: wavelet_datacube,
+    wavelet_cube: WaveletCube,
     n_sigmas: float = 3,
     wavelet_type: str | None = None,
     keep_neg: bool = False,
     verbose: bool = False,
-) -> support_datacube:
+) -> SupportCube:
     """Threshold a wavelet cube into a binary significance support.
 
     The noise spread ``sigma`` is estimated once, by sigma-clipping the
@@ -38,7 +38,7 @@ def hard_threshold(
 
     Parameters
     ----------
-    wavelet_datacube : dawis.cubes.wavelet_datacube
+    wavelet_cube : dawis.cubes.WaveletCube
         The wavelet planes to threshold.
     n_sigmas : float, optional
         Detection threshold in units of the image noise spread. Also the
@@ -55,7 +55,7 @@ def hard_threshold(
 
     Returns
     -------
-    dawis.cubes.support_datacube
+    dawis.cubes.SupportCube
         Binary cube, 1 where the coefficient is significant, tagged
         ``'HARD'`` and carrying the clipped noise pixels used for the
         estimate.
@@ -87,21 +87,21 @@ def hard_threshold(
 
     # Add exceptions
 
-    x_axis, y_axis, n_levels = wavelet_datacube.shape
+    x_axis, y_axis, n_levels = wavelet_cube.shape
 
     support = np.zeros((x_axis, y_axis, n_levels))
 
     if wavelet_type:
         conv_table = table_noise_stds(n_levels, wavelet_type = wavelet_type)
     else:
-        wavelet_type = wavelet_datacube.fheader['WAVTYPE']
+        wavelet_type = wavelet_cube.fheader['WAVTYPE']
         conv_table = table_noise_stds(n_levels, wavelet_type = wavelet_type)
 
     if verbose == True:
         log = logging.getLogger(__name__)
-        log.info('\ncreating support datacube : hard thresholding')
+        log.info('\ncreating support cube : hard thresholding')
 
-    noise_pixels = np.copy(wavelet_datacube.array[:,:,0]).flatten()
+    noise_pixels = np.copy(wavelet_cube.array[:,:,0]).flatten()
     noise_pixels = np.delete(noise_pixels, np.where(noise_pixels == 0) )
     noise_pixels = sigmaclip(noise_pixels, low = n_sigmas, high = n_sigmas)[0]
     sigma = np.std(noise_pixels)
@@ -116,11 +116,11 @@ def hard_threshold(
     for level in range(0, n_levels):
 
         if keep_neg == True:
-            non_masked_pixels = np.where( abs( wavelet_datacube.array[:,:, level] )\
+            non_masked_pixels = np.where( abs( wavelet_cube.array[:,:, level] )\
                          >= (n_sigmas * sigma * conv_table[level] ))
 
         elif keep_neg == False:
-            non_masked_pixels = np.where( wavelet_datacube.array[:,:,level]\
+            non_masked_pixels = np.where( wavelet_cube.array[:,:,level]\
                          >= (n_sigmas * sigma * conv_table[level] ))
 
         temp = support[:,:,level]
@@ -130,7 +130,7 @@ def hard_threshold(
         if verbose == True:
             log.info('level %02d sigma %f' %(level+1, n_sigmas*sigma*conv_table[level] ))
 
-    support_dc = support_datacube(support, threshold_type = 'HARD', \
+    support_dc = SupportCube(support, threshold_type = 'HARD', \
                                          noise_pixels = noise_pixels, \
-                                         fheader = wavelet_datacube.fheader)
+                                         fheader = wavelet_cube.fheader)
     return support_dc

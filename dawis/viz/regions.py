@@ -14,14 +14,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.offsetbox import AnchoredText
 
-from dawis.cubes import label_datacube, wavelet_datacube
+from dawis.cubes import LabelCube, WaveletCube
 from dawis.detection import region as region_class
 
 __all__ = ['plot_region']
 
 
-def plot_region(region: region_class, wavelet_datacube: wavelet_datacube,
-                label_datacube: label_datacube, name: str | None = None,
+def plot_region(region: region_class, wavelet_cube: WaveletCube,
+                label_cube: LabelCube, name: str | None = None,
                 show: bool = True, save_path: str | None = None,
                 **kwargs) -> None:
     """Show a region's cutout of its wavelet plane, with its outline.
@@ -30,9 +30,9 @@ def plot_region(region: region_class, wavelet_datacube: wavelet_datacube,
     ----------
     region : dawis.detection.regions.region
         The region to draw.
-    wavelet_datacube : dawis.cubes.wavelet_datacube
+    wavelet_cube : dawis.cubes.WaveletCube
         The cube the region was detected on, supplying the pixels.
-    label_datacube : dawis.cubes.label_datacube
+    label_cube : dawis.cubes.LabelCube
         The label cube, supplying the outline.
     name : str, optional
         Figure title. Default is None, which titles it by label.
@@ -64,14 +64,14 @@ def plot_region(region: region_class, wavelet_datacube: wavelet_datacube,
         fig.suptitle(name)
 
     if region.bbox == False:
-        coo_region = np.where( label_datacube.array == region.label )
+        coo_region = np.where( label_cube.array == region.label )
         min_x_axis = np.min(coo_region[0])
         max_x_axis = np.max(coo_region[0])
         min_y_axis = np.min(coo_region[1])
         max_y_axis = np.max(coo_region[1])
         region.bbox = (min_x_axis, min_y_axis, max_x_axis, max_y_axis)
 
-    plt.imshow( wavelet_datacube.array[ region.bbox[0]:region.bbox[2], \
+    plt.imshow( wavelet_cube.array[ region.bbox[0]:region.bbox[2], \
                                         region.bbox[1]:region.bbox[3], \
                                         int(region.level) ], \
                 extent = ( region.bbox[1], region.bbox[3], \
@@ -89,7 +89,7 @@ def plot_region(region: region_class, wavelet_datacube: wavelet_datacube,
                                             prop=dict(size=10)))
 
     try:
-        clip = label_datacube.array[ region.bbox[0]:region.bbox[2], \
+        clip = label_cube.array[ region.bbox[0]:region.bbox[2], \
                                        region.bbox[1]:region.bbox[3], \
                                        int(region.level) ]
         clip[np.where(clip != region.label)] = 0.

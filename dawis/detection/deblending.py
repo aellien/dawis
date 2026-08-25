@@ -21,19 +21,19 @@ import numpy as np
 from astropy.stats import sigma_clip
 from photutils.segmentation import deblend_sources, detect_sources
 
-from dawis.cubes import label_datacube, wavelet_datacube
+from dawis.cubes import LabelCube, WaveletCube
 from dawis.detection.noise import table_noise_stds
 
 
 def ms_detect_and_deblend(
-    wavelet_datacube: wavelet_datacube,
+    wavelet_cube: WaveletCube,
     n_sigmas: float = 3,
     wavelet_type: str = 'BSPL',
     lvl_deblend: int = 0,
     npixels: int = 10,
     deblend_contrast: float = 0.3,
     verbose: bool = False,
-) -> tuple[label_datacube, np.ndarray]:
+) -> tuple[LabelCube, np.ndarray]:
     """Detect and deblend regions on every plane of a wavelet cube.
 
     The noise spread is measured once by sigma-clipping the finest plane, and
@@ -45,7 +45,7 @@ def ms_detect_and_deblend(
 
     Parameters
     ----------
-    wavelet_datacube : dawis.cubes.wavelet_datacube
+    wavelet_cube : dawis.cubes.WaveletCube
         The wavelet planes to detect on.
     n_sigmas : float, optional
         Detection threshold in units of the image noise spread. Also the
@@ -68,7 +68,7 @@ def ms_detect_and_deblend(
 
     Returns
     -------
-    label_cube : dawis.cubes.label_datacube
+    label_cube : dawis.cubes.LabelCube
         Integer cube of labels, 0 outside any region, carrying the per-scale
         region counts.
     detection_errors : numpy.ndarray
@@ -90,10 +90,10 @@ def ms_detect_and_deblend(
         log = logging.getLogger(__name__)
         log.info('Labelling regions')
     
-    x_axis, y_axis, n_levels = wavelet_datacube.shape
+    x_axis, y_axis, n_levels = wavelet_cube.shape
     
     conv_table = table_noise_stds(n_levels, wavelet_type = wavelet_type)
-    noise_pixels = np.copy(wavelet_datacube.array[:,:,0]).flatten()
+    noise_pixels = np.copy(wavelet_cube.array[:,:,0]).flatten()
     noise_pixels = sigma_clip(noise_pixels, sigma = n_sigmas, sigma_lower = n_sigmas, masked = False)
     sigma = np.std(noise_pixels)
     
@@ -101,18 +101,18 @@ def ms_detect_and_deblend(
     det_err_array = []
         
     # Labels 
-    label_array = np.zeros(wavelet_datacube.shape)
-    lab_counts = np.zeros(wavelet_datacube.z_size)
+    label_array = np.zeros(wavelet_cube.shape)
+    lab_counts = np.zeros(wavelet_cube.z_size)
         
     for level in range(0, n_levels):
             
         threshold = n_sigmas * sigma * conv_table[level]
         det_err_array.append(sigma * conv_table[level]) # uncertainty is taken as 1-sigma std of noise at given wavelet scale
-        segment_map = detect_sources(wavelet_datacube.array[:,:,level], threshold, npixels = npixels)
+        segment_map = detect_sources(wavelet_cube.array[:,:,level], threshold, npixels = npixels)
         
         if level >= lvl_deblend:
             if segment_map:
-                segment_map = deblend_sources(wavelet_datacube.array[:,:,level], segment_map, npixels = npixels, contrast = deblend_contrast, nproc = 1)
+                segment_map = deblend_sources(wavelet_cube.array[:,:,level], segment_map, npixels = npixels, contrast = deblend_contrast, nproc = 1)
         
         
         if segment_map:
@@ -132,4 +132,4 @@ def ms_detect_and_deblend(
                     np.max(label_array[:,:,level])-lab_counts[level]+1,\
                     np.max(label_array[:,:,level])))
             
-    return label_datacube(label_array, lab_counts, wavelet_datacube.fheader), np.array(det_err_array)
+    return LabelCube(label_array, lab_counts, wavelet_cube.fheader), np.array(det_err_array)

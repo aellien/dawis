@@ -36,7 +36,7 @@ import numpy as np
 from dawis.restoration.inpainting import inpaint_with_gaussian_noise
 
 if TYPE_CHECKING:  # pragma: no cover - annotations only
-    from dawis.restoration.synthesis import restored_object
+    from dawis.restoration.synthesis import Atom
 
 __all__ = ['Reconstruction']
 
@@ -81,12 +81,12 @@ class Reconstruction:
         self.restored_per_level = np.zeros((image.shape[0], image.shape[1], n_levels))
         self.det_err = np.zeros(image.shape)
 
-    def add(self, atoms: Sequence[restored_object]) -> np.ndarray:
+    def add(self, atoms: Sequence[Atom]) -> np.ndarray:
         """Take one iteration's atoms out of the residual and into the rest.
 
         Parameters
         ----------
-        atoms : sequence of restored_object
+        atoms : sequence of Atom
             The atoms one iteration restored. Each is added inside its own
             bounding box, so atoms that overlap accumulate.
 

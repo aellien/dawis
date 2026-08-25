@@ -46,7 +46,7 @@ def thresholds(n_sigmas: float) -> np.ndarray:
 
 def test_pure_noise_stays_below_the_threshold():
     """Nothing is flagged in a cube that holds noise and nothing else."""
-    cube = dawis.wavelet_datacube(synthetic_cube(), "BSPL")
+    cube = dawis.WaveletCube(synthetic_cube(), "BSPL")
 
     support = dawis.hard_threshold(cube, n_sigmas=3)
 
@@ -64,7 +64,7 @@ def test_a_value_above_the_threshold_is_flagged_and_one_below_is_not():
     for scale in range(1, CUBE_SHAPE[2]):
         array[10, 10, scale] = level[scale] * 1.01
         array[20, 20, scale] = level[scale] * 0.99
-    cube = dawis.wavelet_datacube(array, "BSPL")
+    cube = dawis.WaveletCube(array, "BSPL")
 
     support = dawis.hard_threshold(cube, n_sigmas=n_sigmas)
 
@@ -83,7 +83,7 @@ def test_the_support_holds_only_zeros_and_ones():
     """The support is a mask, not a weighting."""
     array = synthetic_cube()
     array[30, 30, 3] = 1000.0
-    cube = dawis.wavelet_datacube(array, "BSPL")
+    cube = dawis.WaveletCube(array, "BSPL")
 
     support = dawis.hard_threshold(cube, n_sigmas=3)
 
@@ -98,7 +98,7 @@ def test_raising_the_sigma_cut_can_only_remove_detections():
     rng = np.random.default_rng(20260823)
     array = synthetic_cube()
     array[:, :, 1:] = rng.normal(0.0, 6.0, (64, 64, 5))
-    cube = dawis.wavelet_datacube(array, "BSPL")
+    cube = dawis.WaveletCube(array, "BSPL")
 
     loose = dawis.hard_threshold(cube, n_sigmas=3).array
     tight = dawis.hard_threshold(cube, n_sigmas=5).array
@@ -115,7 +115,7 @@ def test_negative_peaks_are_flagged_only_when_asked_for(keep_negative, expected)
     scale = 2
     array = synthetic_cube()
     array[40, 40, scale] = -thresholds(3)[scale] * 1.01
-    cube = dawis.wavelet_datacube(array, "BSPL")
+    cube = dawis.WaveletCube(array, "BSPL")
 
     support = dawis.hard_threshold(cube, n_sigmas=3, keep_neg=keep_negative)
 
@@ -127,7 +127,7 @@ def test_negative_peaks_are_flagged_only_when_asked_for(keep_negative, expected)
 
 def test_the_support_keeps_the_shape_of_the_cube_it_came_from():
     """One mask plane per wavelet plane, over the same pixels."""
-    cube = dawis.wavelet_datacube(synthetic_cube(), "BSPL")
+    cube = dawis.WaveletCube(synthetic_cube(), "BSPL")
 
     support = dawis.hard_threshold(cube, n_sigmas=3)
 

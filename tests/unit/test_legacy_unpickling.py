@@ -1,18 +1,20 @@
-"""Tier 0 — pickles written before the carve still read back (#50).
+"""Tier 0 — pickles written before the carve still read back (#50, #51).
 
-A pickle records the *module path* of every class it holds, so a run written
-before the carve names ``dawis.restore_objects.restored_object``,
+A pickle records the *module path and class name* of every class it holds, so
+a run written before the carve names ``dawis.restore_objects.restored_object``,
 ``dawis.make_interscale_trees.interscale_tree``, ``dawis.make_regions.region``
 and the cube classes under ``dawis.datacube``. Those paths resolved only
-because the flat shims existed. This ticket deletes them, and the published
-``v0.0.7-h`` outputs are recorded in exactly that format — the regression
-harness (#3) reads its goldens through :func:`read_ol_from_pickle`, and old
-runs resume through the same call. So :mod:`dawis.io.legacy` has to map the
-old paths onto the carved classes itself.
+because the flat shims existed. #50 deleted them and #51 renamed the classes,
+and the published ``v0.0.7-h`` outputs are recorded in exactly the old format —
+the regression harness (#3) reads its goldens through
+:func:`read_ol_from_pickle`, and old runs resume through the same call. So
+:mod:`dawis.io.legacy` has to map both the old paths and the old names onto the
+carved classes itself.
 
 Nothing in the tree can be tested against a real pre-carve file, because none
-is checked in. Instead the classes are pickled *under their old paths* — the
-one thing a shim used to make possible — and read back with the shims gone.
+is checked in. Instead the classes are pickled *under their old paths and old
+names* — the bytes a pre-carve run really wrote — and read back with the shims
+gone and the names changed.
 """
 
 from __future__ import annotations
@@ -28,11 +30,11 @@ import pytest
 
 import dawis.io.legacy as legacy
 from dawis.cubes import (
-    coarse_datacube,
-    datacube,
-    label_datacube,
-    support_datacube,
-    wavelet_datacube,
+    CoarseCube,
+    Cube,
+    LabelCube,
+    SupportCube,
+    WaveletCube,
 )
 from dawis.detection import region
 from dawis.io.legacy import (
@@ -43,19 +45,19 @@ from dawis.io.legacy import (
     write_ol_to_pickle,
     write_regions_to_pickle,
 )
-from dawis.restoration import restored_object
+from dawis.restoration import Atom
 from dawis.trees import interscale_tree
 
 #: Every class a pre-carve run can have written into a pickle.
 PICKLED_CLASSES = (
-    restored_object,
+    Atom,
     interscale_tree,
     region,
-    datacube,
-    wavelet_datacube,
-    coarse_datacube,
-    support_datacube,
-    label_datacube,
+    Cube,
+    WaveletCube,
+    CoarseCube,
+    SupportCube,
+    LabelCube,
 )
 
 #: Where each of them used to live, read *off the map the reader uses* rather
@@ -65,6 +67,20 @@ PRE_CARVE_PATHS = {
     cls: {new: old for old, new in legacy._PRE_CARVE_MODULES.items()}[
         cls.__module__
     ]
+    for cls in PICKLED_CLASSES
+}
+
+
+#: What each of them used to be called, read off the reader's own map for the
+#: same reason. A class #51 left alone maps to the name it already has, so the
+#: forging below can treat every class the same way.
+_OLD_NAME_OF = {
+    (module, new): old
+    for (module, old), new in legacy._PRE_RENAME_CLASSES.items()
+}
+
+PRE_RENAME_NAMES = {
+    cls: _OLD_NAME_OF.get((cls.__module__, cls.__name__), cls.__name__)
     for cls in PICKLED_CLASSES
 }
 
@@ -79,17 +95,33 @@ def test_every_mapped_module_is_exercised():
     assert set(PRE_CARVE_PATHS.values()) == set(legacy._PRE_CARVE_MODULES)
 
 
+def test_every_renamed_class_is_exercised():
+    """Likewise for the name map, which stands between a file and an
+    ``AttributeError``.
+    """
+    exercised = {
+        (cls.__module__, old_name)
+        for cls, old_name in PRE_RENAME_NAMES.items()
+        if old_name != cls.__name__
+    }
+    assert exercised == set(legacy._PRE_RENAME_CLASSES)
+
+
 @contextlib.contextmanager
 def written_before_the_carve():
-    """Make :mod:`pickle` record the pre-carve module path of every class.
+    """Make :mod:`pickle` record the pre-carve path *and name* of every class.
 
     Pickle names a class by ``__module__`` and ``__qualname__``, so pointing
-    ``__module__`` back at the flat module — and putting a stand-in for that
-    module in :data:`sys.modules`, which pickle checks the class against —
-    produces the bytes a pre-carve run really wrote.
+    both back at the flat module and the old class name — and putting a
+    stand-in for that module in :data:`sys.modules`, which pickle checks the
+    class against — produces the bytes a pre-carve run really wrote. Forging
+    the module alone would leave the current name in the stream, and the name
+    map would then go untested by every case below.
     """
 
-    originals = {cls: cls.__module__ for cls in PRE_CARVE_PATHS}
+    originals = {
+        cls: (cls.__module__, cls.__qualname__) for cls in PRE_CARVE_PATHS
+    }
     for old_path in sorted(set(PRE_CARVE_PATHS.values())):
         assert old_path not in sys.modules, (
             '%s is still importable, so this test would pass through the shim '
@@ -97,13 +129,16 @@ def written_before_the_carve():
         )
         sys.modules[old_path] = types.ModuleType(old_path)
     for cls, old_path in PRE_CARVE_PATHS.items():
-        setattr(sys.modules[old_path], cls.__name__, cls)
+        old_name = PRE_RENAME_NAMES[cls]
+        setattr(sys.modules[old_path], old_name, cls)
         cls.__module__ = old_path
+        cls.__qualname__ = old_name
     try:
         yield
     finally:
-        for cls, module_name in originals.items():
+        for cls, (module_name, qualname) in originals.items():
             cls.__module__ = module_name
+            cls.__qualname__ = qualname
         for old_path in set(PRE_CARVE_PATHS.values()):
             sys.modules.pop(old_path, None)
 
@@ -121,7 +156,7 @@ def a_region(label=1, level=2):
 
 def an_atom():
     """One synthesised atom."""
-    return restored_object(
+    return Atom(
         image=np.ones((4, 4)),
         det_err_image=np.zeros((4, 4)),
         bbox=(0, 0, 4, 4),
@@ -161,7 +196,7 @@ def test_atoms_written_before_the_carve_read_back_as_the_carved_class(tmp_path):
 
     [atom] = read_ol_from_pickle(str(path))
 
-    assert type(atom) is restored_object
+    assert type(atom) is Atom
     assert atom.filter == 'BSPL'
     np.testing.assert_array_equal(atom.image, np.ones((4, 4)))
 
@@ -199,11 +234,11 @@ def test_regions_written_before_the_carve_read_back_as_the_carved_class(tmp_path
 @pytest.mark.parametrize(
     'cube',
     [
-        datacube(np.zeros((4, 4, 3)), dctype='NONE'),
-        wavelet_datacube(np.zeros((4, 4, 3)), 'BSPL'),
-        coarse_datacube(np.zeros((4, 4, 3)), 'BSPL'),
-        support_datacube(np.zeros((4, 4, 3)), 'HARD', np.zeros(3)),
-        label_datacube(np.zeros((4, 4, 3)), np.zeros(3)),
+        Cube(np.zeros((4, 4, 3)), dctype='NONE'),
+        WaveletCube(np.zeros((4, 4, 3)), 'BSPL'),
+        CoarseCube(np.zeros((4, 4, 3)), 'BSPL'),
+        SupportCube(np.zeros((4, 4, 3)), 'HARD', np.zeros(3)),
+        LabelCube(np.zeros((4, 4, 3)), np.zeros(3)),
     ],
     ids=['base', 'wavelet', 'coarse', 'support', 'label'],
 )

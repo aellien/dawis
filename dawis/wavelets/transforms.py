@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from dawis.cubes import coarse_datacube, wavelet_datacube
+from dawis.cubes import CoarseCube, WaveletCube
 from dawis.wavelets.atrous import atrous, ser_iuwt_decomposition
 
 
@@ -22,7 +22,7 @@ def bspl_atrous(
     fheader=None,
     conditions: str = 'loop',
     verbose: bool = False,
-) -> wavelet_datacube:
+) -> WaveletCube:
     """Decompose an image on the B3-spline à trous basis.
 
     The decomposition the pipeline runs at every iteration. The coarse plane
@@ -47,7 +47,7 @@ def bspl_atrous(
 
     Returns
     -------
-    wavelet_datacube
+    WaveletCube
         The wavelet planes, of shape ``(nx, ny, n_levels)``, tagged
         ``'BSPL'``.
     """
@@ -55,8 +55,8 @@ def bspl_atrous(
     #filter = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
     #coarse_array, wavelet_array = atrous(image = image, n_levels = n_levels, filter = filter, conditions = 'loop')
     wavelet_array, coarse_array = ser_iuwt_decomposition(image, n_levels, 0, store_smoothed = True)
-    #coarse_dc = coarse_datacube(array = coarse_array, wavelet_type = 'BSPL', fheader = fheader)
-    wavelet_dc = wavelet_datacube(array = wavelet_array, wavelet_type = 'BSPL', fheader = fheader)
+    #coarse_dc = CoarseCube(array = coarse_array, wavelet_type = 'BSPL', fheader = fheader)
+    wavelet_dc = WaveletCube(array = wavelet_array, wavelet_type = 'BSPL', fheader = fheader)
 
     return wavelet_dc
 
@@ -66,7 +66,7 @@ def haar_atrous(
     n_levels: int,
     fheader=None,
     verbose: bool = False,
-) -> tuple[coarse_datacube, wavelet_datacube]:
+) -> tuple[CoarseCube, WaveletCube]:
     """Decompose an image on the Haar à trous basis.
 
     Offered as an alternative basis to :func:`bspl_atrous`. The pipeline does
@@ -85,10 +85,10 @@ def haar_atrous(
 
     Returns
     -------
-    coarse_dc : coarse_datacube
+    coarse_dc : CoarseCube
         The smoothed planes, of shape ``(nx, ny, n_levels + 1)``, tagged
         ``'HAAR'``.
-    wavelet_dc : wavelet_datacube
+    wavelet_dc : WaveletCube
         The wavelet planes, of shape ``(nx, ny, n_levels)``, tagged
         ``'HAAR'``.
     """
@@ -96,8 +96,8 @@ def haar_atrous(
     filter = 1 / 2. * np.array([ 1, 0, 1 ])
     coarse_array, wavelet_array = atrous(image = image, n_levels = n_levels, filter = filter, conditions = 'loop')
 
-    coarse_dc = coarse_datacube(array = coarse_array, wavelet_type = 'HAAR', fheader = fheader)
-    wavelet_dc = wavelet_datacube(array = wavelet_array, wavelet_type = 'HAAR', fheader = fheader)
+    coarse_dc = CoarseCube(array = coarse_array, wavelet_type = 'HAAR', fheader = fheader)
+    wavelet_dc = WaveletCube(array = wavelet_array, wavelet_type = 'HAAR', fheader = fheader)
 
     return coarse_dc, wavelet_dc
 
