@@ -138,12 +138,20 @@ def is_array_in(dawis) -> bool:
     return hasattr(dawis, "run")
 
 
-def golden_config(dawis, cg_max_iter: int, seed: int = TEST_SEED):
+def golden_config(dawis, cg_max_iter: int, seed: int = TEST_SEED,
+                  n_cpus: int | None = None):
     """The published configuration as a ``Config``, for the array-in entry point.
 
     The same ``GOLDEN_PARAMS`` the keyword entry point is handed, filtered
     against the dataclass the way :func:`golden_kwargs` filters against a
     signature, so neither tier restates a knob.
+
+    ``n_cpus`` is the one knob a caller may replace, and ``None`` keeps the
+    published single worker. It is named rather than left to a general
+    override because only one thing has ever needed replacing and only one
+    thing may safely be: the worker count is scheduling since #56, so a run
+    that changes it is still the same science, which is what makes the
+    parallel-consistency check of #57 a comparison rather than two experiments.
     """
     Config = dawis.Config
     knobs = {
@@ -151,6 +159,8 @@ def golden_config(dawis, cg_max_iter: int, seed: int = TEST_SEED):
         for name, value in GOLDEN_PARAMS.items()
         if name in Config.__dataclass_fields__
     }
+    if n_cpus is not None:
+        knobs["n_cpus"] = n_cpus
     # Forced rather than inherited, for the reason :func:`pin_cg_max_iter`
     # gives: the default differs per branch, so inheriting it would compare a
     # golden recorded at one value against a run at another.
@@ -158,7 +168,7 @@ def golden_config(dawis, cg_max_iter: int, seed: int = TEST_SEED):
 
 
 def golden_kwargs(dawis, work_dir: Path, infile: str,
-                  seed: int = TEST_SEED) -> dict:
+                  seed: int = TEST_SEED, n_cpus: int | None = None) -> dict:
     """The exact keyword arguments a golden run passes to the entry point.
 
     The keyword entry point, that is — the one ``legacy-seeded`` records
@@ -180,6 +190,8 @@ def golden_kwargs(dawis, work_dir: Path, infile: str,
         infile=infile,
         outdir=str(work_dir),
     )
+    if n_cpus is not None:
+        kwargs["n_cpus"] = n_cpus
     # `seed` is a parameter on `legacy-seeded` and landed on the 1.0 tree with
     # #53. Where it is absent the caller pins the global generator instead —
     # see :func:`run_golden`. Both branches produce the same draws: the 1.0
@@ -222,7 +234,8 @@ class GoldenRun:
 
 
 def run_golden(dawis, image: np.ndarray, work_dir: Path, infile: str,
-               cg_max_iter: int, seed: int = TEST_SEED) -> GoldenRun:
+               cg_max_iter: int, seed: int = TEST_SEED,
+               n_cpus: int | None = None) -> GoldenRun:
     """Run the published configuration on ``image`` and return what it wrote.
 
     On the 1.0 tree the image goes straight in as an array (#54), which is the
@@ -232,11 +245,25 @@ def run_golden(dawis, image: np.ndarray, work_dir: Path, infile: str,
 
     ``legacy`` and ``legacy-seeded`` read their input from a FITS file, so
     there ``image`` is written into ``work_dir`` first.
+
+    ``n_cpus`` replaces the published single worker; ``None`` keeps it. Every
+    golden is recorded at one worker, so a run that passes anything else is no
+    longer comparable against a recording — which is the point at the only
+    call site that does, the parallel-consistency check of #57, where the two
+    runs being compared are each other.
+
+    One thing to know when workers are in play: :func:`pin_cg_max_iter`
+    patches the solver in *this* process only, so a backend that runs patches
+    on workers leaves them unpatched. On the 1.0 tree that is harmless, because
+    ``restore_object`` passes ``cg_max_iter`` down from the ``Config`` and
+    :func:`golden_config` puts the pinned value there too — a worker reaches
+    the same number by the other route. Both are set from the one argument
+    here, which is what keeps them equal.
     """
     name = infile[:-5]
 
     if is_array_in(dawis):
-        config = golden_config(dawis, cg_max_iter, seed)
+        config = golden_config(dawis, cg_max_iter, seed, n_cpus)
         with pin_cg_max_iter(dawis, cg_max_iter):
             dawis.run(image, config, outdir=str(work_dir), name=name)
         return GoldenRun(work_dir / name)
@@ -247,7 +274,7 @@ def run_golden(dawis, image: np.ndarray, work_dir: Path, infile: str,
         work_dir / infile, overwrite=True
     )
 
-    kwargs = golden_kwargs(dawis, work_dir, infile, seed)
+    kwargs = golden_kwargs(dawis, work_dir, infile, seed, n_cpus)
     if "seed" not in kwargs:
         # One call, before any random draw — exactly what the pipeline does
         # with the argument on the branch that has it.
@@ -309,6 +336,56 @@ def atom_catalogue(dawis, run: GoldenRun) -> list[dict]:
                 "det_err_flux": float(np.sum(atom.det_err_image)),
             })
     return rows
+
+
+def _digest_of_array(array) -> str:
+    """Digest an atom image's bytes, so two of them can be compared exactly.
+
+    ``tobytes`` on a contiguous copy, so that two arrays holding the same
+    numbers digest the same however each was strided when it was built.
+    """
+    import hashlib
+
+    contiguous = np.ascontiguousarray(array)
+    return hashlib.sha256(
+        b"%s|%s|" % (str(contiguous.dtype).encode(),
+                     str(contiguous.shape).encode())
+        + contiguous.tobytes()
+    ).hexdigest()
+
+
+#: The two columns :func:`atom_catalogue_with_digests` adds to a catalogue row.
+ATOM_DIGEST_COLUMNS = ("image_sha256", "det_err_image_sha256")
+
+
+def atom_catalogue_with_digests(dawis, run: GoldenRun) -> list[dict]:
+    """:func:`atom_catalogue`, plus a digest of each atom's two images.
+
+    The catalogue describes an atom by measurements taken off its image —
+    ``flux`` is a sum and ``peak`` is a maximum — which is the right
+    description for a golden, where a tolerance is applied to them anyway.
+    It is the wrong description for #57, which claims two runs produce the same
+    *atom*: two different images can share a sum, a maximum and a bounding box,
+    and would pass a comparison that only reads those.
+
+    Digesting the bytes closes that gap without touching the golden tables,
+    whose columns are recorded on disk and cannot gain one.
+
+    Both this and :func:`atom_catalogue` walk ``run.atom_dumps`` in the same
+    order, which is what lets the rows be zipped rather than joined.
+    """
+    rows = atom_catalogue(dawis, run)
+
+    digests = []
+    for dump in run.atom_dumps:
+        for atom in dawis.read_ol_from_pickle(str(dump)):
+            digests.append({
+                "image_sha256": _digest_of_array(atom.image),
+                "det_err_image_sha256": _digest_of_array(atom.det_err_image),
+            })
+
+    return [dict(row, **digest)
+            for row, digest in zip(rows, digests, strict=True)]
 
 
 #: Per-iteration columns of the golden convergence table, in the order the

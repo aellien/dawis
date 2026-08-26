@@ -41,6 +41,24 @@ from goldenrun import GoldenRun, sha256_of
 pytestmark = pytest.mark.slow
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _require_the_recorded_goldens(tier2_goldens: Path):
+    """Skip this file, before the run starts, if nothing was recorded.
+
+    Every test here reads the recording, so a checkout without one has nothing
+    to compare and should not spend the half hour finding that out. The guard
+    is a fixture of this file rather than a dependency of ``tier2_run``,
+    because #57's consistency check shares that run and reads no recording:
+    wiring the skip into the run would silence the one file whose job is to
+    run whatever has been recorded.
+
+    Session-scoped and autouse, in that order for a reason. Autouse alone
+    would not do it — pytest builds higher-scoped fixtures first, so a
+    function-scoped guard would be set up *after* the session-scoped run it is
+    meant to guard, and the skip would land half an hour late.
+    """
+
+
 def test_gallery_image_matches_the_recorded_input(gallery_image_path: Path,
                                                   tier2_provenance):
     """The run under test is fed exactly the image the golden was recorded on.

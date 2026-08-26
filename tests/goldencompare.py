@@ -85,3 +85,117 @@ def assert_atoms_match(actual_rows, recorded_rows, tolerances):
                 atol=tolerances["atom_atol"],
                 err_msg=f"{where}: {name}",
             )
+
+
+# ---------------------------------------------------------------------------
+# Comparing two runs of the tree under test against each other (#57)
+# ---------------------------------------------------------------------------
+#
+# Not a golden comparison, and so not governed by #3's tolerance rule above.
+# What is compared here is two runs of the *same* tree that differ only in how
+# the work was scheduled, and #56 made that a difference the science cannot
+# see: every atom is produced by the same arithmetic in the same order on
+# either path, not by equivalent arithmetic. There is nothing left for a
+# tolerance to absorb except a defect, and #21 is the defect in question — a
+# rare atom returning a flux orders of magnitude wrong in a run whose every
+# other atom looks fine. A tolerance wide enough to be comfortable would hide
+# it.
+#
+# Ordering is normalised away first. #57 expects the two orders to differ,
+# because scheduling decides which patch of trees is submitted first; measured
+# since #56 they agree, because the atoms are laid back out in tree order once
+# the patches come home. Normalising regardless is what keeps this a statement
+# about content, so that a later change to the patching rule moves nothing
+# here.
+
+#: Per-atom columns that say *which* atom a row is rather than measure it, and
+#: so the columns ordering is normalised on. Distinct from ``ATOM_EXACT``
+#: above, which answers a different question — which columns a *golden*
+#: comparison may not put a tolerance on.
+ATOM_IDENTITY = (
+    "iteration", "level", "bbox_0", "bbox_1", "bbox_2", "bbox_3", "filter",
+)
+
+#: The one column never compared: ``index`` *is* the ordering being normalised
+#: away, so it cannot also stand as evidence. Everything else a row carries is
+#: compared, whatever the caller put there — see
+#: :func:`assert_atoms_are_identical`.
+ATOM_NOT_COMPARED = frozenset({"index"})
+
+
+def _atom_key(row):
+    """The identity of one atom, as the tuple ordering is normalised on."""
+    return tuple(row[name] for name in ATOM_IDENTITY)
+
+
+def _equal_or_both_nan(left, right) -> bool:
+    """Exact equality, reading two NaNs as equal.
+
+    ``float('nan') != float('nan')``, so a plain ``==`` would report a
+    difference between two runs that agree perfectly on a diverged atom.
+    """
+    if left == right:
+        return True
+    return (isinstance(left, float) and isinstance(right, float)
+            and np.isnan(left) and np.isnan(right))
+
+
+def _assert_keys_are_unique(rows, what):
+    """The identity columns pair rows one-to-one, or the comparison is void.
+
+    Two atoms of one iteration sharing a scale, a bounding box and a filter
+    would make the sort ambiguous, and the comparison would then pass or fail
+    on which of the two the sort happened to put first. That has never been
+    observed; it is asserted rather than assumed because a silent version of
+    it looks exactly like a passing test.
+    """
+    keys = [_atom_key(row) for row in rows]
+    if len(set(keys)) == len(keys):
+        return
+    duplicated = sorted({key for key in keys if keys.count(key) > 1})
+    raise AssertionError(
+        "%s: %d atoms share an identity with another, so atom order cannot be "
+        "normalised. First: %r"
+        % (what, len(duplicated), duplicated[0])
+    )
+
+
+def assert_atoms_are_identical(actual_rows, reference_rows, what_actual,
+                               what_reference):
+    """Two runs restored the same atoms, bit for bit, in any order.
+
+    Every column the rows carry is compared except ``index``, rather than a
+    fixed list of them. That is what lets the caller decide how much of an
+    atom is under test: :func:`goldenrun.atom_catalogue` describes an atom by
+    its measurements, and :func:`goldenrun.atom_catalogue_with_digests` adds a
+    digest of the image bytes themselves, which is the difference between
+    "the same flux" and "the same atom".
+    """
+    assert len(actual_rows) == len(reference_rows), (
+        "%s restored %d atoms, %s restored %d"
+        % (what_actual, len(actual_rows), what_reference, len(reference_rows))
+    )
+
+    _assert_keys_are_unique(actual_rows, what_actual)
+    _assert_keys_are_unique(reference_rows, what_reference)
+
+    actual_sorted = sorted(actual_rows, key=_atom_key)
+    reference_sorted = sorted(reference_rows, key=_atom_key)
+
+    for actual, reference in zip(actual_sorted, reference_sorted, strict=True):
+        assert actual.keys() == reference.keys(), (
+            "%s and %s describe an atom by different columns: %r against %r"
+            % (what_actual, what_reference,
+               sorted(actual), sorted(reference))
+        )
+        assert _atom_key(actual) == _atom_key(reference), (
+            "%s has an atom %r that %s does not"
+            % (what_actual, _atom_key(actual), what_reference)
+        )
+        where = "atom %r" % (_atom_key(reference),)
+        for name in sorted(actual.keys() - ATOM_NOT_COMPARED):
+            assert _equal_or_both_nan(actual[name], reference[name]), (
+                "%s: %s is %r in %s and %r in %s"
+                % (where, name, actual[name], what_actual,
+                   reference[name], what_reference)
+            )

@@ -12,28 +12,66 @@ Fixtures only. What a golden run *is* lives outside pytest, because the
 hand-run recording scripts share it: the machinery common to both tiers in
 ``tests/goldenrun.py``, and what each tier changes — the input, the pinned
 solver knob — in ``tests/tier1.py`` and ``tests/tier2.py``.
+
+One thing here is not a fixture: the OpenMP thread cap below, which has to be
+set before numpy is imported and so cannot wait for one.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import TYPE_CHECKING
+import os
 
-import numpy as np
-import pytest
+# Cap the maths libraries at one thread, for the whole session, before numpy
+# loads — OpenBLAS and OpenMP read this at library load and never again, which
+# is why it sits above the import rather than in a fixture.
+#
+# This is not about speed; it costs nothing measurable, because DAWIS spends
+# its time in convolutions rather than in the linear algebra that threads well.
+# It is about the run depending on the input and nothing else. numpy splits a
+# single array operation over threads on its own, invisibly, whatever
+# ``n_cpus`` says — ``n_cpus`` sends whole trees to other *processes* and is a
+# different knob entirely — and a sum split over four threads is added in a
+# different order from one added on a single thread. On the Tier 1 cutout that
+# moves an atom's flux in its last digit: 30.25294122005867 unpinned against
+# 30.252941220058663 at one thread, from the same serial run.
+#
+# The parallel-consistency check of #57 cannot live with that, because ray
+# caps its own workers at one thread while a pytest process is capped at
+# nothing, so an unpinned session would compare four threads against one and
+# call the last-digit difference a defect of the worker count. Pinning both
+# sides is what leaves the worker count as the only thing that differs.
+#
+# All four names, because they are not synonyms and the wrong one alone leaves
+# a hole: OpenBLAS reads OPENBLAS_NUM_THREADS in preference to OMP_NUM_THREADS
+# and MKL reads MKL_NUM_THREADS, so either of those set in a contributor's
+# environment would silently defeat a pin that named only OMP_NUM_THREADS —
+# and the symptom would be exactly the spurious last-digit failure the pin
+# exists to prevent.
+#
+# ``setdefault``, so a caller that has chosen a cap of its own keeps it.
+for _thread_knob in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+                     "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+    os.environ.setdefault(_thread_knob, "1")
 
-from goldenrun import (
+from pathlib import Path  # noqa: E402
+from typing import TYPE_CHECKING  # noqa: E402
+
+import numpy as np  # noqa: E402
+import pytest  # noqa: E402
+
+from goldenrun import (  # noqa: E402
     ATOM_COLUMNS,
     CONVERGENCE_COLUMNS,
     GALLERY_IMAGE,
     TEST_SEED,
     GoldenRun,
     atom_catalogue,
+    atom_catalogue_with_digests,
     convergence_table,
     read_table,
 )
-from tier1 import TIER1_PARAMS, cutout_of, run_tier1
-from tier2 import run_tier2
+from tier1 import TIER1_PARAMS, cutout_of, run_tier1  # noqa: E402
+from tier2 import PARALLEL_N_CPUS, run_tier2  # noqa: E402
 
 if TYPE_CHECKING:
     # Imported for the annotation only. Every fixture here reaches for `dawis`
@@ -206,12 +244,19 @@ def tier2_provenance(tier2_goldens: Path) -> dict:
 
 
 @pytest.fixture(scope="session")
-def tier2_run(gallery_image: np.ndarray, tier2_goldens: Path,
-              tmp_path_factory) -> GoldenRun:
+def tier2_run(gallery_image: np.ndarray, tmp_path_factory) -> GoldenRun:
     """Run Tier 2 against the tree under test, once per session.
 
-    About half an hour — 1641 s measured. Depends on the goldens so a missing
-    recording skips before the run rather than after it.
+    About half an hour — 1641 s measured.
+
+    It does *not* depend on the goldens, though the comparison that reads it
+    usually does. Wiring the skip in here would have made every consumer of
+    this run skip on a missing recording, including #57's consistency check,
+    which compares this run against a second one and reads no recording at
+    all — a silent skip in the file whose whole job is to run. The guard lives
+    where the recording is actually wanted instead, as the session-scoped
+    autouse fixture at the top of ``test_golden_gallery.py``, so a missing
+    recording still skips before the half hour rather than after it.
     """
     import dawis
 
@@ -242,3 +287,94 @@ def golden_gallery_atoms(tier2_goldens: Path) -> list[dict]:
 def golden_gallery_convergence(tier2_goldens: Path) -> list[dict]:
     """The recorded Tier 2 convergence trace."""
     return read_table(tier2_goldens / "convergence.csv", CONVERGENCE_COLUMNS)
+
+
+# ---------------------------------------------------------------------------
+# Tier 2 — the parallel-consistency run (#57)
+# ---------------------------------------------------------------------------
+#
+# The same Tier 2 configuration a second time, on PARALLEL_N_CPUS workers
+# instead of one. Its atoms are compared against the serial run's rather than
+# against a recording, so this half of the tier reads no golden and cannot be
+# skipped by a missing one — see `tier2_run` for the wiring that keeps that
+# true.
+#
+# It does add a second half-hour run to the tier. The serial half is the
+# existing session fixture rather than a run of its own, which is what holds
+# the cost at two runs rather than three.
+
+
+@pytest.fixture(scope="session")
+def parallel_backend_name() -> str:
+    """The backend a four-worker run picks, proven to start on this machine.
+
+    Asked of ``dawis.parallel`` rather than named here, so the probe follows
+    ``DEFAULT_PARALLEL_BACKEND`` if that ever changes. It starts the backend
+    and stops it again rather than testing whether the extra imports: the
+    adapters import their extra lazily, so importability is all that could be
+    established without starting one, and importability is not the same claim
+    as *runs here*.
+
+    The name is returned, and asserted not to be ``'serial'``, because a
+    worker count that quietly fell back to the serial backend would compare a
+    serial run against a serial run and report bit-identity — truthfully, and
+    uselessly.
+    """
+    from dawis import parallel
+
+    backend = parallel.make_backend(n_workers=PARALLEL_N_CPUS)
+    try:
+        backend.start()
+    except ImportError as error:
+        pytest.skip(
+            f"the {backend.name!r} parallel backend is unavailable: {error}"
+        )
+    finally:
+        # Runs on the skip and on any other failure too, so a probe that got
+        # part way does not leave a cluster up for the rest of the session.
+        backend.stop()
+
+    assert backend.name != "serial", (
+        f"{PARALLEL_N_CPUS} workers selected the serial backend, so there is "
+        "no parallel path here to compare against"
+    )
+    return backend.name
+
+
+@pytest.fixture(scope="session")
+def tier2_parallel_run(gallery_image: np.ndarray, parallel_backend_name: str,
+                       tmp_path_factory) -> GoldenRun:
+    """Run Tier 2 on :data:`tier2.PARALLEL_N_CPUS` workers, once per session.
+
+    Every knob but the worker count is the one ``tier2_run`` uses, so the two
+    runs differ in scheduling and in nothing else. About half an hour, like the
+    run it is compared against. Depends on the backend probe so that a machine
+    without the extra skips before the run rather than half an hour into it.
+    """
+    import dawis
+
+    return run_tier2(dawis, gallery_image,
+                     tmp_path_factory.mktemp("tier2_parallel"),
+                     n_cpus=PARALLEL_N_CPUS)
+
+
+@pytest.fixture(scope="session")
+def tier2_serial_atoms(tier2_run: GoldenRun) -> list[dict]:
+    """The serial run's atoms, described down to their image bytes.
+
+    ``tier2_atoms`` describes an atom by measurements taken off its image,
+    which is what a golden comparison wants. #57 claims two runs produce the
+    same *atom*, so it needs the images themselves — see
+    :func:`goldenrun.atom_catalogue_with_digests`.
+    """
+    import dawis
+
+    return atom_catalogue_with_digests(dawis, tier2_run)
+
+
+@pytest.fixture(scope="session")
+def tier2_parallel_atoms(tier2_parallel_run: GoldenRun) -> list[dict]:
+    """The parallel run's atoms, described the same way as the serial run's."""
+    import dawis
+
+    return atom_catalogue_with_digests(dawis, tier2_parallel_run)

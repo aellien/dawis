@@ -10,9 +10,10 @@ and ``CG_MAX_ITER`` at its shipped value. How a golden run is driven and read
 back off disk is shared with Tier 1 and lives in ``tests/goldenrun.py``, so
 the two tiers differ only where they mean to.
 
-Two things drive a Tier 2 run and they must agree exactly: the comparison test
-in ``tests/regression/test_golden_gallery.py``, and the hand-run recording
-script ``tests/goldens/record_gallery_golden.py``.
+Three things drive a Tier 2 run and they must agree exactly: the comparison
+test in ``tests/regression/test_golden_gallery.py``, the parallel-consistency
+check in ``tests/regression/test_parallel_consistency.py``, and the hand-run
+recording script ``tests/goldens/record_gallery_golden.py``.
 
 Budget: **a full half hour** on a 2017 laptop. Both the recording and the
 first comparison run measured 1641 s; #33's 1167.6 s for this configuration was
@@ -62,8 +63,30 @@ TIER2_INFILE = "tier2_gallery.fits"
 #: parameters as Tier 1. Only the input and ``CG_MAX_ITER`` differ.
 TIER2_PARAMS = dict(GOLDEN_PARAMS)
 
+#: Workers the parallel half of the consistency check of #57 asks for.
+#:
+#: Four is the figure the ticket names. It is a fixed number rather than the
+#: host's core count because what is asserted is bit-identity: a worker count
+#: that moved with the machine would make a failure something the next machine
+#: could not reproduce.
+#:
+#: The backend is left to the worker count to choose, which above one worker is
+#: :data:`dawis.parallel.DEFAULT_PARALLEL_BACKEND`. Naming ``'serial'`` instead
+#: would still exercise the patching but would never cross a process, and
+#: crossing one is half of what could break bit-identity.
+PARALLEL_N_CPUS = 4
+
 
 def run_tier2(dawis, image: np.ndarray, work_dir: Path, seed: int = TEST_SEED,
-              cg_max_iter: int = CG_MAX_ITER) -> GoldenRun:
-    """Run the Tier 2 configuration on ``image`` and return what it wrote."""
-    return run_golden(dawis, image, work_dir, TIER2_INFILE, cg_max_iter, seed)
+              cg_max_iter: int = CG_MAX_ITER,
+              n_cpus: int | None = None) -> GoldenRun:
+    """Run the Tier 2 configuration on ``image`` and return what it wrote.
+
+    ``n_cpus`` replaces the published single worker, which makes the run
+    incomparable against the recorded golden — see :func:`goldenrun.run_golden`.
+    ``None`` keeps the published value, which is what the golden comparison and
+    the recording script both take; #57's parallel half passes
+    :data:`PARALLEL_N_CPUS`.
+    """
+    return run_golden(dawis, image, work_dir, TIER2_INFILE, cg_max_iter, seed,
+                      n_cpus)
