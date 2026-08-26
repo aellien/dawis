@@ -74,19 +74,19 @@ TIER2_PARAMS = dict(GOLDEN_PARAMS)
 #: :data:`dawis.parallel.DEFAULT_PARALLEL_BACKEND`. Naming ``'serial'`` instead
 #: would still exercise the patching but would never cross a process, and
 #: crossing one is half of what could break bit-identity.
-PARALLEL_N_CPUS = 4
+PARALLEL_N_WORKERS = 4
 
 
 def run_tier2(dawis, image: np.ndarray, work_dir: Path, seed: int = TEST_SEED,
               cg_max_iter: int = CG_MAX_ITER,
-              n_cpus: int | None = None) -> GoldenRun:
+              n_workers: int | None = None) -> GoldenRun:
     """Run the Tier 2 configuration on ``image`` and return what it wrote.
 
-    ``n_cpus`` replaces the published single worker, which makes the run
+    ``n_workers`` replaces the published single worker, which makes the run
     incomparable against the recorded golden — see :func:`goldenrun.run_golden`.
     ``None`` keeps the published value, which is what the golden comparison and
     the recording script both take; #57's parallel half passes
-    :data:`PARALLEL_N_CPUS`.
+    :data:`PARALLEL_N_WORKERS`.
     """
     return run_golden(dawis, image, work_dir, TIER2_INFILE, cg_max_iter, seed,
-                      n_cpus)
+                      n_workers)

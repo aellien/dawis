@@ -51,7 +51,7 @@ cutout_dtype = ">f4"
 # hitting the cap.
 [run]
 seed = 20260823
-n_cpus = 1
+n_workers = 1
 cg_max_iter = 3
 cg_max_iter_default_in_source = 200
 pipeline_max_iter = 500
@@ -61,7 +61,7 @@ n_atoms = 76
 # Every pipeline parameter with the value this run actually used,
 # defaults resolved.
 [config]
-n_cpus = 1
+n_workers = 1
 starting_level = 2
 tau = 0.1
 n_levels = 9

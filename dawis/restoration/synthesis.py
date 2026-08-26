@@ -27,7 +27,7 @@ Ray is named nowhere in this module since #47.
 One path, whatever the worker count (#56)
 -----------------------------------------
 
-There used to be two. ``n_cpus == 1`` looped over the trees in process and
+There used to be two. A worker count of 1 looped over the trees in process and
 anything else patched them out, and the two did not agree: #5 measured a
 **308% difference in total restored flux** between them. #20 settled which
 was the science — the published conjugate-gradient path, the one the serial
@@ -35,7 +35,7 @@ branch ran — and decided the divergence ends here.
 
 So the worker count no longer reaches any decision this module makes. It is
 passed to ``pmap`` and nowhere else, and every tree is restored by the same
-:func:`restore_object` call it would get on one worker. What ``n_cpus``
+:func:`restore_object` call it would get on one worker. What ``n_workers``
 changes is where a patch runs and how many run at once; what it cannot change
 is the atom that comes back, or where that atom sits in the returned list.
 That is a contract Tier 2 asserts bit-for-bit (#57), and the reason it can be
@@ -419,7 +419,7 @@ def restore_objects_default(
     gamma: float = 1,
     size_patch_big: int = 1,
     size_big_objects: int = 512,
-    n_cpus: int = 1,
+    n_workers: int = 1,
     cg_max_iter: int = DEFAULT_CG_MAX_ITER,
     verbose: bool = False,
 ) -> list[Atom]:
@@ -433,7 +433,7 @@ def restore_objects_default(
     synthesised image is multiplied by ``gamma``, unless ``rm_gamma_for_big``
     is set and the object sits at or above ``lvl_sep_big``.
 
-    ``n_cpus`` reaches ``pmap`` and nothing else. It decides how many patches
+    ``n_workers`` reaches ``pmap`` and nothing else. It decides how many patches
     run at once and no part of what any of them computes: the atom returned
     for a tree, and its place in the returned list, are the same on one worker
     and on forty. See *One path, whatever the worker count* in the module
@@ -479,7 +479,7 @@ def restore_objects_default(
     size_big_objects : int, optional
         Side in pixels a tree must exceed on both axes to count as a big
         object for patching. Default 512.
-    n_cpus : int, optional
+    n_workers : int, optional
         Worker count, passed straight to :func:`dawis.parallel.pmap`.
         Scheduling only. Default 1.
     cg_max_iter : int, optional
@@ -507,7 +507,7 @@ def restore_objects_default(
     patches = _schedule_patches(interscale_tree_list, size_patch_small,
                                 size_patch_big, size_big_objects)
     log.info('Restoring %d interscale trees in %d patches on %d worker(s).',
-             len(interscale_tree_list), len(patches), n_cpus)
+             len(interscale_tree_list), len(patches), n_workers)
 
     # Each patch is built as its own list, never as a view into the caller's.
     # That is what `.remote()` used to do implicitly by serialising its
@@ -522,7 +522,7 @@ def restore_objects_default(
         shared = (wavelet_cube, label_cube, extent_sep, ecc_sep,
                   lvl_sep_lin, lvl_sep_big, lvl_sep_op, gamma,
                   rm_gamma_for_big, deconv, cg_max_iter, verbose),
-        n_workers = n_cpus,
+        n_workers = n_workers,
     )
 
     # Patch order is a scheduling decision -- big objects first -- and it

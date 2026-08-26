@@ -29,7 +29,7 @@ import os
 # its time in convolutions rather than in the linear algebra that threads well.
 # It is about the run depending on the input and nothing else. numpy splits a
 # single array operation over threads on its own, invisibly, whatever
-# ``n_cpus`` says — ``n_cpus`` sends whole trees to other *processes* and is a
+# ``n_workers`` says — ``n_workers`` sends whole trees to other *processes* and is a
 # different knob entirely — and a sum split over four threads is added in a
 # different order from one added on a single thread. On the Tier 1 cutout that
 # moves an atom's flux in its last digit: 30.25294122005867 unpinned against
@@ -71,7 +71,7 @@ from goldenrun import (  # noqa: E402
     read_table,
 )
 from tier1 import TIER1_PARAMS, cutout_of, run_tier1  # noqa: E402
-from tier2 import PARALLEL_N_CPUS, run_tier2  # noqa: E402
+from tier2 import PARALLEL_N_WORKERS, run_tier2  # noqa: E402
 
 if TYPE_CHECKING:
     # Imported for the annotation only. Every fixture here reaches for `dawis`
@@ -293,7 +293,7 @@ def golden_gallery_convergence(tier2_goldens: Path) -> list[dict]:
 # Tier 2 — the parallel-consistency run (#57)
 # ---------------------------------------------------------------------------
 #
-# The same Tier 2 configuration a second time, on PARALLEL_N_CPUS workers
+# The same Tier 2 configuration a second time, on PARALLEL_N_WORKERS workers
 # instead of one. Its atoms are compared against the serial run's rather than
 # against a recording, so this half of the tier reads no golden and cannot be
 # skipped by a missing one — see `tier2_run` for the wiring that keeps that
@@ -322,7 +322,7 @@ def parallel_backend_name() -> str:
     """
     from dawis import parallel
 
-    backend = parallel.make_backend(n_workers=PARALLEL_N_CPUS)
+    backend = parallel.make_backend(n_workers=PARALLEL_N_WORKERS)
     try:
         backend.start()
     except ImportError as error:
@@ -335,7 +335,7 @@ def parallel_backend_name() -> str:
         backend.stop()
 
     assert backend.name != "serial", (
-        f"{PARALLEL_N_CPUS} workers selected the serial backend, so there is "
+        f"{PARALLEL_N_WORKERS} workers selected the serial backend, so there is "
         "no parallel path here to compare against"
     )
     return backend.name
@@ -344,7 +344,7 @@ def parallel_backend_name() -> str:
 @pytest.fixture(scope="session")
 def tier2_parallel_run(gallery_image: np.ndarray, parallel_backend_name: str,
                        tmp_path_factory) -> GoldenRun:
-    """Run Tier 2 on :data:`tier2.PARALLEL_N_CPUS` workers, once per session.
+    """Run Tier 2 on :data:`tier2.PARALLEL_N_WORKERS` workers, once per session.
 
     Every knob but the worker count is the one ``tier2_run`` uses, so the two
     runs differ in scheduling and in nothing else. About half an hour, like the
@@ -355,7 +355,7 @@ def tier2_parallel_run(gallery_image: np.ndarray, parallel_backend_name: str,
 
     return run_tier2(dawis, gallery_image,
                      tmp_path_factory.mktemp("tier2_parallel"),
-                     n_cpus=PARALLEL_N_CPUS)
+                     n_workers=PARALLEL_N_WORKERS)
 
 
 @pytest.fixture(scope="session")

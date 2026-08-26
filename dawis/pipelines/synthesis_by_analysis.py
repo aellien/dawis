@@ -189,7 +189,7 @@ def run_fits(path: str, config: Config | None = None, *,
     Examples
     --------
     >>> from dawis import Config, run_fits            # doctest: +SKIP
-    >>> result = run_fits('ngc1275.fits', Config(n_cpus = 4),
+    >>> result = run_fits('ngc1275.fits', Config(n_workers = 4),
     ...                   outdir = 'out')             # doctest: +SKIP
     """
 
@@ -307,12 +307,12 @@ def run(image, config: Config | None = None, *, outdir: str = '.',
         # optional. The cluster is released on the way out, including out
         # through an exception, which the pre-#47 code never managed: its
         # shutdown sat on a misspelt flag and was unreachable.
-        with parallel_backend(name = config.backend, n_workers = config.n_cpus):
+        with parallel_backend(name = config.backend, n_workers = config.n_workers):
 
             log.info(datetime.now())
             start_time_algo = datetime.now()
-            log.info('DAWIS\nRun = %s\nOutput Directory = %s\nN_cpus = %d\nTau = %f\nGamma = %f\nmin_span = %d\nmax_span = %d\nConvergence Epsilon = %f'\
-                                            %(name, outdir, config.n_cpus, config.tau, config.gamma, config.min_span, config.max_span, config.ceps))
+            log.info('DAWIS\nRun = %s\nOutput Directory = %s\nN_workers = %d\nTau = %f\nGamma = %f\nmin_span = %d\nmax_span = %d\nConvergence Epsilon = %f'\
+                                            %(name, outdir, config.n_workers, config.tau, config.gamma, config.min_span, config.max_span, config.ceps))
             # The seed goes in the log whether it was asked for or not. An
             # unseeded run is the science default, and this line is the whole
             # reason that default costs nothing: it is what makes the run
@@ -427,7 +427,7 @@ def run(image, config: Config | None = None, *, outdir: str = '.',
                                                             min_span = config.min_span, \
                                                             max_span = config.max_span, \
                                                             lvl_sep_big = config.lvl_sep_big, \
-                                                            n_cpus = config.n_cpus, \
+                                                            n_workers = config.n_workers, \
                                                             size_patch = config.size_patch, \
                                                             verbose = True)
                         if not itl:
@@ -447,7 +447,7 @@ def run(image, config: Config | None = None, *, outdir: str = '.',
                                                            size_big_objects = 512, \
                                                            deconv = config.deconv, \
                                                            cg_max_iter = config.cg_max_iter, \
-                                                           n_cpus = config.n_cpus, \
+                                                           n_workers = config.n_workers, \
                                                            verbose = True ) # objects in original image pixel value range
 
                     # Atom

@@ -52,7 +52,7 @@ PIPELINE_MAX_ITER = 500
 #: deterministic and silent. Everything absent here takes the entry point's own
 #: default, and each tier's ``provenance.toml`` records all of them resolved.
 GOLDEN_PARAMS = {
-    "n_cpus": 1,
+    "n_workers": 1,
     "n_levels": 9,
     "starting_level": 2,
     "tau": 0.1,
@@ -139,14 +139,14 @@ def is_array_in(dawis) -> bool:
 
 
 def golden_config(dawis, cg_max_iter: int, seed: int = TEST_SEED,
-                  n_cpus: int | None = None):
+                  n_workers: int | None = None):
     """The published configuration as a ``Config``, for the array-in entry point.
 
     The same ``GOLDEN_PARAMS`` the keyword entry point is handed, filtered
     against the dataclass the way :func:`golden_kwargs` filters against a
     signature, so neither tier restates a knob.
 
-    ``n_cpus`` is the one knob a caller may replace, and ``None`` keeps the
+    ``n_workers`` is the one knob a caller may replace, and ``None`` keeps the
     published single worker. It is named rather than left to a general
     override because only one thing has ever needed replacing and only one
     thing may safely be: the worker count is scheduling since #56, so a run
@@ -159,8 +159,8 @@ def golden_config(dawis, cg_max_iter: int, seed: int = TEST_SEED,
         for name, value in GOLDEN_PARAMS.items()
         if name in Config.__dataclass_fields__
     }
-    if n_cpus is not None:
-        knobs["n_cpus"] = n_cpus
+    if n_workers is not None:
+        knobs["n_workers"] = n_workers
     # Forced rather than inherited, for the reason :func:`pin_cg_max_iter`
     # gives: the default differs per branch, so inheriting it would compare a
     # golden recorded at one value against a run at another.
@@ -168,7 +168,7 @@ def golden_config(dawis, cg_max_iter: int, seed: int = TEST_SEED,
 
 
 def golden_kwargs(dawis, work_dir: Path, infile: str,
-                  seed: int = TEST_SEED, n_cpus: int | None = None) -> dict:
+                  seed: int = TEST_SEED, n_workers: int | None = None) -> dict:
     """The exact keyword arguments a golden run passes to the entry point.
 
     The keyword entry point, that is — the one ``legacy-seeded`` records
@@ -180,8 +180,10 @@ def golden_kwargs(dawis, work_dir: Path, infile: str,
     accepted = inspect.signature(dawis.synthesis_by_analysis).parameters
     # The two tiers drive two branches whose entry points differ by a
     # parameter or two — `gif` exists on `legacy-seeded` and was removed by
-    # #46 — so the shared set is filtered against the signature in hand
-    # rather than restated per branch.
+    # #46, and the worker count is `n_workers` here and was spelt otherwise
+    # before #60 — so the shared set is filtered against the signature in hand
+    # rather than restated per branch. A knob the branch in hand has no name
+    # for falls to that branch's default.
     kwargs = {
         name: value for name, value in GOLDEN_PARAMS.items() if name in accepted
     }
@@ -190,8 +192,19 @@ def golden_kwargs(dawis, work_dir: Path, infile: str,
         infile=infile,
         outdir=str(work_dir),
     )
-    if n_cpus is not None:
-        kwargs["n_cpus"] = n_cpus
+    if n_workers is not None:
+        # Injected rather than filtered, unlike everything above. Replacing
+        # the worker count is an explicit request, so a branch whose entry
+        # point has no such parameter has to say so — running the published
+        # single worker and being compared as though it had not is the one
+        # outcome that would make #57's bit-identity claim meaningless.
+        if "n_workers" not in accepted:
+            raise TypeError(
+                "this tree's keyword entry point has no n_workers -- it "
+                "predates the rename (#60), so its worker count cannot be "
+                "replaced from here"
+            )
+        kwargs["n_workers"] = n_workers
     # `seed` is a parameter on `legacy-seeded` and landed on the 1.0 tree with
     # #53. Where it is absent the caller pins the global generator instead —
     # see :func:`run_golden`. Both branches produce the same draws: the 1.0
@@ -235,7 +248,7 @@ class GoldenRun:
 
 def run_golden(dawis, image: np.ndarray, work_dir: Path, infile: str,
                cg_max_iter: int, seed: int = TEST_SEED,
-               n_cpus: int | None = None) -> GoldenRun:
+               n_workers: int | None = None) -> GoldenRun:
     """Run the published configuration on ``image`` and return what it wrote.
 
     On the 1.0 tree the image goes straight in as an array (#54), which is the
@@ -246,7 +259,7 @@ def run_golden(dawis, image: np.ndarray, work_dir: Path, infile: str,
     ``legacy`` and ``legacy-seeded`` read their input from a FITS file, so
     there ``image`` is written into ``work_dir`` first.
 
-    ``n_cpus`` replaces the published single worker; ``None`` keeps it. Every
+    ``n_workers`` replaces the published single worker; ``None`` keeps it. Every
     golden is recorded at one worker, so a run that passes anything else is no
     longer comparable against a recording — which is the point at the only
     call site that does, the parallel-consistency check of #57, where the two
@@ -263,7 +276,7 @@ def run_golden(dawis, image: np.ndarray, work_dir: Path, infile: str,
     name = infile[:-5]
 
     if is_array_in(dawis):
-        config = golden_config(dawis, cg_max_iter, seed, n_cpus)
+        config = golden_config(dawis, cg_max_iter, seed, n_workers)
         with pin_cg_max_iter(dawis, cg_max_iter):
             dawis.run(image, config, outdir=str(work_dir), name=name)
         return GoldenRun(work_dir / name)
@@ -274,7 +287,7 @@ def run_golden(dawis, image: np.ndarray, work_dir: Path, infile: str,
         work_dir / infile, overwrite=True
     )
 
-    kwargs = golden_kwargs(dawis, work_dir, infile, seed, n_cpus)
+    kwargs = golden_kwargs(dawis, work_dir, infile, seed, n_workers)
     if "seed" not in kwargs:
         # One call, before any random draw — exactly what the pipeline does
         # with the argument on the branch that has it.

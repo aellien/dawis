@@ -59,7 +59,8 @@ is a reason to move it, it is a science change with its own ticket.
 from __future__ import annotations
 
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
+from typing import Any
 
 import numpy as np
 
@@ -167,20 +168,20 @@ class Config:
 
     Parameters
     ----------
-    n_cpus : int, optional
+    n_workers : int, optional
         Workers to spread tree building and restoration over. 1 runs in this
         process. Scheduling only: since #56 the worker count cannot change
         what a run computes, only how fast it computes it. Default 1.
     backend : str or None, optional
         Which of :data:`PARALLEL_BACKENDS` spreads that work. ``None``, the
-        default, lets ``n_cpus`` decide — serial on one worker, the default
+        default, lets ``n_workers`` decide — serial on one worker, the default
         parallel backend above one, which is what DAWIS did before the knob
         existed. Naming one selects it instead of that guess, for any
-        ``n_cpus`` above 1. It does **not** override ``n_cpus = 1``: a block
+        ``n_workers`` above 1. It does **not** override ``n_workers = 1``: a block
         asking for one worker runs in this process whatever is active, which
         is :func:`dawis.parallel.pmap`'s rule and not this knob's to break.
-        ``backend = 'ray'`` with ``n_cpus = 1`` therefore stands a cluster up
-        and sends it nothing. Scheduling only, like ``n_cpus``. Default None.
+        ``backend = 'ray'`` with ``n_workers = 1`` therefore stands a cluster up
+        and sends it nothing. Scheduling only, like ``n_workers``. Default None.
     starting_level : int, optional
         Coarsest wavelet scale the greedy loop starts at. Default 2.
     n_levels : int or None, optional
@@ -268,7 +269,8 @@ class Config:
     ConfigError
         If any knob is outside its own range, or if two of them contradict
         each other. Every failure names the knob, the value and what would
-        have been accepted.
+        have been accepted. Also if a keyword is not a knob at all, which
+        is what a caller passing a knob's older spelling gets.
 
     Examples
     --------
@@ -282,7 +284,7 @@ class Config:
     dawis.exceptions.ConfigError: min_span 4 is above max_span 2 --> a tree cannot span more scales than it is allowed to
     """
 
-    n_cpus: int = 1
+    n_workers: int = 1
     backend: str | None = None
     starting_level: int = 2
     n_levels: int | None = None
@@ -313,6 +315,35 @@ class Config:
     seed: int | None = None
     cg_max_iter: int = DEFAULT_CG_MAX_ITER
 
+    def __new__(cls, *args: Any, **knobs: Any) -> Config:
+        """Refuse a name this class has no knob for, before anything is set.
+
+        The generated ``__init__`` refuses one too, with a :exc:`TypeError`
+        that names the argument and stops there. That is the wrong family —
+        this is a run configured in a way that cannot work, like every other
+        rejection in this class — and it is half the message. A name that is
+        not a knob is as often one that was *renamed* as one that was
+        mistyped, so what the caller needs back is the set of names that do
+        work. #60 renamed the worker count with no alias and no deprecation
+        warning, and this line is the whole of what a caller still passing
+        the pre-1.0 spelling of it gets: an error, at construction, with
+        ``n_workers`` in it.
+
+        Raises
+        ------
+        ConfigError
+            If any keyword is not a field of this class.
+        """
+
+        knob_names = [field.name for field in fields(cls)]
+        unknown = [name for name in knobs if name not in knob_names]
+        if unknown:
+            raise ConfigError(
+                'no such knob: %s --> the knobs are %s'
+                % (', '.join(unknown), ', '.join(knob_names))
+            )
+        return super().__new__(cls)
+
     def __post_init__(self) -> None:
         self._check_ranges()
         self._check_pairs()
@@ -327,7 +358,7 @@ class Config:
     def _check_ranges(self) -> None:
         """Check every knob against the range it must sit in on its own."""
 
-        for name in ('n_cpus', 'max_iter', 'size_patch', 'cg_max_iter'):
+        for name in ('n_workers', 'max_iter', 'size_patch', 'cg_max_iter'):
             self._at_least(name, 1)
 
         for name in ('starting_level', 'lvl_sep_big', 'lvl_deblend',

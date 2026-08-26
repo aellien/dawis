@@ -131,7 +131,7 @@ def main():
     ))
     lines += recording.toml_table("run", {
         "seed": goldenrun.TEST_SEED,
-        "n_cpus": 1,
+        "n_workers": 1,
         "cg_max_iter": tier1.CG_MAX_ITER,
         "cg_max_iter_default_in_source": recording.cg_max_iter_default(dawis),
         "pipeline_max_iter": goldenrun.PIPELINE_MAX_ITER,

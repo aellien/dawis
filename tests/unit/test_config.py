@@ -70,7 +70,7 @@ def test_the_default_configuration_is_the_published_one():
     assert config.cg_max_iter == DEFAULT_CG_MAX_ITER
     assert config.conditions == 'loop'
     assert config.outfile_format == 'pickle'
-    assert config.n_cpus == 1
+    assert config.n_workers == 1
     assert config.backend is None
 
 
@@ -139,7 +139,7 @@ def test_the_configuration_cannot_be_changed_after_it_is_checked():
 
 
 @pytest.mark.parametrize('knob, value', [
-    ('n_cpus', 0),
+    ('n_workers', 0),
     ('max_iter', 0),
     ('size_patch', 0),
     ('cg_max_iter', 0),
@@ -176,6 +176,23 @@ def test_a_knob_outside_its_range_is_refused_and_named(knob, value):
 
     assert knob in str(raised.value)
     assert str(value) in str(raised.value) or repr(value) in str(raised.value)
+
+
+def test_a_name_that_is_not_a_knob_is_refused_with_the_names_that_are():
+    """A name the configuration has no knob for fails as a configuration error.
+
+    Two claims, and #60 needs both. It is a ``ConfigError`` and not the
+    :exc:`TypeError` the generated ``__init__`` would raise, and the message
+    carries the names that *do* work — which is how a caller still passing
+    the pre-1.0 spelling of the worker count is told to write ``n_workers``.
+    See ``Config.__new__`` for why.
+    """
+    with pytest.raises(ConfigError) as raised:
+        Config(**{'not_a_knob': 1})
+
+    message = str(raised.value)
+    assert 'not_a_knob' in message
+    assert 'n_workers' in message
 
 
 @pytest.mark.parametrize('condition', BOUNDARY_CONDITIONS)
@@ -245,7 +262,7 @@ def test_no_backend_is_a_backend_choice_and_means_let_the_worker_count_decide():
 def test_a_configuration_error_is_a_dawis_error():
     """One base catches everything the package raises on purpose."""
     with pytest.raises(DawisError):
-        Config(n_cpus = 0)
+        Config(n_workers = 0)
 
 
 # ---------------------------------------------------------------------------

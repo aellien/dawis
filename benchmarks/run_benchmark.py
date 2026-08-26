@@ -437,7 +437,7 @@ def run(args):
 
     knobs = dict(
         REFERENCE_PARAMS,
-        n_cpus=args.n_cpus,
+        n_workers=args.n_workers,
         max_iter=args.pipeline_max_iter,
         data_dump=args.data_dump,
         resume=False,
@@ -476,8 +476,26 @@ def run(args):
         # frames are rebuilt afterwards by `dawis.viz.rebuild_animation`.
         supports_gif = "gif" in entry_params
 
-        config_passed = dict(knobs, indir=indir, infile=infile,
-                             outdir=args.outdir)
+        # Filtered against the signature in hand rather than passed whole:
+        # the entry points differ by a knob or two, and #60 renamed the
+        # worker count, which the older trees still spell their own way. A
+        # knob this branch has no name for falls to that branch's default.
+        config_passed = {
+            name: value for name, value in knobs.items()
+            if name in entry_params
+        }
+        config_passed.update(indir=indir, infile=infile, outdir=args.outdir)
+
+        # The worker count is the one knob that may not quietly fall back.
+        # This script exists to compare timings across the three trees, and a
+        # run that silently used one worker when four were asked for would be
+        # compared against one that used four.
+        if "n_workers" not in entry_params and args.n_workers != 1:
+            raise SystemExit(
+                "--n-workers: this tree's entry point has no such parameter "
+                "-- it predates the rename (#60), so it can only be "
+                "benchmarked at its own default worker count"
+            )
 
         # `seed` exists on legacy-seeded, not on legacy.
         if supports_seed:
@@ -624,7 +642,7 @@ def main():
         default=500,
         help="cap on greedy outer iterations -- NOT the CG knob (default: 500)",
     )
-    ap.add_argument("--n-cpus", type=int, default=1)
+    ap.add_argument("--n-workers", type=int, default=1)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--label", default="")
     ap.add_argument("--data-dump", action="store_true", help="write per-iteration dumps")

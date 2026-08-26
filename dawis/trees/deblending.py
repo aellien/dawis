@@ -150,7 +150,7 @@ def make_interscale_trees(
     lvl_sep_big: int = 6,
     min_reg_size: int = 4,
     size_patch: int = 100,
-    n_cpus: int = 1,
+    n_workers: int = 1,
     verbose: bool = False,
 ) -> list[interscale_tree] | None:
     """Turn a flat list of regions into interscale trees.
@@ -196,8 +196,8 @@ def make_interscale_trees(
         tree. Default is 4.
     size_patch : int, optional
         Roots per patch, and the count below which everything goes in one
-        batch whatever ``n_cpus`` says. Default is 100.
-    n_cpus : int, optional
+        batch whatever ``n_workers`` says. Default is 100.
+    n_workers : int, optional
         Worker count. 1 forces the serial backend. Default is 1.
     verbose : bool, optional
         Log how many roots were rejected. Default is False.
@@ -251,14 +251,14 @@ def make_interscale_trees(
     # cubes and writes nothing shared. Below `size_patch` roots the patching
     # is not worth its overhead, and one worker has nowhere to send them, so
     # both cases become the single batch a serial `pmap` runs in process.
-    if (len(interscale_maximum_list) <= size_patch) or (n_cpus == 1):
+    if (len(interscale_maximum_list) <= size_patch) or (n_workers == 1):
         log.info('Attaching regions in process.')
         patches = [interscale_maximum_list]
         workers = 1
     else:
         log.info('Attaching regions in patches of %d roots.' %(size_patch))
         patches = cut_into_patches(interscale_maximum_list, size_patch)
-        workers = n_cpus
+        workers = n_workers
 
     tree_patches = pmap(
         interscale_connectivity,

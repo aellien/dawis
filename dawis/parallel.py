@@ -42,8 +42,8 @@ configuration get.
 Asking for more than one worker is asking for parallelism, and there is only
 one thing that can currently answer: a caller that wants several workers and
 names no backend gets :data:`DEFAULT_PARALLEL_BACKEND`. That is a deliberate
-decision and not an oversight — it is what the pipeline did with
-``n_cpus`` before the seam existed, and preserving it is what keeps this
+decision and not an oversight — it is what the pipeline did with its
+worker count before the seam existed, and preserving it is what keeps this
 ticket a move rather than a science change. :attr:`dawis.config.Config.backend`
 names one outright when the guess is not wanted (#56).
 
@@ -62,7 +62,7 @@ count it was configured with::
 
 The pipeline decides, once per run, what a worker *is*::
 
-    with parallel_backend(n_workers=n_cpus):
+    with parallel_backend(n_workers=config.n_workers):
         ...
 
 Outside such a block a single-worker :func:`pmap` still runs serially and a

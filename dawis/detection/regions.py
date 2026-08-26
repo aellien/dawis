@@ -164,7 +164,7 @@ def make_regions_full_props(
 
     return region_list
 
-def make_regions_crucial_props(wavelet_cube, label_cube, n_cpus = 1, verbose = False):
+def make_regions_crucial_props(wavelet_cube, label_cube, n_workers = 1, verbose = False):
     """Measure only peak and area, in parallel. Deprecated and broken.
 
     .. deprecated:: 0.0.7
@@ -192,7 +192,7 @@ def make_regions_crucial_props(wavelet_cube, label_cube, n_cpus = 1, verbose = F
                               wavelet_array, \
                               label_array, \
                               label_cube.lab_counts, \
-                              n_cpus, \
+                              n_workers, \
                               verbose )
 
     for i in range(region_tab.shape[0]):

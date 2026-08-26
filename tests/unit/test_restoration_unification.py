@@ -1,6 +1,6 @@
 """Tier 0 checks that the worker count never selects an algorithm (#56).
 
-Restoration used to have two branches. ``n_cpus == 1`` looped over the trees
+Restoration used to have two branches. ``n_workers == 1`` looped over the trees
 in process; anything else sorted the list by area, cut it into patches and
 sent them to :func:`dawis.parallel.pmap`. #5 measured a 308% flux difference
 between the two, and #20 decided the published path survives and the
@@ -96,16 +96,16 @@ class _FakeTree:
         return np.zeros((self.x_size, self.y_size, 2))
 
 
-def _restore(trees, n_cpus, **overrides):
-    """Run restoration over `trees`, on `n_cpus` workers, serially either way."""
+def _restore(trees, n_workers, **overrides):
+    """Run restoration over `trees`, on `n_workers` workers, serially either way."""
     params = dict(REST_PARAMS, **overrides)
     SOLVE_ORDER.clear()
-    with parallel.parallel_backend('serial', n_workers=n_cpus):
+    with parallel.parallel_backend('serial', n_workers=n_workers):
         return restore_objects_default(
             trees,
             oimage=None, cg_gamma=0.01, niter=15,   # accepted and never read
             wavelet_cube=None, label_cube=None,     # only the fake trees see these
-            n_cpus=n_cpus, **params
+            n_workers=n_workers, **params
         )
 
 
@@ -130,26 +130,26 @@ def _trees(count, first=1, **kwargs):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize('n_cpus', [1, 2, 4, 8])
-def test_every_tree_is_restored_exactly_once_whatever_the_worker_count(n_cpus):
+@pytest.mark.parametrize('n_workers', [1, 2, 4, 8])
+def test_every_tree_is_restored_exactly_once_whatever_the_worker_count(n_workers):
     trees = _trees(7)
-    atoms = _restore(trees, n_cpus)
+    atoms = _restore(trees, n_workers)
     assert len(atoms) == 7
     assert [len(tree.calls) for tree in trees] == [1] * 7
 
 
-@pytest.mark.parametrize('n_cpus', [2, 4, 8])
-def test_the_atoms_are_the_serial_atoms_in_the_serial_order(n_cpus):
+@pytest.mark.parametrize('n_workers', [2, 4, 8])
+def test_the_atoms_are_the_serial_atoms_in_the_serial_order(n_workers):
     serial = _values(_restore(_trees(7), 1))
-    assert _values(_restore(_trees(7), n_cpus)) == serial
+    assert _values(_restore(_trees(7), n_workers)) == serial
 
 
-@pytest.mark.parametrize('n_cpus', [2, 4, 8])
-def test_the_solver_is_called_with_the_same_arguments_on_every_worker_count(n_cpus):
+@pytest.mark.parametrize('n_workers', [2, 4, 8])
+def test_the_solver_is_called_with_the_same_arguments_on_every_worker_count(n_workers):
     serial_trees = _trees(5)
     _restore(serial_trees, 1)
     parallel_trees = _trees(5)
-    _restore(parallel_trees, n_cpus)
+    _restore(parallel_trees, n_workers)
     assert [tree.calls for tree in parallel_trees] == \
            [tree.calls for tree in serial_trees]
 

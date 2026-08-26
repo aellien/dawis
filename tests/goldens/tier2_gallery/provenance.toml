@@ -49,7 +49,7 @@ cutout = false
 # pipeline_max_iter is the unrelated cap on the greedy outer loop.
 [run]
 seed = 20260823
-n_cpus = 1
+n_workers = 1
 cg_max_iter = 200
 cg_max_iter_default_in_source = 200
 pipeline_max_iter = 500
@@ -59,7 +59,7 @@ n_atoms = 463
 # Every pipeline parameter with the value this run actually used,
 # defaults resolved.
 [config]
-n_cpus = 1
+n_workers = 1
 starting_level = 2
 tau = 0.1
 n_levels = 9

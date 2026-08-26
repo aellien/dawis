@@ -326,7 +326,7 @@ class _FakeLabelCube:
     z_size = 9
 
 
-def _drive_tree_batching(monkeypatch, n_roots, n_cpus, size_patch):
+def _drive_tree_batching(monkeypatch, n_roots, n_workers, size_patch):
     """Run the root-patching of ``make_interscale_trees`` and report the cut."""
     from dawis.trees import deblending
 
@@ -346,25 +346,25 @@ def _drive_tree_batching(monkeypatch, n_roots, n_cpus, size_patch):
         det_err_array='errors',
         tau=0.0,
         size_patch=size_patch,
-        n_cpus=n_cpus,
+        n_workers=n_workers,
     )
     return seen, trees
 
 
 def test_one_worker_hands_the_roots_over_as_a_single_batch(monkeypatch):
-    seen, trees = _drive_tree_batching(monkeypatch, n_roots=250, n_cpus=1, size_patch=100)
+    seen, trees = _drive_tree_batching(monkeypatch, n_roots=250, n_workers=1, size_patch=100)
     assert len(seen) == 1
     assert len(trees) == 250
 
 
 def test_many_workers_cut_the_roots_into_patches_that_rejoin_unchanged(monkeypatch):
     serial, serial_trees = _drive_tree_batching(
-        monkeypatch, n_roots=250, n_cpus=1, size_patch=100
+        monkeypatch, n_roots=250, n_workers=1, size_patch=100
     )
     _install_fake_ray()
     try:
         cut, cut_trees = _drive_tree_batching(
-            monkeypatch, n_roots=250, n_cpus=4, size_patch=100
+            monkeypatch, n_roots=250, n_workers=4, size_patch=100
         )
     finally:
         sys.modules.pop('ray', None)
@@ -379,7 +379,7 @@ def test_many_workers_cut_the_roots_into_patches_that_rejoin_unchanged(monkeypat
 
 
 def test_the_arguments_every_patch_shares_are_passed_once_each(monkeypatch):
-    seen, _ = _drive_tree_batching(monkeypatch, n_roots=10, n_cpus=1, size_patch=100)
+    seen, _ = _drive_tree_batching(monkeypatch, n_roots=10, n_workers=1, size_patch=100)
     (_, shared), = seen
     # region list, wavelet cube, label cube, detection errors, root level, and
     # the four knobs the connectivity reads, plus verbose.

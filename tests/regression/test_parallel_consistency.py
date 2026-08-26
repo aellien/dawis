@@ -2,7 +2,7 @@
 
 Two runs of the published configuration on the whole 900x900 gallery image,
 identical in every knob but the worker count: one on a single worker, one on
-:data:`tier2.PARALLEL_N_CPUS`. Their atoms must agree **to the bit**, down to
+:data:`tier2.PARALLEL_N_WORKERS`. Their atoms must agree **to the bit**, down to
 the bytes of the restored images.
 
 No recording is read, so nothing here can be skipped by a missing golden.
@@ -19,7 +19,7 @@ Restoration patches one tree at a time, so it scatters on any input — the
 cutout's 76 atoms go out as 76 patches. Tree building sends nothing anywhere
 until it has more than ``size_patch`` roots, which is 100, and the cutout
 finds twelve; it logs *Attaching regions in process* and works the whole batch
-here whatever ``n_cpus`` says. Only the full image crosses that threshold, so
+here whatever ``n_workers`` says. Only the full image crosses that threshold, so
 only the full image compares both halves.
 
 That puts this file at a second half-hour run, and therefore behind the
@@ -50,7 +50,7 @@ import pytest
 
 from goldencompare import assert_atoms_are_identical
 from goldenrun import golden_config
-from tier2 import CG_MAX_ITER, PARALLEL_N_CPUS
+from tier2 import CG_MAX_ITER, PARALLEL_N_WORKERS
 
 # A second half-hour run. Marked at module scope so no test in this file can be
 # added without the marker, and so neither session-scoped run fixture is ever
@@ -77,7 +77,7 @@ def test_the_two_runs_differ_in_the_worker_count_and_nothing_else():
     """The premise of the comparison, asserted rather than assumed.
 
     Both runs are built from one parameter set with one argument changed, so
-    they cannot drift apart by editing — but ``n_cpus`` is not the only knob
+    they cannot drift apart by editing — but ``n_workers`` is not the only knob
     that touches scheduling, and a ``backend`` or ``size_patch`` override
     creeping into either half later would turn a bit-identity claim into a
     comparison of two configurations that still passes.
@@ -86,12 +86,12 @@ def test_the_two_runs_differ_in_the_worker_count_and_nothing_else():
 
     serial = asdict(golden_config(dawis, CG_MAX_ITER))
     parallel = asdict(golden_config(dawis, CG_MAX_ITER,
-                                    n_cpus=PARALLEL_N_CPUS))
+                                    n_workers=PARALLEL_N_WORKERS))
 
     assert {name for name in serial
-            if serial[name] != parallel[name]} == {"n_cpus"}
-    assert serial["n_cpus"] == 1
-    assert parallel["n_cpus"] == PARALLEL_N_CPUS
+            if serial[name] != parallel[name]} == {"n_workers"}
+    assert serial["n_workers"] == 1
+    assert parallel["n_workers"] == PARALLEL_N_WORKERS
 
 
 def test_atom_count_is_exact(tier2_serial_atoms, tier2_parallel_atoms):
@@ -116,6 +116,6 @@ def test_atoms_are_bit_identical(tier2_serial_atoms, tier2_parallel_atoms):
     assert_atoms_are_identical(
         tier2_parallel_atoms,
         tier2_serial_atoms,
-        what_actual="the %d-worker run" % PARALLEL_N_CPUS,
+        what_actual="the %d-worker run" % PARALLEL_N_WORKERS,
         what_reference="the serial run",
     )
