@@ -11,7 +11,6 @@ import numpy as np
 from astropy.io import fits
 from scipy.stats import normaltest
 from dawis.exceptions import DawisDimensionError
-import pdb
 import copy
 # The four display methods that hung off these classes moved to
 # :mod:`dawis.viz.cubes` with #46, where the two versions of the plane grid

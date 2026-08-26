@@ -14,7 +14,7 @@ The readers are not generic, because reading has to know what class to build.
 :func:`read_ol_from_hdf5` and :func:`read_itl_from_hdf5` each rebuild their
 own type from a blank instance, which is why
 :class:`~dawis.restoration.synthesis.Atom`,
-:class:`~dawis.trees.construction.interscale_tree` and
+:class:`~dawis.trees.construction.InterscaleTree` and
 :class:`~dawis.detection.regions.region` all take a ``blank`` constructor
 flag. Those three imports are the only edges this module has to the other
 blocks, and they run one way: no block imports :mod:`dawis.io`.
@@ -44,7 +44,7 @@ import numpy as np
 from dawis.detection import region
 from dawis.io.legacy import read_itl_from_pickle, read_ol_from_pickle
 from dawis.restoration import Atom
-from dawis.trees import interscale_tree
+from dawis.trees import InterscaleTree
 
 log = logging.getLogger(__name__)
 
@@ -110,12 +110,12 @@ def object_recursive_save_to_hdf5(o: object, h5grp: h5py.Group) -> None:
                 log.info('Unknown data structure for %s. NOT SAVING TO HDF5 FILE.' %(attr))
 
 
-def write_itl_to_hdf5(itl: list[interscale_tree], filename: str) -> None:
+def write_itl_to_hdf5(itl: list[InterscaleTree], filename: str) -> None:
     """Write a list of interscale trees to an HDF5 file.
 
     Parameters
     ----------
-    itl : list of interscale_tree
+    itl : list of InterscaleTree
         The trees of one iteration. Tree ``i`` becomes group ``it{i}``.
     filename : str
         Path to write to. Any existing file is replaced.
@@ -127,7 +127,7 @@ def write_itl_to_hdf5(itl: list[interscale_tree], filename: str) -> None:
             object_recursive_save_to_hdf5(o, grp)
 
 
-def read_itl_from_hdf5(filename: str) -> list[interscale_tree]:
+def read_itl_from_hdf5(filename: str) -> list[InterscaleTree]:
     """Read a list of interscale trees back from an HDF5 file.
 
     Parameters
@@ -137,7 +137,7 @@ def read_itl_from_hdf5(filename: str) -> list[interscale_tree]:
 
     Returns
     -------
-    list of interscale_tree
+    list of InterscaleTree
         The trees, in the order h5py yields the groups, which is
         alphabetical: ``it10`` precedes ``it2``.
     """
@@ -151,7 +151,7 @@ def read_itl_from_hdf5(filename: str) -> list[interscale_tree]:
     return itl
 
 
-def load_interscale_tree_from_hdf5_group(grp: h5py.Group) -> interscale_tree:
+def load_interscale_tree_from_hdf5_group(grp: h5py.Group) -> InterscaleTree:
     """Rebuild one interscale tree from an HDF5 group.
 
     Parameters
@@ -161,7 +161,7 @@ def load_interscale_tree_from_hdf5_group(grp: h5py.Group) -> interscale_tree:
 
     Returns
     -------
-    interscale_tree
+    InterscaleTree
         A blank tree with the stored attributes set on it.
 
     Notes
@@ -169,7 +169,7 @@ def load_interscale_tree_from_hdf5_group(grp: h5py.Group) -> interscale_tree:
     Only ``region_list`` and ``interscale_maximum`` are restored among the
     subgroups; any other subgroup is skipped.
     """
-    it = interscale_tree(blank = True)
+    it = InterscaleTree(blank = True)
     for attr_name in grp.keys():
         attr = grp[attr_name]
         
@@ -183,7 +183,6 @@ def load_interscale_tree_from_hdf5_group(grp: h5py.Group) -> interscale_tree:
             
             if attr_name == 'region_list':  
                 rl = []
-                #import pdb;pdb.set_trace()
                 for rnum in attr.keys():
                     rgrp = grp['region_list'][rnum]
                     r = load_region_from_hdf5_group(rgrp)
@@ -307,7 +306,7 @@ def read_image_atoms(
     file_format: str = 'hdf5',
     filter_it: str | None = None,
     verbose: bool = True,
-) -> tuple[list[Atom], list[interscale_tree]]:
+) -> tuple[list[Atom], list[InterscaleTree]]:
     """Read a whole run's atoms back off disk, with the tree behind each one.
 
     Parameters
@@ -328,7 +327,7 @@ def read_image_atoms(
     -------
     tol : list of Atom
         Every atom of the run, iterations concatenated in filename order.
-    titl : list of interscale_tree
+    titl : list of InterscaleTree
         The tree each atom was restored from, at the same index.
 
     Notes
