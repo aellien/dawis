@@ -13,56 +13,42 @@ hand-run recording scripts share it: the machinery common to both tiers in
 ``tests/goldenrun.py``, and what each tier changes — the input, the pinned
 solver knob — in ``tests/tier1.py`` and ``tests/tier2.py``.
 
-One thing here is not a fixture: the OpenMP thread cap below, which has to be
-set before numpy is imported and so cannot wait for one.
+Threads
+-------
+
+This file used to open with four ``os.environ.setdefault`` calls above the
+numpy import, capping the maths libraries at one thread for the whole session.
+They are gone, and #61 is why: the thread count is a knob DAWIS owns now.
+``Config.n_threads`` carries it, and ``dawis.parallel.parallel_backend``
+applies it with ``threadpoolctl`` to the already-loaded library — which is the
+only way it *can* be applied from inside a package, since BLAS reads its
+thread count once, when numpy first loads it. A golden run therefore pins its
+own threads, through the same code path a user runs, and there is nothing left
+for a conftest to set.
+
+What replaces the pin is :func:`the_thread_pin_reaches_the_maths_library`
+below: an assertion that the pin lands, rather than an environment variable
+hoped to have landed. A stray ``OPENBLAS_NUM_THREADS`` in a contributor's
+shell used to defeat the old pin silently, and the symptom was a spurious
+last-digit failure somewhere else entirely. ``threadpoolctl`` overrides such
+a variable outright, so the check does not hunt for one — it asserts the
+behaviour that makes hunting unnecessary, and fails loudly on the one machine
+where that stops being true.
 """
 
 from __future__ import annotations
 
-import os
+from pathlib import Path
+from typing import TYPE_CHECKING
 
-# Cap the maths libraries at one thread, for the whole session, before numpy
-# loads — OpenBLAS and OpenMP read this at library load and never again, which
-# is why it sits above the import rather than in a fixture.
-#
-# This is not about speed; it costs nothing measurable, because DAWIS spends
-# its time in convolutions rather than in the linear algebra that threads well.
-# It is about the run depending on the input and nothing else. numpy splits a
-# single array operation over threads on its own, invisibly, whatever
-# ``n_workers`` says — ``n_workers`` sends whole trees to other *processes* and is a
-# different knob entirely — and a sum split over four threads is added in a
-# different order from one added on a single thread. On the Tier 1 cutout that
-# moves an atom's flux in its last digit: 30.25294122005867 unpinned against
-# 30.252941220058663 at one thread, from the same serial run.
-#
-# The parallel-consistency check of #57 cannot live with that, because ray
-# caps its own workers at one thread while a pytest process is capped at
-# nothing, so an unpinned session would compare four threads against one and
-# call the last-digit difference a defect of the worker count. Pinning both
-# sides is what leaves the worker count as the only thing that differs.
-#
-# All four names, because they are not synonyms and the wrong one alone leaves
-# a hole: OpenBLAS reads OPENBLAS_NUM_THREADS in preference to OMP_NUM_THREADS
-# and MKL reads MKL_NUM_THREADS, so either of those set in a contributor's
-# environment would silently defeat a pin that named only OMP_NUM_THREADS —
-# and the symptom would be exactly the spurious last-digit failure the pin
-# exists to prevent.
-#
-# ``setdefault``, so a caller that has chosen a cap of its own keeps it.
-for _thread_knob in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS",
-                     "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
-    os.environ.setdefault(_thread_knob, "1")
+import numpy as np
+import pytest
 
-from pathlib import Path  # noqa: E402
-from typing import TYPE_CHECKING  # noqa: E402
-
-import numpy as np  # noqa: E402
-import pytest  # noqa: E402
-
-from goldenrun import (  # noqa: E402
+from goldenrun import (
     ATOM_COLUMNS,
     CONVERGENCE_COLUMNS,
     GALLERY_IMAGE,
+    GOLDEN_N_THREADS,
     TEST_SEED,
     GoldenRun,
     atom_catalogue,
@@ -70,14 +56,66 @@ from goldenrun import (  # noqa: E402
     convergence_table,
     read_table,
 )
-from tier1 import TIER1_PARAMS, cutout_of, run_tier1  # noqa: E402
-from tier2 import PARALLEL_N_WORKERS, run_tier2  # noqa: E402
+from tier1 import TIER1_PARAMS, cutout_of, run_tier1
+from tier2 import PARALLEL_N_THREADS, PARALLEL_N_WORKERS, run_tier2
 
 if TYPE_CHECKING:
     # Imported for the annotation only. Every fixture here reaches for `dawis`
     # inside its own body rather than at module scope, so that collecting the
     # suite does not require the package to be importable.
     from dawis.config import Config
+
+
+@pytest.fixture(scope="session", autouse=True)
+def the_thread_pin_reaches_the_maths_library() -> None:
+    """DAWIS's own thread pin actually lands on the loaded library.
+
+    The replacement for the environment pin this file used to open with — see
+    *Threads* in the module docstring. It asserts the *effective* thread count
+    the loaded library reports, not that a variable holds a string: the
+    variable is the mechanism and the effective count is the behaviour, and it
+    was precisely a mechanism that looked set and did nothing that #61 exists
+    to stop.
+
+    What it can and cannot catch is worth being exact about, because the
+    failure message has to send the reader somewhere useful. ``threadpoolctl``
+    sets the count on the loaded library directly and overrides
+    ``OMP_NUM_THREADS`` and its three siblings, so a stray one of those is no
+    longer a way to fail — that is the fix, not a gap in the check. What this
+    catches is the pin not landing at all: a statically linked or otherwise
+    unreachable library, where ``threadpoolctl`` has nothing to talk to and
+    the environment silently decides after all. The environment is then
+    exactly where to look, which is why the message says so.
+
+    Session-scoped and autouse, so it runs once and before any golden run. A
+    machine where this fails cannot compare goldens honestly at all, and the
+    failure says so here rather than surfacing half an hour later as a
+    last-digit difference in one atom.
+
+    ``None`` is accepted for the vendor and refused for the count. A numpy
+    built against a reference BLAS reports no vendor and no threads to pin,
+    which is a real answer; a library that reports a count and ignores the pin
+    is the defect.
+    """
+    from dawis.parallel import observed_threads, parallel_backend
+
+    with parallel_backend(n_workers=1, n_threads=GOLDEN_N_THREADS):
+        effective, vendor = observed_threads()
+
+    if effective is None:
+        return
+
+    assert effective == GOLDEN_N_THREADS, (
+        f"asked the maths libraries for {GOLDEN_N_THREADS} thread(s) and the "
+        f"loaded {vendor} reports {effective}, so DAWIS's thread pin is not "
+        "reaching it. Every golden is recorded and compared at that count, so "
+        "a run here would differ from the recording in its last digits for a "
+        "reason that has nothing to do with the code under test. threadpoolctl "
+        "needs a library it can reach to override; where it cannot, the "
+        "environment decides instead, so OMP_NUM_THREADS, OPENBLAS_NUM_THREADS, "
+        f"MKL_NUM_THREADS or NUMEXPR_NUM_THREADS is where {effective} most "
+        "likely came from."
+    )
 
 
 @pytest.fixture(scope="session")
@@ -378,3 +416,68 @@ def tier2_parallel_atoms(tier2_parallel_run: GoldenRun) -> list[dict]:
     import dawis
 
     return atom_catalogue_with_digests(dawis, tier2_parallel_run)
+
+
+# ---------------------------------------------------------------------------
+# Tier 2 — the thread-count run (#61)
+# ---------------------------------------------------------------------------
+#
+# The other half of #61's claim, and the mirror image of the worker-count run
+# above. That one changes the worker count and nothing may move at all; this
+# one changes the thread count and only the last digits may move. It is a
+# third half-hour run — the price of the claim, since only the full image
+# crosses `size_patch` and exercises both places work is spread.
+#
+# Its atoms are compared against the serial run's, like the parallel run's
+# are, so this half reads no recording either.
+
+
+@pytest.fixture(scope="session")
+def tier2_threaded_run(gallery_image: np.ndarray, tmp_path_factory) -> GoldenRun:
+    """Run Tier 2 at :data:`tier2.PARALLEL_N_THREADS` threads, once per session.
+
+    Every knob but the maths-library thread count is the one ``tier2_run``
+    uses — the worker count included, at the published 1 — so the two runs
+    differ in the thread count and in nothing else.
+
+    It depends on no parallel backend, unlike ``tier2_parallel_run``: threads
+    live inside one process, so this half needs no ``[ray]`` extra and no
+    cluster. About half an hour, like the run it is compared against.
+    """
+    import dawis
+
+    return run_tier2(dawis, gallery_image,
+                     tmp_path_factory.mktemp("tier2_threaded"),
+                     n_threads=PARALLEL_N_THREADS)
+
+
+@pytest.fixture(scope="session")
+def tier2_threaded_atoms(tier2_threaded_run: GoldenRun) -> list[dict]:
+    """The threaded run's atoms, by measurement rather than by digest.
+
+    :func:`goldenrun.atom_catalogue`, deliberately, where the worker-count
+    halves use :func:`goldenrun.atom_catalogue_with_digests`. A digest is an
+    exact comparison wearing a different hat, and the whole claim here is that
+    the last digits *may* move. Digesting the bytes would assert the opposite.
+    """
+    import dawis
+
+    return atom_catalogue(dawis, tier2_threaded_run)
+
+
+@pytest.fixture(scope="session")
+def tier2_measured_atoms(tier2_run: GoldenRun) -> list[dict]:
+    """The published run's atoms, described the same way as the threaded run's."""
+    import dawis
+
+    return atom_catalogue(dawis, tier2_run)
+
+
+@pytest.fixture(scope="session")
+def tier2_threaded_convergence(tier2_threaded_run: GoldenRun) -> list[dict]:
+    """The threaded run's convergence trace, one row per greedy iteration.
+
+    The trace is what the greedy loop steers on, so it is the earliest place a
+    thread count that moved more than the last digits would show.
+    """
+    return convergence_table(tier2_threaded_run)

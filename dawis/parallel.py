@@ -31,6 +31,47 @@ by name raises.
 The process-pool and shared-memory backend of #57 drops in here as a third
 entry in :data:`BACKENDS`, and touches no science code to do it.
 
+Workers and threads
+-------------------
+
+Two kinds of parallelism run underneath DAWIS and they are not the same knob.
+A **worker** is a process this module hands a whole patch of trees to. A
+**thread** is what numpy and scipy split a *single* array operation across
+inside one process, and OpenBLAS, MKL and OpenMP decide how many of them
+there are. DAWIS never chose the second one, and that is what #61 fixes: a
+sum split over four threads is added in a different association order from
+one added on a single thread, so a thread count that moved with the machine —
+or with the worker count — moved an atom's flux in its last digits.
+
+The thread count therefore travels with the worker count, through
+:class:`parallel_backend`, and it reaches the two kinds of process by two
+different routes because they are two different moments in time.
+
+* **This process.** BLAS reads its thread count once, when numpy first loads
+  it, which is long before a configuration is parsed. Setting an environment
+  variable from inside DAWIS is therefore always too late. ``threadpoolctl``
+  talks to the already-loaded library instead, which is the only reason the
+  knob can work at all. :class:`parallel_backend` applies it on entry and puts
+  the caller's own limits back on exit, exception or not.
+
+* **A ray worker.** A worker is a separate process that has not imported
+  numpy yet, so there the environment variables *are* in time — they go into
+  the cluster's runtime environment and land before the worker's Python
+  starts. No ``threadpoolctl`` call happens inside a worker. This is also
+  what lifts ray's own default, which forces every worker it starts to one
+  thread whatever the caller asked for.
+
+:data:`THREAD_ENVIRONMENT_VARIABLES` is four names and not one because they
+are not synonyms: OpenBLAS prefers ``OPENBLAS_NUM_THREADS`` over the OpenMP
+name and MKL prefers ``MKL_NUM_THREADS``, so naming only one leaves a hole a
+contributor's shell can walk through.
+
+Threads apply **per process** and do not divide a budget: ``n_threads = 8``
+means each process may use eight threads. Dividing a total among workers would
+make the thread count depend on the worker count again, which is the exact
+coupling being removed. So keep ``n_workers × n_threads`` at or below the core
+count — oversubscription costs time, never correctness.
+
 Which backend runs
 ------------------
 
@@ -76,23 +117,110 @@ from collections.abc import Callable, Iterable, Sequence
 from types import ModuleType
 from typing import Any, Protocol, runtime_checkable
 
+from threadpoolctl import threadpool_info, threadpool_limits
+
 __all__ = [
     'BACKENDS',
     'DEFAULT_PARALLEL_BACKEND',
+    'THREAD_ENVIRONMENT_VARIABLES',
     'Backend',
     'RayBackend',
     'SerialBackend',
     'active_backend',
     'cut_into_patches',
     'make_backend',
+    'observed_threads',
     'parallel_backend',
     'pmap',
+    'thread_environment',
 ]
 
 #: Backend :func:`make_backend` picks when more than one worker is asked for
 #: and no backend is named. Serial remains what one worker gets, and what any
 #: caller that names it gets. See *Which backend runs* above.
 DEFAULT_PARALLEL_BACKEND = 'ray'
+
+#: Every environment variable a maths library reads its thread count from.
+#:
+#: Four names and not one, because they are not synonyms — see *Workers and
+#: threads* in the module docstring. Setting these from inside DAWIS only ever
+#: reaches a process that has not imported numpy yet, which means a ray worker
+#: and never this one; :func:`parallel_backend` uses ``threadpoolctl`` here.
+THREAD_ENVIRONMENT_VARIABLES = (
+    'OMP_NUM_THREADS',
+    'OPENBLAS_NUM_THREADS',
+    'MKL_NUM_THREADS',
+    'NUMEXPR_NUM_THREADS',
+)
+
+
+def thread_environment(n_threads: int) -> dict[str, str]:
+    """The environment a process must start with to thread at ``n_threads``.
+
+    Parameters
+    ----------
+    n_threads : int
+        Threads each process may use. Applied per process — this is not a
+        budget divided among them.
+
+    Returns
+    -------
+    dict of str to str
+        Every name in :data:`THREAD_ENVIRONMENT_VARIABLES`, all set to the
+        same count.
+
+    Examples
+    --------
+    >>> thread_environment(2)['OPENBLAS_NUM_THREADS']
+    '2'
+    """
+    return {name: str(n_threads) for name in THREAD_ENVIRONMENT_VARIABLES}
+
+
+def observed_threads() -> tuple[int | None, str | None]:
+    """What the loaded maths library actually threads at, and which one it is.
+
+    The *observation*, as against the request. A thread count DAWIS asked for
+    and a thread count the library gave are two different facts, and the whole
+    lesson of #61 is that they can disagree silently — so provenance records
+    both, and this is the half that cannot be read off a configuration.
+
+    Returns
+    -------
+    tuple of (int or None, str or None)
+        The effective thread count of the loaded BLAS, and the vendor
+        ``threadpoolctl`` found it to be — ``'openblas'``, ``'mkl'`` and so
+        on. ``(None, None)`` if no threaded library was found at all, which is
+        a real answer and not an error: a numpy built against a reference BLAS
+        has no thread count to report.
+
+    Notes
+    -----
+    BLAS is preferred over OpenMP where both are loaded, because BLAS is what
+    sums the vectors whose association order moves an atom's flux.
+
+    ``tests/goldenrun.py`` carries a copy of this, because the recording
+    scripts ask it of a ``legacy-seeded`` checkout that predates this module.
+    The two must answer alike or a recorded observation stops describing what
+    a run reports; a test asserts they do.
+
+    More than one BLAS can be loaded at once — numpy and scipy are built
+    against different ones often enough. Reporting whichever
+    ``threadpoolctl`` happened to list first would make the record silently
+    one of them, so every vendor found is named and the *highest* thread count
+    is reported. The highest is the answer that matters: one library still
+    threading is enough to reassociate a sum, and a pin that missed one has
+    not landed.
+    """
+    pools = threadpool_info()
+    if not pools:
+        return None, None
+    blas = [pool for pool in pools if pool.get('user_api') == 'blas'] or pools
+    counts = [pool['num_threads'] for pool in blas
+              if pool.get('num_threads') is not None]
+    vendors = sorted({pool['internal_api'] for pool in blas
+                      if pool.get('internal_api')})
+    return (max(counts) if counts else None), (', '.join(vendors) or None)
 
 
 @runtime_checkable
@@ -138,17 +266,24 @@ class SerialBackend:
         Accepted so every backend is constructed the same way. A serial run
         has one worker whatever is asked for, so this is recorded as 1.
         Default is 1.
+    n_threads : int or None, optional
+        Accepted so every backend is constructed the same way, and unused: a
+        serial patch runs in this process, whose thread count
+        :class:`parallel_backend` has already set. Default is None.
 
     Attributes
     ----------
     n_workers : int
         Always 1.
+    n_threads : int or None
+        As passed.
     """
 
     name = 'serial'
 
-    def __init__(self, n_workers: int = 1):
+    def __init__(self, n_workers: int = 1, n_threads: int | None = None):
         self.n_workers = 1
+        self.n_threads = n_threads
 
     def start(self) -> None:
         """Acquire nothing. Present so the backends are interchangeable."""
@@ -166,7 +301,8 @@ class SerialBackend:
         return [function(patch, *shared) for patch in patches]
 
     def __repr__(self) -> str:
-        return '<SerialBackend n_workers=%d>' % self.n_workers
+        return ('<SerialBackend n_workers=%d n_threads=%s>'
+                % (self.n_workers, self.n_threads))
 
 
 class RayBackend:
@@ -182,15 +318,34 @@ class RayBackend:
     already has a head node therefore leaves that node alone, and a run that
     stood its own cluster up tears it down again.
 
+    A worker is a separate process, so it is the one place in DAWIS where
+    setting :data:`THREAD_ENVIRONMENT_VARIABLES` is in time to be read: the
+    variables go into the runtime environment and land before the worker's
+    Python starts, so BLAS reads them at import. That is also what lifts ray's
+    own default, which pins every worker it starts to a single thread whatever
+    the caller asked for. No ``threadpoolctl`` call happens inside a worker.
+
+    The runtime environment is declared twice, on purpose. Naming it at
+    ``ray.init`` covers a cluster this backend starts; naming it again on the
+    remote function covers one it merely attaches to, where the job's
+    environment was settled by whoever stood the cluster up. Both carry the
+    same four values, so the two declarations cannot disagree.
+
     Parameters
     ----------
     n_workers : int, optional
         CPUs to give a cluster this backend starts. Ignored when attaching to
         a cluster that is already up. Default is 1.
+    n_threads : int or None, optional
+        Threads each worker may use. ``None``, the default, leaves ray's own
+        behaviour alone. Per process, not a budget divided among the workers.
+        Default is None.
 
     Attributes
     ----------
     n_workers : int
+        As passed.
+    n_threads : int or None
         As passed.
 
     Notes
@@ -202,10 +357,17 @@ class RayBackend:
 
     name = 'ray'
 
-    def __init__(self, n_workers: int = 1):
+    def __init__(self, n_workers: int = 1, n_threads: int | None = None):
         self.n_workers = n_workers
+        self.n_threads = n_threads
         self._owns_cluster = False
         self._remote_functions: dict[Any, Any] = {}
+
+    def _runtime_env(self) -> dict[str, Any] | None:
+        """The runtime environment a worker must start with, or None."""
+        if self.n_threads is None:
+            return None
+        return {'env_vars': thread_environment(self.n_threads)}
 
     @staticmethod
     def _import_ray() -> ModuleType:
@@ -223,7 +385,11 @@ class RayBackend:
         """Attach to a running cluster, or start one of ``n_workers`` CPUs."""
         ray = self._import_ray()
         if not ray.is_initialized():
-            ray.init(num_cpus=self.n_workers)
+            runtime_env = self._runtime_env()
+            if runtime_env is None:
+                ray.init(num_cpus=self.n_workers)
+            else:
+                ray.init(num_cpus=self.n_workers, runtime_env=runtime_env)
             self._owns_cluster = True
 
     def stop(self) -> None:
@@ -238,6 +404,9 @@ class RayBackend:
         remote = self._remote_functions.get(function)
         if remote is None:
             remote = self._import_ray().remote(function)
+            runtime_env = self._runtime_env()
+            if runtime_env is not None:
+                remote = remote.options(runtime_env=runtime_env)
             self._remote_functions[function] = remote
         return remote
 
@@ -256,7 +425,8 @@ class RayBackend:
         return list(ray.get(pending))
 
     def __repr__(self) -> str:
-        return '<RayBackend n_workers=%d>' % self.n_workers
+        return ('<RayBackend n_workers=%d n_threads=%s>'
+                % (self.n_workers, self.n_threads))
 
 
 #: Every backend the seam knows, by the name a configuration uses.
@@ -272,7 +442,8 @@ BACKENDS: dict[str, type[Backend]] = {
 _ACTIVE: Backend | None = None
 
 
-def make_backend(name: str | None = None, n_workers: int = 1) -> Backend:
+def make_backend(name: str | None = None, n_workers: int = 1,
+                 n_threads: int | None = None) -> Backend:
     """Build a backend by name, or pick one for a worker count.
 
     Parameters
@@ -285,6 +456,11 @@ def make_backend(name: str | None = None, n_workers: int = 1) -> Backend:
         one worker means serial and more than one means
         :data:`DEFAULT_PARALLEL_BACKEND` — see *Which backend runs* in the
         module docstring. Default is 1.
+    n_threads : int or None, optional
+        Threads each worker may use, or None to leave the backend's own
+        default alone. Never consulted in choosing a backend: which backend
+        runs is a worker question, and the two knobs are independent by
+        construction (#61). Default is None.
 
     Returns
     -------
@@ -305,7 +481,7 @@ def make_backend(name: str | None = None, n_workers: int = 1) -> Backend:
             'unknown parallel backend %r. Known backends: %s'
             % (name, ', '.join(sorted(BACKENDS)))
         ) from None
-    return backend_class(n_workers)
+    return backend_class(n_workers, n_threads)
 
 
 def active_backend() -> Backend | None:
@@ -333,6 +509,14 @@ class parallel_backend:
     Blocks nest: the previous backend is restored on exit rather than cleared,
     so an inner block cannot silently turn an outer one off.
 
+    It is also where a run's **thread** count is applied, because this is
+    already the one object that knows how a run is spread and #61 wanted no
+    second seam for the second kind of parallelism. The two knobs reach their
+    two kinds of process by two routes — ``threadpoolctl`` here, environment
+    variables on a ray worker — and *Workers and threads* in the module
+    docstring is the argument for why. The caller's own limits are put back on
+    the way out, including out through an exception.
+
     Parameters
     ----------
     name : str or None, optional
@@ -340,22 +524,44 @@ class parallel_backend:
         :func:`make_backend`. Default is None.
     n_workers : int, optional
         Workers to run with. Default is 1, which selects the serial backend.
+    n_threads : int or None, optional
+        Threads each process — this one and every worker — may use. ``None``,
+        the default, touches nothing and leaves whatever the caller's
+        environment already decided. Per process, not a budget divided among
+        the workers, so keep ``n_workers × n_threads`` at or below the core
+        count. Default is None.
 
     Attributes
     ----------
     backend : Backend
         The backend this block activates.
+    n_threads : int or None
+        As passed.
     """
 
-    def __init__(self, name: str | None = None, n_workers: int = 1):
-        self.backend = make_backend(name, n_workers)
+    def __init__(self, name: str | None = None, n_workers: int = 1,
+                 n_threads: int | None = None):
+        self.backend = make_backend(name, n_workers, n_threads)
+        self.n_threads = n_threads
         self._previous: Backend | None = None
         self._entered = False
+        self._limits: Any = None
 
     def start(self) -> Backend:
         """Acquire the backend's resources and make it the active one."""
         global _ACTIVE
-        self.backend.start()
+        if self.n_threads is not None:
+            self._limits = threadpool_limits(limits=self.n_threads)
+        started = False
+        try:
+            self.backend.start()
+            started = True
+        finally:
+            # A cluster that would not start must not leave this process
+            # pinned. `stop` cannot undo it, because the block was never
+            # entered, so the only place left to undo it is here.
+            if not started:
+                self._restore_threads()
         self._previous = _ACTIVE
         self._entered = True
         _ACTIVE = self.backend
@@ -365,11 +571,23 @@ class parallel_backend:
         """Restore the previous backend and release this one's resources."""
         global _ACTIVE
         if not self._entered:
+            self._restore_threads()
             return
         self._entered = False
         _ACTIVE = self._previous
         self._previous = None
-        self.backend.stop()
+        try:
+            self.backend.stop()
+        finally:
+            # `finally`, so a backend that fails to shut down still hands the
+            # caller their own thread limits back.
+            self._restore_threads()
+
+    def _restore_threads(self) -> None:
+        """Put the caller's thread limits back, once and only once."""
+        limits, self._limits = self._limits, None
+        if limits is not None:
+            limits.restore_original_limits()
 
     def __enter__(self) -> Backend:
         return self.start()

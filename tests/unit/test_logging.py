@@ -299,18 +299,22 @@ def test_the_handlers_come_back_off_through_an_exception(tmp_path):
         assert package.handlers == []
 
 
-def test_the_seed_reaches_the_log_of_a_run_a_caller_quietened(tmp_path):
-    """The one line that survives a caller's own level, and why it must.
+def test_what_a_run_can_be_repeated_from_reaches_a_quietened_caller_s_log(tmp_path):
+    """The lines that survive a caller's own level, and why they must.
 
     ``logging.basicConfig()`` with no arguments sets WARNING, which is the
     commonest configuration there is. Everything the run says at INFO is
     dropped for that caller, by their decision and #55's rule that their
     configuration wins.
 
-    The seed is the exception, logged at WARNING. Every other banner line
-    can be recovered from the configuration the caller already holds; a
-    generated seed exists nowhere but this line, so losing it makes the run
-    unrepeatable and nothing in the outputs can say what it was.
+    Two lines are the exception, logged at WARNING, and they are the exception
+    for one reason: a run has to be repeatable by reading its own log. A
+    generated seed exists nowhere but its line, so losing it makes the run
+    unrepeatable and nothing in the outputs can say what it was. The
+    maths-library thread count is the second, and #61 is why: it moves an
+    atom's flux in its last digits, and until then nothing in DAWIS chose one
+    or wrote one down. Every other banner line can be recovered from the
+    configuration the caller already holds.
     """
     import dawis
     from tinyrun import TINY_NAME, TINY_PARAMS, tiny_image
@@ -329,4 +333,9 @@ def test_the_seed_reaches_the_log_of_a_run_a_caller_quietened(tmp_path):
     assert 'Random seed = %d' % result.seed in log, (
         'a run quietened to WARNING lost the only record of the seed it '
         'drew, so it can never be repeated'
+    )
+    assert 'Maths library threads = 1' in log, (
+        'a run quietened to WARNING lost the record of the thread count it '
+        'ran at, so a rerun that differs in its last digits has nothing to '
+        'say why (#61)'
     )

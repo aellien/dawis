@@ -160,16 +160,18 @@ def _assert_keys_are_unique(rows, what):
     )
 
 
-def assert_atoms_are_identical(actual_rows, reference_rows, what_actual,
-                               what_reference):
-    """Two runs restored the same atoms, bit for bit, in any order.
+def _paired_atoms(actual_rows, reference_rows, what_actual, what_reference):
+    """Pair two runs' atoms by identity, or say why they cannot be paired.
 
-    Every column the rows carry is compared except ``index``, rather than a
-    fixed list of them. That is what lets the caller decide how much of an
-    atom is under test: :func:`goldenrun.atom_catalogue` describes an atom by
-    its measurements, and :func:`goldenrun.atom_catalogue_with_digests` adds a
-    digest of the image bytes themselves, which is the difference between
-    "the same flux" and "the same atom".
+    The preamble both two-run comparisons share, and it is shared because
+    getting it wrong is the one way either of them could pass without meaning
+    anything: a differing count, an ambiguous sort, or an atom one run has and
+    the other does not.
+
+    Yields
+    ------
+    tuple of (dict, dict, str)
+        Each pair of rows, and how to name the atom in a failure.
     """
     assert len(actual_rows) == len(reference_rows), (
         "%s restored %d atoms, %s restored %d"
@@ -183,19 +185,106 @@ def assert_atoms_are_identical(actual_rows, reference_rows, what_actual,
     reference_sorted = sorted(reference_rows, key=_atom_key)
 
     for actual, reference in zip(actual_sorted, reference_sorted, strict=True):
+        assert _atom_key(actual) == _atom_key(reference), (
+            "%s has an atom %r that %s does not"
+            % (what_actual, _atom_key(actual), what_reference)
+        )
+        yield actual, reference, "atom %r" % (_atom_key(reference),)
+
+
+def assert_atoms_are_identical(actual_rows, reference_rows, what_actual,
+                               what_reference):
+    """Two runs restored the same atoms, bit for bit, in any order.
+
+    Every column the rows carry is compared except ``index``, rather than a
+    fixed list of them. That is what lets the caller decide how much of an
+    atom is under test: :func:`goldenrun.atom_catalogue` describes an atom by
+    its measurements, and :func:`goldenrun.atom_catalogue_with_digests` adds a
+    digest of the image bytes themselves, which is the difference between
+    "the same flux" and "the same atom".
+    """
+    for actual, reference, where in _paired_atoms(
+            actual_rows, reference_rows, what_actual, what_reference):
         assert actual.keys() == reference.keys(), (
             "%s and %s describe an atom by different columns: %r against %r"
             % (what_actual, what_reference,
                sorted(actual), sorted(reference))
         )
-        assert _atom_key(actual) == _atom_key(reference), (
-            "%s has an atom %r that %s does not"
-            % (what_actual, _atom_key(actual), what_reference)
-        )
-        where = "atom %r" % (_atom_key(reference),)
         for name in sorted(actual.keys() - ATOM_NOT_COMPARED):
             assert _equal_or_both_nan(actual[name], reference[name]), (
                 "%s: %s is %r in %s and %r in %s"
                 % (where, name, actual[name], what_actual,
                    reference[name], what_reference)
+            )
+
+
+# ---------------------------------------------------------------------------
+# Comparing two runs that differ in the thread count (#61)
+# ---------------------------------------------------------------------------
+#
+# The mirror image of :func:`assert_atoms_are_identical` above, and the reason
+# the two exist side by side is that DAWIS has two kinds of parallelism with
+# two different promises.
+#
+# The worker count is scheduling: it hands whole trees to other processes, the
+# arithmetic inside a tree is untouched, and nothing may move at all. The
+# thread count is not scheduling: it splits one array operation across threads
+# inside a process, the partial sums are added in a different association
+# order, and an atom's flux moves in its last digits. That is not a defect and
+# no tolerance can be argued away — it is floating-point addition not being
+# associative.
+#
+# What must *not* move either way is a decision. An atom count, a level, a
+# bounding box, a chosen filter and a convergence flag are choices the pipeline
+# made, not quantities it measured; a change in one of them is real science
+# drift and has to turn this red. So the split is the same one #3 lays down for
+# a golden — ``ATOM_EXACT`` against ``ATOM_APPROXIMATE`` — applied to two runs
+# of the tree under test rather than to a recording.
+#
+# The tolerance is the golden's own, read out of ``provenance.toml`` by the
+# caller. Inventing a second, wider number here would be claiming the thread
+# count is allowed to move an atom further than a whole change of machine is,
+# which is the opposite of what #61 measured.
+
+
+def assert_atoms_are_equivalent(actual_rows, reference_rows, tolerances,
+                                what_actual, what_reference):
+    """Two runs restored the same atoms, to within a tolerance, in any order.
+
+    Every *decision* is compared exactly and every *measurement* under
+    ``tolerances``. Atom order is normalised away first, by the same identity
+    columns and for the same reason as
+    :func:`assert_atoms_are_identical` — see the note above that function.
+
+    Parameters
+    ----------
+    actual_rows, reference_rows : list of dict
+        Atom catalogues, as :func:`goldenrun.atom_catalogue` builds them.
+        *Not* the digested form: a digest is an exact comparison in disguise,
+        and the whole claim here is that the last digits may move.
+    tolerances : dict
+        The golden's recorded tolerances. ``atom_rtol`` and ``atom_atol`` are
+        read.
+    what_actual, what_reference : str
+        How each side is named in a failure.
+    """
+    for actual, reference, where in _paired_atoms(
+            actual_rows, reference_rows, what_actual, what_reference):
+        for name in ATOM_EXACT:
+            if name in ATOM_NOT_COMPARED:
+                continue
+            assert actual[name] == reference[name], (
+                "%s: %s is %r in %s and %r in %s — a decision, which the "
+                "thread count may not move"
+                % (where, name, actual[name], what_actual,
+                   reference[name], what_reference)
+            )
+        for name in ATOM_APPROXIMATE:
+            np.testing.assert_allclose(
+                actual[name],
+                reference[name],
+                rtol=tolerances["atom_rtol"],
+                atol=tolerances["atom_atol"],
+                err_msg="%s: %s in %s against %s"
+                % (where, name, what_actual, what_reference),
             )

@@ -132,6 +132,7 @@ def main():
     lines += recording.toml_table("run", {
         "seed": goldenrun.TEST_SEED,
         "n_workers": 1,
+        "n_threads": goldenrun.GOLDEN_N_THREADS,
         "cg_max_iter": tier1.CG_MAX_ITER,
         "cg_max_iter_default_in_source": recording.cg_max_iter_default(dawis),
         "pipeline_max_iter": goldenrun.PIPELINE_MAX_ITER,
@@ -147,6 +148,14 @@ def main():
         "pipeline_max_iter is the unrelated cap on the greedy outer loop; the\n"
         "cutout converges well inside it, so this run converged rather than\n"
         "hitting the cap."
+        "\n"
+        "n_threads is what this run asked the maths libraries to split a single\n"
+        "array operation across, per process -- a different knob from n_workers,\n"
+        "which hands whole trees to other processes (#61). It is recorded here\n"
+        "because a golden compared at another thread count differs in its last\n"
+        "digits for a reason that has nothing to do with the code under test.\n"
+        "What the loaded library ACTUALLY gave is in [machine]; the request and\n"
+        "the observation are separate facts."
     ))
     lines += recording.config_table(dawis, work_dir, tier1.TIER1_INFILE, tier1.CG_MAX_ITER)
     lines += recording.toml_table("tolerances", {
@@ -164,11 +173,15 @@ def main():
         "atom and iteration counts. The values are #3's stated starting points\n"
         "-- rtol=1e-5 with atol=1e-3*sigma on images, rtol=1e-4 per atom -- and\n"
         "the sigma is the robust sigma of THIS run's residual, recorded above,\n"
-        "not of the raw input. Never bit-for-bit: BLAS, OS and numpy versions\n"
-        "move the last bits, and the one comparison that IS bit-identical by\n"
-        "design is Tier 2's parallel-consistency check (#57)."
+        "not of the raw input. Never bit-for-bit: BLAS, OS, numpy versions and\n"
+        "the maths-library thread count all move the last bits, which is why\n"
+        "[run].n_threads is recorded above. Tier 2's worker-count check (#57)\n"
+        "does compare two runs bit for bit, but that is a narrower claim than\n"
+        "it reads: one machine, one BLAS build, one thread count, with the\n"
+        "worker count as the only variable (#61). It is not a property of the\n"
+        "goldens and no golden comparison rests on it."
     ))
-    lines += recording.machine_table()
+    lines += recording.machine_table(goldenrun.GOLDEN_N_THREADS)
 
     (goldens / "provenance.toml").write_text("\n".join(lines))
 

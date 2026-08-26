@@ -34,6 +34,12 @@ STUBBABLE = ("ray", "ultranest")
 #: algorithm with the RNG pinned and the post-publication drift reverted (#32).
 GOLDEN_BRANCH = "legacy-seeded"
 
+#: Knobs the legacy trees spell differently, mapped to the name 1.0 uses.
+#: Provenance records the 1.0 spelling, so a re-recording cannot walk a rename
+#: back. Values are untouched — these are the same knobs, renamed and not
+#: redefined.
+LEGACY_KNOB_NAMES = {"n_cpus": "n_workers"}
+
 
 def load_tier(name: str):
     """Import a tier definition from ``tests/`` by name.
@@ -212,14 +218,20 @@ def toml_value(value) -> str:
     # backslashes, newlines and control characters as well as for quotes —
     # where hand-escaping only the quote would emit a file `tomllib` refuses
     # to load, and the refusal would surface a recording run too late.
-    return json.dumps(str(value))
+    #
+    # `ensure_ascii=False`, because TOML files are UTF-8 by definition and the
+    # author of every golden here has a diaeresis in their name. Escaping it
+    # loads back identically and reads back as `Ama\u00ebl`, which is a
+    # provenance file that has stopped saying who recorded it.
+    return json.dumps(str(value), ensure_ascii=False)
 
 
 def toml_table(name: str, mapping: dict, comment: str | None = None) -> list[str]:
     """One provenance table, as lines."""
     lines = []
     if comment:
-        lines.extend("# " + line for line in comment.strip().splitlines())
+        lines.extend(("# " + line).rstrip()
+                     for line in comment.strip().splitlines())
     lines.append("[%s]" % name)
     for key, value in mapping.items():
         lines.append("%s = %s" % (key, toml_value(value)))
@@ -255,18 +267,42 @@ def golden_table(tier: int, author: str, reason: str, ticket_url: str,
     })
 
 
-def machine_table() -> list[str]:
-    """The ``[machine]`` table, identical at every tier."""
+def machine_table(n_threads: int) -> list[str]:
+    """The ``[machine]`` table, identical at every tier.
+
+    ``n_threads`` is what the run *asked* the maths libraries for; it is
+    recorded under ``[run]`` beside the seed, with the other knobs. What lands
+    here is the *observation* — the effective thread count the loaded library
+    reports under that request, and which library it turned out to be. The two
+    are recorded separately because they can disagree, and a knob that
+    silently failed is the bug #61 exists to make visible.
+    """
     import numpy as np
+
+    import goldenrun
+
+    effective, vendor = goldenrun.observed_threads_at(n_threads)
 
     return toml_table("machine", {
         "hostname": platform.node(),
         "platform": platform.platform(),
         "python": platform.python_version(),
         "numpy": np.__version__,
+        "blas_vendor": vendor or "none",
+        "effective_n_threads": -1 if effective is None else effective,
     }, comment=(
-        "Recorded for diagnosis only. The goldens are expected to reproduce\n"
-        "across machines within the tolerances above."
+        "Recorded for diagnosis only, EXCEPT the two thread fields. The\n"
+        "goldens are expected to reproduce across machines within the\n"
+        "tolerances above.\n"
+        "\n"
+        "effective_n_threads is what the loaded BLAS reported it would\n"
+        "actually use when this run asked it for [run].n_threads, and\n"
+        "blas_vendor is which library that was. The request and the\n"
+        "observation are separate facts: until #61 nothing in DAWIS chose a\n"
+        "thread count and nothing recorded one, so a run compared at one\n"
+        "thread against a golden recorded at four differed in its last\n"
+        "digits for a reason no file said. -1 means no threaded library was\n"
+        "loaded at all, which is a real answer and not a failure."
     ))
 
 
@@ -294,6 +330,14 @@ def config_table(dawis, work_dir: Path, infile: str,
         # Paths identify this machine, not the run's behaviour.
         for name in ("indir", "outdir", "infile"):
             config.pop(name, None)
+        # The legacy trees spell the worker count `n_cpus`; #60 renamed it.
+        # It is the same knob holding the same value, so it is recorded under
+        # the name the repository uses -- otherwise a re-recording would
+        # silently walk that rename back, and two goldens would disagree on
+        # what to call one number.
+        for old_name, new_name in LEGACY_KNOB_NAMES.items():
+            if old_name in config:
+                config[new_name] = config.pop(old_name)
 
     return toml_table("config", config, comment=(
         "Every pipeline parameter with the value this run actually used,\n"

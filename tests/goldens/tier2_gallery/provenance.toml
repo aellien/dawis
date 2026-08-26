@@ -9,10 +9,10 @@
 [golden]
 tier = 2
 recorded_by = "Amaël Ellien"
-recorded_on = "2026-08-24"
-reason = "initial Tier 2 recording for #37"
+recorded_on = "2026-08-26"
+reason = "re-recorded at a pinned thread count, and carrying it (#61)"
 ticket = "https://github.com/aellien/dawis-dev/issues/37"
-wall_s = 1641.2
+wall_s = 1701.8
 
 # The branch the goldens were recorded from: the published algorithm
 # with the RNG pinned and the post-publication drifts reverted (#32).
@@ -47,9 +47,17 @@ cutout = false
 # budget. It is still FORCED rather than inherited: the default is 200 on
 # legacy-seeded but 3 on the tree the refactor branched from.
 # pipeline_max_iter is the unrelated cap on the greedy outer loop.
+# n_threads is what this run asked the maths libraries to split a single
+# array operation across, per process -- a different knob from n_workers,
+# which hands whole trees to other processes (#61). It is recorded here
+# because a golden compared at another thread count differs in its last
+# digits for a reason that has nothing to do with the code under test.
+# What the loaded library ACTUALLY gave is in [machine]; the request and
+# the observation are separate facts.
 [run]
 seed = 20260823
 n_workers = 1
+n_threads = 1
 cg_max_iter = 200
 cg_max_iter_default_in_source = 200
 pipeline_max_iter = 500
@@ -59,7 +67,6 @@ n_atoms = 463
 # Every pipeline parameter with the value this run actually used,
 # defaults resolved.
 [config]
-n_workers = 1
 starting_level = 2
 tau = 0.1
 n_levels = 9
@@ -88,15 +95,20 @@ gif = false
 iptd_sigma = 3
 resume = false
 seed = 20260823
+n_workers = 1
 
 # The same rule as Tier 1, per #3: float tolerance on images and per-atom
 # quantities, exact on atom and iteration counts, rtol=1e-5 with
 # atol=1e-3*sigma on images and rtol=1e-4 per atom. The sigma is the
 # robust sigma of THIS run's residual, so the absolute tolerance is a
 # different number from Tier 1's while the rule producing it is the same.
-# Never bit-for-bit: BLAS, OS and numpy versions move the last bits, and
-# the one comparison that IS bit-identical by design is the
-# parallel-consistency check (#57).
+# Never bit-for-bit: BLAS, OS, numpy versions and the maths-library
+# thread count all move the last bits, which is why [run].n_threads is
+# recorded above. The worker-count check (#57) does compare two runs bit
+# for bit, but that is a narrower claim than it reads: one machine, one
+# BLAS build, one thread count, with the worker count as the only
+# variable (#61). It is not a property of the goldens and no golden
+# comparison rests on it.
 [tolerances]
 residual_sigma = 0.0018638754007406534
 image_atol = 1.8638754007406534e-06
@@ -117,16 +129,28 @@ exact = ["n_atoms", "n_iterations", "level", "bbox", "flag_convergence", "filter
 # recording additionally reads every atom pickle back off disk. Budget a
 # full half hour for a checkpoint run.
 [budget]
-wall_s = 1641.2
+wall_s = 1701.8
 benchmark_wall_s = 1167.6
 benchmark_source = "benchmarks/results/2026-08-24-xps13-9360/cg-max-iter-200/benchmark.json"
 marker = "slow"
 runs_on = "carve checkpoints and nightly CI (#19)"
 
-# Recorded for diagnosis only. The goldens are expected to reproduce
-# across machines within the tolerances above.
+# Recorded for diagnosis only, EXCEPT the two thread fields. The
+# goldens are expected to reproduce across machines within the
+# tolerances above.
+#
+# effective_n_threads is what the loaded BLAS reported it would
+# actually use when this run asked it for [run].n_threads, and
+# blas_vendor is which library that was. The request and the
+# observation are separate facts: until #61 nothing in DAWIS chose a
+# thread count and nothing recorded one, so a run compared at one
+# thread against a golden recorded at four differed in its last
+# digits for a reason no file said. -1 means no threaded library was
+# loaded at all, which is a real answer and not a failure.
 [machine]
 hostname = "amael-XPS-13-9360"
 platform = "Linux-7.0.0-29-generic-x86_64-with-glibc2.43"
 python = "3.13.9"
 numpy = "2.3.5"
+blas_vendor = "mkl"
+effective_n_threads = 1

@@ -29,6 +29,7 @@ dependencies = [
     "h5py",
     "photutils",
     "scikit-image",
+    "threadpoolctl",
 ]
 
 [project.optional-dependencies]

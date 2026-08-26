@@ -72,6 +72,7 @@ def test_the_default_configuration_is_the_published_one():
     assert config.outfile_format == 'pickle'
     assert config.n_workers == 1
     assert config.backend is None
+    assert config.n_threads == 1
 
 
 def test_the_solver_iteration_cap_defaults_to_the_published_200():
@@ -140,6 +141,7 @@ def test_the_configuration_cannot_be_changed_after_it_is_checked():
 
 @pytest.mark.parametrize('knob, value', [
     ('n_workers', 0),
+    ('n_threads', 0),
     ('max_iter', 0),
     ('size_patch', 0),
     ('cg_max_iter', 0),

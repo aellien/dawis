@@ -25,7 +25,7 @@ iterations, 76 atoms.
 | `residuals.fits` | what the loop left behind |
 | `atoms.csv` | one row per atom: position, scale, operator, flux |
 | `convergence.csv` | one row per greedy iteration |
-| `provenance.toml` | commit, seed, tolerances, pinned `max_iter`, author, date |
+| `provenance.toml` | commit, seed, thread count, tolerances, pinned `max_iter`, author, date |
 
 `input_cutout.fits` is a golden in its own right: a misread cutout coordinate
 still lands on a valid patch, so comparing the input first turns a silent
@@ -38,7 +38,7 @@ script and by the comparison in `tests/regression/test_golden_cutout.py`.
 ## `tier2_gallery/` — the checkpoint science check (#37)
 
 One seeded run on the **whole** 900x900 gallery image at the **shipping** CG
-`max_iter=200`, recorded from the same `legacy-seeded` commit `1434f66`. 1641 s,
+`max_iter=200`, recorded from the same `legacy-seeded` commit `1434f66`. 1702 s,
 27 iterations, 463 atoms.
 
 Tier 1 asks whether the carve broke the structure of the pipeline; Tier 2 asks
@@ -58,7 +58,7 @@ pytest -m slow tests/regression/test_golden_gallery.py
 | `residuals.fits` | what the loop left behind |
 | `atoms.csv` | one row per atom: position, scale, operator, flux |
 | `convergence.csv` | one row per greedy iteration |
-| `provenance.toml` | commit, seed, tolerances, shipping `max_iter`, measured runtime |
+| `provenance.toml` | commit, seed, thread count, tolerances, shipping `max_iter`, measured runtime |
 
 There is no `input_gallery.fits`. The image ships inside the package and is
 already under version control, so `provenance.toml` records its sha256 and the
@@ -88,6 +88,44 @@ atom pickle back off disk.
 Tolerances are deliberately *not* shared: each tier reads its own out of its
 `provenance.toml`, so a golden cannot be recorded under one rule and compared
 under another.
+
+## Threads
+
+Every golden is recorded and compared at `goldenrun.GOLDEN_N_THREADS` maths-library
+threads — one. This is not a speed setting. numpy splits a single array
+operation across threads on its own, and a sum split over four threads is added
+in a different association order from one added on a single thread; on the Tier 1
+cutout that moves an atom's flux in its last digit. Pinning it is what leaves the
+*input* as the only thing a golden depends on.
+
+Until #61 the pin was four `os.environ` calls above the numpy import in
+`tests/conftest.py`, because BLAS reads its thread count once, when numpy loads
+it, and nothing inside the package could act that late. DAWIS owns the knob now:
+`Config.n_threads` carries it and `dawis.parallel.parallel_backend` applies it
+with `threadpoolctl` to the already-loaded library. A golden run therefore pins
+its own threads, through the same code path a user runs, and `conftest` asserts
+the pin actually lands rather than hoping an environment variable did.
+
+The `legacy` trees predate that knob, so the recording scripts pin them from the
+harness instead (`goldenrun.pin_threads`) — which is what makes a recording
+comparable against a 1.0 run at all.
+
+Each `provenance.toml` records two separate facts: `[run].n_threads`, what the
+run asked for, and `[machine].effective_n_threads` with `[machine].blas_vendor`,
+what the loaded library actually gave. They can disagree, and a knob that
+silently fails is the bug #61 exists to make visible.
+
+Both goldens were re-recorded for #61, and both moved — they had been recorded
+unpinned and compared at one thread, and nobody knew how much of the tolerance
+that consumed. On Tier 2, 183 of 2778 measured values moved in their last digit
+and **no decision moved at all**: same 463 atoms, same 27 iterations, same
+levels, bounding boxes, filters and convergence flags. That is the signature the
+thread count is supposed to have, and it is now recorded rather than assumed.
+
+The vendor is not fixed across machines and does not need to be. The recordings
+report `mkl`; the ray-bearing environment the Tier 2 suite runs in loads
+`openblas`, pins just as well, and passes every golden comparison within the
+recorded tolerances.
 
 ## Regenerating
 

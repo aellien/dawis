@@ -109,7 +109,7 @@ from dawis.io import (
     write_regions_to_pickle,
 )
 from dawis.logs import run_logging
-from dawis.parallel import parallel_backend
+from dawis.parallel import observed_threads, parallel_backend
 from dawis.restoration import (
     Reconstruction,
     restore_objects_default,
@@ -307,12 +307,19 @@ def run(image, config: Config | None = None, *, outdir: str = '.',
         # optional. The cluster is released on the way out, including out
         # through an exception, which the pre-#47 code never managed: its
         # shutdown sat on a misspelt flag and was unreachable.
-        with parallel_backend(name = config.backend, n_workers = config.n_workers):
+        # `n_threads` travels with it, because it is the same question asked
+        # of the other kind of parallelism -- see *Workers and threads* in
+        # :mod:`dawis.parallel`. It reaches this process through
+        # `threadpoolctl` and a ray worker through the runtime environment,
+        # and the caller's own limits are restored on the way out.
+        with parallel_backend(name = config.backend,
+                              n_workers = config.n_workers,
+                              n_threads = config.n_threads):
 
             log.info(datetime.now())
             start_time_algo = datetime.now()
-            log.info('DAWIS\nRun = %s\nOutput Directory = %s\nN_workers = %d\nTau = %f\nGamma = %f\nmin_span = %d\nmax_span = %d\nConvergence Epsilon = %f'\
-                                            %(name, outdir, config.n_workers, config.tau, config.gamma, config.min_span, config.max_span, config.ceps))
+            log.info('DAWIS\nRun = %s\nOutput Directory = %s\nN_workers = %d\nN_threads = %d\nTau = %f\nGamma = %f\nmin_span = %d\nmax_span = %d\nConvergence Epsilon = %f'\
+                                            %(name, outdir, config.n_workers, config.n_threads, config.tau, config.gamma, config.min_span, config.max_span, config.ceps))
             # The seed goes in the log whether it was asked for or not. An
             # unseeded run is the science default, and this line is the whole
             # reason that default costs nothing: it is what makes the run
@@ -327,6 +334,18 @@ def run(image, config: Config | None = None, *, outdir: str = '.',
             # in the outputs says what it was.
             log.warning('Random seed = %d%s\n'
                         %(run_seed, '' if config.seed is not None else ' (generated)'))
+            # WARNING for the reason the seed line above is, and no other:
+            # a caller who configured their own logging must still get every
+            # line a run has to be repeated from, and the maths-library thread
+            # count is one of them -- it moves an atom's flux in its last
+            # digits, and until #61 nothing recorded it. What was *asked for*
+            # and what the loaded library actually gave are two facts, so both
+            # go in: a knob that silently failed has to be visible.
+            observed, blas_vendor = observed_threads()
+            log.warning('Maths library threads = %d (effective %s, %s)\n'
+                        %(config.n_threads,
+                          'unknown' if observed is None else observed,
+                          blas_vendor or 'no threaded BLAS found'))
 
             # What the run was handed. Warn, never block (#4): the astronomer
             # usually knows their image has a blank border, and a pipeline that

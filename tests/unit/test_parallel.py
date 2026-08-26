@@ -155,6 +155,10 @@ def _install_fake_ray(monkeypatch=None):
 
     def remote(function):
         class _RemoteFunction:
+            def options(self, **kwargs):
+                module.calls.append(('options', kwargs))
+                return self
+
             def remote(self, *args, **kwargs):
                 module.calls.append(('submit', args))
                 plain = [
@@ -250,6 +254,169 @@ def test_asking_for_ray_without_the_extra_says_how_to_install_it():
     with ray_uninstalled():
         with pytest.raises(ImportError, match=r"dawis\[ray\]"):
             parallel.parallel_backend('ray', n_workers=2).start()
+
+
+# ---------------------------------------------------------------------------
+# Threads, which are not workers (#61)
+# ---------------------------------------------------------------------------
+#
+# What is asserted is the *effective* thread count the loaded library reports,
+# never that an environment variable holds a string. The variable is the
+# mechanism and the effective count is the behaviour, and #61 exists because a
+# mechanism that looked set did nothing for a year.
+#
+# The one exception is the ray worker, which is a process that does not exist
+# yet: there the environment IS the behaviour, because it is the only thing
+# that reaches a process before its Python starts, and the fake cluster is all
+# there is to observe.
+
+
+def _blas_threads():
+    """The effective thread count of the loaded BLAS, or None if there is none."""
+    threads, _ = parallel.observed_threads()
+    return threads
+
+
+needs_a_threaded_blas = pytest.mark.skipif(
+    _blas_threads() is None,
+    reason="no threaded maths library is loaded, so there is no thread count "
+           "to pin or observe",
+)
+
+
+@needs_a_threaded_blas
+def test_a_block_threads_at_what_it_asked_for():
+    """The knob's whole point: what was asked for is what the library gives."""
+    with parallel.parallel_backend(n_workers=1, n_threads=1):
+        assert _blas_threads() == 1
+
+
+@needs_a_threaded_blas
+def test_a_block_gives_the_caller_their_own_limits_back():
+    """A run borrows the process's thread count; it does not keep it."""
+    before = _blas_threads()
+    with parallel.parallel_backend(n_workers=1, n_threads=1):
+        pass
+    assert _blas_threads() == before
+
+
+@needs_a_threaded_blas
+def test_a_failing_block_still_gives_the_caller_their_limits_back():
+    """The run exits through an exception more often than anyone plans for."""
+    before = _blas_threads()
+    with pytest.raises(ZeroDivisionError):
+        with parallel.parallel_backend(n_workers=1, n_threads=1):
+            1 / 0
+    assert _blas_threads() == before
+
+
+@needs_a_threaded_blas
+def test_naming_no_thread_count_leaves_the_process_alone():
+    """``None`` means *touch nothing*, which is what keeps ``pmap`` unchanged."""
+    before = _blas_threads()
+    with parallel.parallel_backend(n_workers=1):
+        assert _blas_threads() == before
+
+
+@needs_a_threaded_blas
+def test_a_block_that_could_not_start_leaves_no_pin_behind():
+    """A cluster that refuses to come up must not leave this process pinned."""
+    before = _blas_threads()
+    with ray_uninstalled():
+        with pytest.raises(ImportError):
+            parallel.parallel_backend('ray', n_workers=2, n_threads=1).start()
+    assert _blas_threads() == before
+
+
+def test_every_thread_variable_is_named_and_none_is_a_synonym_for_another():
+    """Four names, because a library prefers its own over the OpenMP one.
+
+    OpenBLAS reads OPENBLAS_NUM_THREADS in preference to OMP_NUM_THREADS and
+    MKL reads MKL_NUM_THREADS, so naming only one leaves a hole a
+    contributor's shell can walk through — and the symptom is a spurious
+    last-digit difference somewhere else entirely.
+    """
+    assert set(parallel.THREAD_ENVIRONMENT_VARIABLES) == {
+        'OMP_NUM_THREADS',
+        'OPENBLAS_NUM_THREADS',
+        'MKL_NUM_THREADS',
+        'NUMEXPR_NUM_THREADS',
+    }
+    assert set(parallel.thread_environment(3).values()) == {'3'}
+
+
+def test_a_worker_is_given_the_thread_count_before_its_python_starts(fake_ray):
+    """The ray worker's route, which is the environment and not threadpoolctl.
+
+    A worker is a separate process, so the variables land before it imports
+    numpy — the one moment BLAS reads them. This is also what lifts ray's own
+    default of one thread per worker.
+
+    Declared twice on purpose: at ``init`` for a cluster this backend starts,
+    and on the remote function for one it merely attaches to.
+    """
+    with parallel.parallel_backend('ray', n_workers=2, n_threads=4):
+        parallel.pmap(_sum_batch, [[1], [2]], shared=(10, 2), n_workers=2)
+
+    expected = {name: '4' for name in parallel.THREAD_ENVIRONMENT_VARIABLES}
+    init, = [payload for name, payload in fake_ray.calls if name == 'init']
+    assert init == {'num_cpus': 2, 'runtime_env': {'env_vars': expected}}
+
+    options = [payload for name, payload in fake_ray.calls if name == 'options']
+    assert options == [{'runtime_env': {'env_vars': expected}}]
+
+
+def test_a_worker_is_left_alone_when_no_thread_count_was_asked_for(fake_ray):
+    """``None`` declares no runtime environment, so ray keeps its own default."""
+    with parallel.parallel_backend('ray', n_workers=2):
+        parallel.pmap(_sum_batch, [[1], [2]], shared=(10, 2), n_workers=2)
+
+    assert ('init', {'num_cpus': 2}) in fake_ray.calls
+    assert [name for name, _ in fake_ray.calls if name == 'options'] == []
+
+
+def test_the_two_thread_observers_answer_alike():
+    """The package's and the harness's copies must not drift apart.
+
+    ``goldenrun.observed_threads_at`` exists because the recording scripts ask
+    this of a ``legacy-seeded`` checkout, which predates
+    :func:`dawis.parallel.observed_threads`. A golden's recorded observation is
+    then compared against runs that report through the other copy, so a rule
+    changed on one side alone would make the recording describe something
+    else — silently, since both still return a plausible number.
+    """
+    import sys
+    from pathlib import Path
+
+    tests_dir = str(Path(__file__).resolve().parent.parent)
+    if tests_dir not in sys.path:
+        sys.path.insert(0, tests_dir)
+    import goldenrun
+
+    with parallel.parallel_backend(n_workers=1, n_threads=1):
+        package = parallel.observed_threads()
+    assert goldenrun.observed_threads_at(1) == package
+
+
+def test_the_thread_count_does_not_choose_a_backend():
+    """The two knobs are independent, which is the coupling #61 removed."""
+    assert parallel.make_backend(None, 1, 8).name == 'serial'
+    assert parallel.make_backend(None, 4, 1).name == parallel.DEFAULT_PARALLEL_BACKEND
+
+
+def test_the_thread_count_is_per_process_and_not_a_budget_divided_up():
+    """``n_threads`` is what *each* process may use, workers included.
+
+    A total-budget design would make the thread count depend on the worker
+    count again — the exact coupling being removed — so the same number
+    reaches every worker whatever ``n_workers`` says.
+    """
+    for n_workers in (1, 2, 16):
+        backend = parallel.make_backend('ray', n_workers, 4)
+        assert backend.n_threads == 4
+        assert backend._runtime_env() == {
+            'env_vars': parallel.thread_environment(4)
+        }
 
 
 # ---------------------------------------------------------------------------

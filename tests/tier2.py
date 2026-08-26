@@ -76,10 +76,27 @@ TIER2_PARAMS = dict(GOLDEN_PARAMS)
 #: crossing one is half of what could break bit-identity.
 PARALLEL_N_WORKERS = 4
 
+#: Maths-library threads the *thread* half of the consistency check of #61
+#: asks for, against :data:`goldenrun.GOLDEN_N_THREADS` on the other side.
+#:
+#: Two, not the host's core count, for the reason
+#: :data:`PARALLEL_N_WORKERS` is four: what is asserted is a bound on how far
+#: an atom moved, and a thread count that moved with the machine would make a
+#: failure something the next machine could not reproduce. Two is also the
+#: smallest count that reassociates a sum at all, which is the whole effect
+#: under test — a larger one would demonstrate nothing more.
+#:
+#: The worker count stays at the published 1 on both sides of that comparison,
+#: so the thread count is the only thing that differs. Threads apply per
+#: process and are not divided among workers, so the two knobs are independent
+#: and pairing them would only make a failure ambiguous.
+PARALLEL_N_THREADS = 2
+
 
 def run_tier2(dawis, image: np.ndarray, work_dir: Path, seed: int = TEST_SEED,
               cg_max_iter: int = CG_MAX_ITER,
-              n_workers: int | None = None) -> GoldenRun:
+              n_workers: int | None = None,
+              n_threads: int | None = None) -> GoldenRun:
     """Run the Tier 2 configuration on ``image`` and return what it wrote.
 
     ``n_workers`` replaces the published single worker, which makes the run
@@ -87,6 +104,12 @@ def run_tier2(dawis, image: np.ndarray, work_dir: Path, seed: int = TEST_SEED,
     ``None`` keeps the published value, which is what the golden comparison and
     the recording script both take; #57's parallel half passes
     :data:`PARALLEL_N_WORKERS`.
+
+    ``n_threads`` replaces the maths-library thread count the same way, and
+    ``None`` keeps :data:`goldenrun.GOLDEN_N_THREADS`. #61's thread half
+    passes :data:`PARALLEL_N_THREADS`; that run is also incomparable against
+    the recording, but for a different reason — the worker count cannot move
+    an atom at all, while the thread count moves one within tolerance.
     """
     return run_golden(dawis, image, work_dir, TIER2_INFILE, cg_max_iter, seed,
-                      n_workers)
+                      n_workers, n_threads)

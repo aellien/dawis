@@ -66,6 +66,13 @@ def cutout_of(image: np.ndarray) -> np.ndarray:
 
 
 def run_tier1(dawis, image: np.ndarray, work_dir: Path, seed: int = TEST_SEED,
-              cg_max_iter: int = CG_MAX_ITER) -> GoldenRun:
-    """Run the Tier 1 configuration on ``image`` and return what it wrote."""
-    return run_golden(dawis, image, work_dir, TIER1_INFILE, cg_max_iter, seed)
+              cg_max_iter: int = CG_MAX_ITER,
+              n_threads: int | None = None) -> GoldenRun:
+    """Run the Tier 1 configuration on ``image`` and return what it wrote.
+
+    ``n_threads`` replaces the maths-library thread count; ``None`` keeps
+    :data:`goldenrun.GOLDEN_N_THREADS`, which is what the golden was recorded
+    at and what the comparison runs at.
+    """
+    return run_golden(dawis, image, work_dir, TIER1_INFILE, cg_max_iter, seed,
+                      n_threads=n_threads)

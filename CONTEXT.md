@@ -27,3 +27,9 @@ An astrophysical structure modelled as a combination of selected atoms — the p
 
 ### Residual
 The running difference between the input image and the sum of all atoms so far; the pipeline iterates on it until convergence.
+
+### Worker
+A whole process a run hands a patch of independent work to — interscale trees to build, or trees to synthesise into atoms. Counted by `n_workers`. Scheduling only: the worker count cannot change what a run computes, only how fast it computes it. Not a thread.
+
+### Thread
+What a maths library splits a *single* numpy or scipy array operation across, inside one process. Counted by `n_threads`, and owned by OpenBLAS, MKL or OpenMP rather than by DAWIS's own code. A thread is a unit of one process's work; a worker is a whole process. Not scheduling only, as a worker is: a sum split across threads is added in a different association order, so the thread count moves an atom's flux in its last digits — within tolerance, never in a decision like an atom count or a convergence flag.

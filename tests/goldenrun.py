@@ -53,6 +53,7 @@ PIPELINE_MAX_ITER = 500
 #: default, and each tier's ``provenance.toml`` records all of them resolved.
 GOLDEN_PARAMS = {
     "n_workers": 1,
+    "n_threads": 1,
     "n_levels": 9,
     "starting_level": 2,
     "tau": 0.1,
@@ -77,6 +78,88 @@ GOLDEN_PARAMS = {
 #: job is catching structural breakage, which it does equally well at any
 #: iteration count. See :func:`pin_cg_max_iter`.
 SHIPPING_CG_MAX_ITER = 200
+
+#: Maths-library threads every golden is recorded and compared at (#61).
+#:
+#: One, and stated here rather than only inside ``GOLDEN_PARAMS`` because two
+#: things need it that do not build a ``Config``: the legacy recording path,
+#: which has no such knob and is pinned from the harness instead, and
+#: ``conftest``'s assertion that the pin actually reaches the loaded library.
+#:
+#: Not a speed knob and not scheduling. numpy splits a single array operation
+#: across threads on its own, and a sum split over four threads is added in a
+#: different association order from one added on a single thread. On the Tier 1
+#: cutout that moves an atom's flux in its last digit — 30.25294122005867
+#: unpinned against 30.252941220058663 at one thread, from the same serial run.
+#: Recording and comparing at one thread is what leaves the *input* as the only
+#: thing a golden depends on. Before #61 this had to be an environment variable
+#: set above the numpy import; now it is ``Config.n_threads`` and DAWIS applies
+#: it itself, through the same code path a user runs.
+GOLDEN_N_THREADS = 1
+
+
+def resolve_n_threads(n_threads: int | None) -> int:
+    """The thread count a golden run uses: the override, or the published one."""
+    return GOLDEN_N_THREADS if n_threads is None else n_threads
+
+
+@contextmanager
+def pin_threads(n_threads: int):
+    """Hold the maths libraries at ``n_threads`` for the duration of a block.
+
+    For the *legacy* trees only. They predate ``Config.n_threads`` (#61), so
+    nothing inside them can pin a thread count and the harness has to do it —
+    which is exactly what makes a recording comparable against a 1.0 run that
+    pinned the same number through its own configuration.
+
+    The 1.0 tree must **not** be driven through this. What #61 has to prove is
+    that a user setting ``n_threads`` gets it, and a harness that pinned the
+    threads itself would prove that of the harness instead.
+    """
+    from threadpoolctl import threadpool_limits
+
+    with threadpool_limits(limits=n_threads):
+        yield
+
+
+def observed_threads_at(n_threads: int) -> tuple[int | None, str | None]:
+    """What the loaded maths library actually threads at when asked for this.
+
+    The *observation*, as against the request — and the two can disagree
+    silently, which is the whole lesson of #61. Provenance records both, and
+    this is the half that cannot be read off a configuration.
+
+    Implemented against ``threadpoolctl`` here rather than borrowed from
+    :func:`dawis.parallel.observed_threads` on purpose: the recording scripts
+    ask this of a ``legacy-seeded`` checkout, which predates the function.
+    A recording must be able to say what its own run threaded at.
+
+    **The two must answer alike, and nothing enforces it.** A provenance file
+    recorded through this one is compared against runs that report through the
+    other, so a rule changed on one side — which library is preferred, what
+    happens when several are loaded — silently makes the recorded observation
+    describe something else. Change both, and
+    ``test_the_two_thread_observers_answer_alike`` in
+    ``tests/unit/test_parallel.py`` is what says so when only one is changed.
+
+    Returns
+    -------
+    tuple of (int or None, str or None)
+        The effective thread count and the BLAS vendor ``threadpoolctl``
+        found. ``(None, None)`` where no threaded library is loaded at all,
+        which is a real answer: a numpy built against a reference BLAS has no
+        thread count to report.
+    """
+    from threadpoolctl import threadpool_info, threadpool_limits
+
+    with threadpool_limits(limits=n_threads):
+        pools = threadpool_info()
+    if not pools:
+        return None, None
+    blas = [pool for pool in pools if pool.get("user_api") == "blas"]
+    pool = (blas or pools)[0]
+    threads = pool.get("num_threads")
+    return (None if threads is None else int(threads)), pool.get("internal_api")
 
 
 @contextmanager
@@ -134,24 +217,43 @@ def is_array_in(dawis) -> bool:
     which every golden is *recorded* from — take fifteen keywords and a path.
     Branching on the capability rather than on a branch name means a
     recording made on either tree is still comparable against this one.
+
+    The name alone is not the capability. ``legacy-seeded``'s package is built
+    from star imports, and one of the modules it re-exports does
+    ``from subprocess import *``, so ``dawis.run`` exists there and is
+    :func:`subprocess.run`. A bare ``hasattr`` therefore reads the legacy tree
+    as array-in and the recording dies one line later on a ``Config`` it has
+    no name for. Asking where the function came from is what separates the
+    entry point from the collision.
     """
-    return hasattr(dawis, "run")
+    entry = getattr(dawis, "run", None)
+    if not callable(entry):
+        return False
+    return getattr(entry, "__module__", "").split(".")[0] == "dawis"
 
 
 def golden_config(dawis, cg_max_iter: int, seed: int = TEST_SEED,
-                  n_workers: int | None = None):
+                  n_workers: int | None = None, n_threads: int | None = None):
     """The published configuration as a ``Config``, for the array-in entry point.
 
     The same ``GOLDEN_PARAMS`` the keyword entry point is handed, filtered
     against the dataclass the way :func:`golden_kwargs` filters against a
     signature, so neither tier restates a knob.
 
-    ``n_workers`` is the one knob a caller may replace, and ``None`` keeps the
-    published single worker. It is named rather than left to a general
-    override because only one thing has ever needed replacing and only one
-    thing may safely be: the worker count is scheduling since #56, so a run
-    that changes it is still the same science, which is what makes the
-    parallel-consistency check of #57 a comparison rather than two experiments.
+    Two knobs may be replaced, and ``None`` keeps the published value of
+    either. They are named rather than left to a general override because
+    only these two may safely be replaced, and they are replaceable for
+    opposite reasons:
+
+    ``n_workers`` is scheduling since #56, so a run that changes it is the
+    same science down to the bit — which is what makes the parallel half of
+    #57 a comparison rather than two experiments.
+
+    ``n_threads`` is *not* scheduling (#61). Changing it reassociates the
+    floating-point sums and moves an atom's flux in its last digits, so two
+    runs that differ in it are compared under the golden tolerances rather
+    than exactly. What must not move is a decision — an atom count, a level, a
+    bounding box, a convergence flag.
     """
     Config = dawis.Config
     knobs = {
@@ -161,6 +263,8 @@ def golden_config(dawis, cg_max_iter: int, seed: int = TEST_SEED,
     }
     if n_workers is not None:
         knobs["n_workers"] = n_workers
+    if n_threads is not None:
+        knobs["n_threads"] = n_threads
     # Forced rather than inherited, for the reason :func:`pin_cg_max_iter`
     # gives: the default differs per branch, so inheriting it would compare a
     # golden recorded at one value against a run at another.
@@ -248,7 +352,8 @@ class GoldenRun:
 
 def run_golden(dawis, image: np.ndarray, work_dir: Path, infile: str,
                cg_max_iter: int, seed: int = TEST_SEED,
-               n_workers: int | None = None) -> GoldenRun:
+               n_workers: int | None = None,
+               n_threads: int | None = None) -> GoldenRun:
     """Run the published configuration on ``image`` and return what it wrote.
 
     On the 1.0 tree the image goes straight in as an array (#54), which is the
@@ -265,18 +370,29 @@ def run_golden(dawis, image: np.ndarray, work_dir: Path, infile: str,
     call site that does, the parallel-consistency check of #57, where the two
     runs being compared are each other.
 
+    ``n_threads`` replaces the maths-library thread count; ``None`` keeps
+    :data:`GOLDEN_N_THREADS`. It reaches the run by whichever route the tree in
+    hand has. The 1.0 tree owns the knob since #61, so it goes into the
+    ``Config`` and DAWIS applies it — deliberately, because what the tests have
+    to prove is that a *user* setting it gets it, and a harness that pinned the
+    threads itself would prove that of the harness instead. The legacy trees
+    have no such knob, so there the harness pins them with
+    :func:`pin_threads`; that is what makes a recording comparable against a
+    1.0 run at all.
+
     One thing to know when workers are in play: :func:`pin_cg_max_iter`
     patches the solver in *this* process only, so a backend that runs patches
     on workers leaves them unpatched. On the 1.0 tree that is harmless, because
     ``restore_object`` passes ``cg_max_iter`` down from the ``Config`` and
     :func:`golden_config` puts the pinned value there too — a worker reaches
     the same number by the other route. Both are set from the one argument
-    here, which is what keeps them equal.
+    here, which is what keeps them equal. The thread count reaches a worker by
+    that same second route, through the ``Config``.
     """
     name = infile[:-5]
 
     if is_array_in(dawis):
-        config = golden_config(dawis, cg_max_iter, seed, n_workers)
+        config = golden_config(dawis, cg_max_iter, seed, n_workers, n_threads)
         with pin_cg_max_iter(dawis, cg_max_iter):
             dawis.run(image, config, outdir=str(work_dir), name=name)
         return GoldenRun(work_dir / name)
@@ -293,7 +409,8 @@ def run_golden(dawis, image: np.ndarray, work_dir: Path, infile: str,
         # with the argument on the branch that has it.
         np.random.seed(seed)
 
-    with pin_cg_max_iter(dawis, cg_max_iter):
+    with pin_threads(resolve_n_threads(n_threads)), \
+            pin_cg_max_iter(dawis, cg_max_iter):
         dawis.synthesis_by_analysis(**kwargs)
 
     return GoldenRun(work_dir / name)

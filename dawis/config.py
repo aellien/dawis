@@ -182,6 +182,24 @@ class Config:
         is :func:`dawis.parallel.pmap`'s rule and not this knob's to break.
         ``backend = 'ray'`` with ``n_workers = 1`` therefore stands a cluster up
         and sends it nothing. Scheduling only, like ``n_workers``. Default None.
+    n_threads : int, optional
+        Threads each process — the driver and every worker alike — may give a
+        single numpy or scipy array operation. **Not the same knob as**
+        ``n_workers``: a worker is a whole process this run hands a patch of
+        trees to, a thread is what one array operation is split across inside
+        one process, and OpenBLAS, MKL and OpenMP own the second.
+
+        Unlike ``n_workers`` this is *not* scheduling only. A sum split over
+        four threads is added in a different association order from one added
+        on a single thread, so raising it moves an atom's flux in its last
+        digits — within the golden tolerances, never in a decision like an
+        atom count or a convergence flag (#61). 1, the default, is what makes
+        a run depend on its input and nothing else.
+
+        Applied per process and **not** divided among the workers, so a run
+        may use up to ``n_workers × n_threads`` cores at once: keep that
+        product at or below the core count of the machine. Oversubscribing it
+        costs time, never correctness. Default 1.
     starting_level : int, optional
         Coarsest wavelet scale the greedy loop starts at. Default 2.
     n_levels : int or None, optional
@@ -286,6 +304,7 @@ class Config:
 
     n_workers: int = 1
     backend: str | None = None
+    n_threads: int = 1
     starting_level: int = 2
     n_levels: int | None = None
     tau: float = 0.8
@@ -358,7 +377,8 @@ class Config:
     def _check_ranges(self) -> None:
         """Check every knob against the range it must sit in on its own."""
 
-        for name in ('n_workers', 'max_iter', 'size_patch', 'cg_max_iter'):
+        for name in ('n_workers', 'n_threads', 'max_iter', 'size_patch',
+                     'cg_max_iter'):
             self._at_least(name, 1)
 
         for name in ('starting_level', 'lvl_sep_big', 'lvl_deblend',
