@@ -1,7 +1,7 @@
 """Richardson-Lucy deconvolution and the B3-spline kernel it deconvolves with.
 
 The optional PSF step of the synthesis. When
-:meth:`~dawis.trees.construction.interscale_tree.CG_minimization` runs with
+:meth:`~dawis.trees.construction.InterscaleTree.CG_minimization` runs with
 ``deconv = True`` it treats the à trous B3-spline kernel as the point spread
 function of the tree it is reconstructing, and runs ten Richardson-Lucy
 iterations against it. :func:`twod_B2spline` builds that kernel — at order 0

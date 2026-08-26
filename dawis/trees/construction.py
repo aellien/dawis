@@ -1,6 +1,6 @@
 """Interscale trees: what a detected structure is before it is restored.
 
-A :class:`interscale_tree` is one structure seen at every scale at once. It
+A :class:`InterscaleTree` is one structure seen at every scale at once. It
 groups the regions that :mod:`dawis.detection` found on the separate wavelet
 planes into a single object, rooted at the brightest of them — the *interscale
 maximum*. Which regions join which root is decided in
@@ -14,17 +14,17 @@ regions, widened by half and floored at ``clip`` pixels so the synthesis has
 room to work, plus the extent and eccentricity that the restoration reads to
 choose its branch.
 
-The **tubes** are the tree cut out of the cubes. :meth:`~interscale_tree.tubes`
+The **tubes** are the tree cut out of the cubes. :meth:`~InterscaleTree.tubes`
 returns the wavelet coefficients, the binary support and the labels of the
 member regions, stacked over the scales the tree spans and clipped to its
 bounding box. Everything downstream works on tubes rather than on full planes.
 
 The **synthesis** turns a tube back into an image.
-:meth:`~interscale_tree.CG_minimization` is the published solver of
+:meth:`~InterscaleTree.CG_minimization` is the published solver of
 Ellien+2021: it runs a conjugate-gradient descent that looks for the image
 whose wavelet transform matches the tube, starting from either of two
-synthesis operators — :meth:`~interscale_tree.synthesis_adjoint`, the
-transposed transform, or :meth:`~interscale_tree.synthesis_sum`, the plain sum
+synthesis operators — :meth:`~InterscaleTree.synthesis_adjoint`, the
+transposed transform, or :meth:`~InterscaleTree.synthesis_sum`, the plain sum
 of planes. Its output is the atom.
 """
 
@@ -42,12 +42,12 @@ from dawis.wavelets import atrous
 
 log = logging.getLogger(__name__)
 
-# ``interscale_tree.plot`` moved to
+# ``InterscaleTree.plot`` moved to
 # :func:`dawis.viz.trees.plot_interscale_tree` with #46; nothing outside
 # :mod:`dawis.viz` imports matplotlib.
 
 
-class interscale_tree(object):
+class InterscaleTree(object):
     """One structure, grouped across the wavelet planes it appears on.
 
     A tree owns a list of :class:`~dawis.detection.regions.region` objects

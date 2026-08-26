@@ -6,7 +6,7 @@ The third block carved out of the flat package. It depends on
 here points backwards. The Richardson-Lucy deconvolution that the synthesis
 calls under ``deconv`` moved to :mod:`dawis.restoration` with #44 and is
 imported from there. That edge runs one way only: restoration names
-:class:`~dawis.trees.construction.interscale_tree` in its annotations alone,
+:class:`~dawis.trees.construction.InterscaleTree` in its annotations alone,
 behind ``TYPE_CHECKING``, so the two blocks do not form a cycle.
 
 An **interscale tree** is one structure seen at every scale at once: a root
@@ -16,7 +16,7 @@ object. Trees are what the pipeline restores; one tree becomes one atom.
 Two modules split the work along the seam identified by the target
 architecture (#4).
 
-:mod:`dawis.trees.construction` holds :class:`interscale_tree` — what a tree
+:mod:`dawis.trees.construction` holds :class:`InterscaleTree` — what a tree
 is once its members are known. It fixes the bounding box, cuts the tree out of
 the cubes as *tubes*, and synthesises it back into an image with the published
 conjugate-gradient solver.
@@ -37,7 +37,7 @@ The old flat module ``dawis.make_interscale_trees`` held these names until
 #50 deleted it. This package is the only address they have.
 """
 
-from dawis.trees.construction import interscale_tree
+from dawis.trees.construction import InterscaleTree
 from dawis.trees.deblending import (
     interscale_connectivity,
     make_interscale_trees,
@@ -45,6 +45,6 @@ from dawis.trees.deblending import (
 
 __all__ = [
     'interscale_connectivity',
-    'interscale_tree',
+    'InterscaleTree',
     'make_interscale_trees',
 ]

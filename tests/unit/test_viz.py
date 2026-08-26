@@ -186,13 +186,13 @@ def test_contourable_is_the_grid_matplotlib_needs(shape, expected):
 
 
 def test_plot_interscale_tree_draws(detection_cubes, tmp_path):
-    """``interscale_tree.plot`` before #46, now a function."""
-    from dawis.trees import interscale_tree
+    """``InterscaleTree.plot`` before #46, now a function."""
+    from dawis.trees import InterscaleTree
 
     wavelet, labels = detection_cubes
     fine = a_region(1, 0, 8, 14, 8, 14)
     root = a_region(2, 1, 6, 16, 6, 16)
-    tree = interscale_tree(
+    tree = InterscaleTree(
         interscale_maximum=root,
         region_list=[fine, root],
         wavelet_cube=wavelet,

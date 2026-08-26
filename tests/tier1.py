@@ -42,7 +42,7 @@ CUTOUT_SLICE = (
 )
 
 #: Iteration cap of the conjugate-gradient solver inside
-#: ``interscale_tree.CG_minimization``, for Tier 1 only.
+#: ``InterscaleTree.CG_minimization``, for Tier 1 only.
 #:
 #: **A speed knob, not a science claim.** Tier 1's job is catching structural
 #: breakage during the carve, which it does equally well at any iteration

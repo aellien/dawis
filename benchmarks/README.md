@@ -23,7 +23,7 @@ They are unrelated and both appear in the pipeline.
   on the 1.0 tree and the entry point's own `max_iter` on `legacy-seeded`, and
   the reference parameter set leaves it at 500.
 - `--cg-max-iter` is the conjugate-gradient solver's iteration cap inside
-  `interscale_tree.CG_minimization`. `restore_object` never passes it, so the
+  `InterscaleTree.CG_minimization`. `restore_object` never passes it, so the
   shipped value is the method's default. RFC #29 restores that default from the
   3 introduced by `7c5ba8e` to the published 200. This is the knob the baseline
   sweeps, and the script forces it rather than editing the tree it measures.

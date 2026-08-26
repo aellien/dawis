@@ -4,7 +4,7 @@ A pickle records the *module path and class name* of every class it holds, so
 a run written before the carve names ``dawis.restore_objects.restored_object``,
 ``dawis.make_interscale_trees.interscale_tree``, ``dawis.make_regions.region``
 and the cube classes under ``dawis.datacube``. Those paths resolved only
-because the flat shims existed. #50 deleted them and #51 renamed the classes,
+because the flat shims existed. #50 deleted them, and #51 and #59 renamed the classes,
 and the published ``v0.0.7-h`` outputs are recorded in exactly the old format —
 the regression harness (#3) reads its goldens through
 :func:`read_ol_from_pickle`, and old runs resume through the same call. So
@@ -46,12 +46,12 @@ from dawis.io.legacy import (
     write_regions_to_pickle,
 )
 from dawis.restoration import Atom
-from dawis.trees import interscale_tree
+from dawis.trees import InterscaleTree
 
 #: Every class a pre-carve run can have written into a pickle.
 PICKLED_CLASSES = (
     Atom,
-    interscale_tree,
+    InterscaleTree,
     region,
     Cube,
     WaveletCube,
@@ -171,7 +171,7 @@ def an_atom():
 
 def a_tree():
     """One interscale tree, built attribute by attribute as the store does."""
-    tree = interscale_tree(blank=True)
+    tree = InterscaleTree(blank=True)
     tree.interscale_maximum = a_region()
     tree.region_list = [a_region()]
     tree.bbox = (0, 0, 4, 4)
@@ -212,7 +212,7 @@ def test_trees_written_before_the_carve_read_back_as_the_carved_classes(tmp_path
 
     [tree] = read_itl_from_pickle(str(path))
 
-    assert type(tree) is interscale_tree
+    assert type(tree) is InterscaleTree
     assert type(tree.interscale_maximum) is region
     assert [type(member) for member in tree.region_list] == [region]
 

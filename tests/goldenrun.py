@@ -177,18 +177,18 @@ def pin_cg_max_iter(dawis, max_iter: int):
     still wins where the caller passes the argument — ``restore_object`` does
     since #53 — because the wrapper sets the keyword after the caller has.
     """
-    interscale_tree = dawis.interscale_tree
-    original = interscale_tree.CG_minimization
+    InterscaleTree = dawis.InterscaleTree
+    original = InterscaleTree.CG_minimization
 
     def patched(self, *args, **kwargs):
         kwargs["max_iter"] = max_iter
         return original(self, *args, **kwargs)
 
-    interscale_tree.CG_minimization = patched
+    InterscaleTree.CG_minimization = patched
     try:
         yield
     finally:
-        interscale_tree.CG_minimization = original
+        InterscaleTree.CG_minimization = original
 
 
 def effective_config(entry, passed: dict) -> dict:

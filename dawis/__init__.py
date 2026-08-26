@@ -116,7 +116,7 @@ from dawis.restoration import (
 )
 from dawis.trees import (
     interscale_connectivity,
-    interscale_tree,
+    InterscaleTree,
     make_interscale_trees,
 )
 from dawis.wavelets import (
@@ -157,7 +157,7 @@ __all__ = [
     'hard_threshold',
     'inpaint_with_gaussian_noise',
     'interscale_connectivity',
-    'interscale_tree',
+    'InterscaleTree',
     'inverse_anscombe',
     'label_regions',
     'load_atom_from_hdf5_group',

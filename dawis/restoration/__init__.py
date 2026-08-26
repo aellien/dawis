@@ -45,7 +45,7 @@ and this says what subtracting them means.
 
 The conjugate-gradient solver is not here, and #44 asked for it. It lives on
 the tree, as
-:meth:`~dawis.trees.construction.interscale_tree.CG_minimization`, where #43
+:meth:`~dawis.trees.construction.InterscaleTree.CG_minimization`, where #43
 carved it, because it works on the tubes the tree cuts out of the cubes.
 Prising a method off a class is a change of shape rather than a move, and #44
 is explicit that this block changes by motion only, on 98.4% of the loop. So

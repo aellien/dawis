@@ -40,7 +40,7 @@ import numpy as np
 from dawis.cubes import LabelCube, WaveletCube
 from dawis.detection import region
 from dawis.parallel import cut_into_patches, pmap
-from dawis.trees.construction import interscale_tree
+from dawis.trees.construction import InterscaleTree
 
 log = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ def interscale_connectivity(
     lvl_sep_big: int = 6,
     min_reg_size: int = 4,
     verbose: bool = False,
-) -> list[interscale_tree]:
+) -> list[InterscaleTree]:
     """Attach regions to roots, one tree per surviving root.
 
     For each root, the label cube is read through the pixels of the root, over
@@ -99,7 +99,7 @@ def interscale_connectivity(
 
     Returns
     -------
-    list of dawis.trees.construction.interscale_tree
+    list of dawis.trees.construction.InterscaleTree
         One tree per accepted root, in the order the roots were given.
         Rejected roots are dropped silently.
     """
@@ -135,7 +135,7 @@ def interscale_connectivity(
             n_rejected += 1
             continue
 
-        interscale_tree_list.append(interscale_tree(interscale_maximum, connected_region_list, wavelet_cube, label_cube, det_err_array))
+        interscale_tree_list.append(InterscaleTree(interscale_maximum, connected_region_list, wavelet_cube, label_cube, det_err_array))
         
     return interscale_tree_list
 
@@ -152,7 +152,7 @@ def make_interscale_trees(
     size_patch: int = 100,
     n_workers: int = 1,
     verbose: bool = False,
-) -> list[interscale_tree] | None:
+) -> list[InterscaleTree] | None:
     """Turn a flat list of regions into interscale trees.
 
     The entry point of the block, called once per pipeline iteration. It picks
@@ -204,7 +204,7 @@ def make_interscale_trees(
 
     Returns
     -------
-    list of dawis.trees.construction.interscale_tree or None
+    list of dawis.trees.construction.InterscaleTree or None
         The trees found, possibly empty. ``None`` when every region sits on a
         rejected plane, which the pipeline reads as a signal to stop
         iterating.

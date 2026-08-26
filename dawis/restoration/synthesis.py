@@ -7,7 +7,7 @@ tree as an image and wraps it as an :class:`Atom` — the *atom* of
 from the residual, and goes round again.
 
 The solver itself is not here. The conjugate-gradient descent lives on the
-tree, as :meth:`~dawis.trees.construction.interscale_tree.CG_minimization`,
+tree, as :meth:`~dawis.trees.construction.InterscaleTree.CG_minimization`,
 because it works on the tubes the tree cuts out of the cubes. What this module
 owns is the choice of how to call it.
 
@@ -64,10 +64,9 @@ from dawis.parallel import cut_into_patches, pmap
 log = logging.getLogger(__name__)
 
 # Annotations only. dawis.trees imports the deconvolution of this package, so
-# importing it back at runtime would close a cycle. The alias is needed
-# because restore_object's first parameter is itself named interscale_tree.
+# importing it back at runtime would close a cycle.
 if TYPE_CHECKING:
-    from dawis.trees import interscale_tree as interscale_tree_type
+    from dawis.trees import InterscaleTree
 
 
 class Atom(object):
@@ -137,7 +136,7 @@ class Atom(object):
             self.norm_wr = norm_wr
 
 def restore_patch(
-    interscale_tree_patch: list[interscale_tree_type],
+    interscale_tree_patch: list[InterscaleTree],
     wavelet_cube: WaveletCube,
     label_cube: LabelCube,
     extent_sep: float,
@@ -160,7 +159,7 @@ def restore_patch(
 
     Parameters
     ----------
-    interscale_tree_patch : list of interscale_tree
+    interscale_tree_patch : list of InterscaleTree
         The trees this worker is responsible for.
     wavelet_cube : dawis.cubes.WaveletCube
         Wavelet coefficients of the residual being restored.
@@ -227,7 +226,7 @@ def restore_patch(
     return object_patch
 
 def restore_object(
-    interscale_tree: interscale_tree_type,
+    interscale_tree: InterscaleTree,
     wavelet_cube: WaveletCube,
     label_cube: LabelCube,
     extent_sep: float,
@@ -243,7 +242,7 @@ def restore_object(
 
     Picks the filter and the starting operator from the shape and the scale of
     the tree, then runs
-    :meth:`~dawis.trees.construction.interscale_tree.CG_minimization` with
+    :meth:`~dawis.trees.construction.InterscaleTree.CG_minimization` with
     them. A tree that is small or elongated — extent below ``extent_sep`` or
     eccentricity at or above ``ecc_sep`` — and sits below ``lvl_sep_lin``
     takes the Haar filter; everything else takes the B3-spline, from the plain
@@ -255,7 +254,7 @@ def restore_object(
 
     Parameters
     ----------
-    interscale_tree : interscale_tree
+    interscale_tree : InterscaleTree
         The tree to synthesise.
     wavelet_cube : dawis.cubes.WaveletCube
         Wavelet coefficients of the residual being restored.
@@ -340,7 +339,7 @@ def restore_object(
 
 
 def _schedule_patches(
-    interscale_tree_list: list[interscale_tree_type],
+    interscale_tree_list: list[InterscaleTree],
     size_patch_small: int,
     size_patch_big: int,
     size_big_objects: int,
@@ -361,7 +360,7 @@ def _schedule_patches(
 
     Parameters
     ----------
-    interscale_tree_list : list of interscale_tree
+    interscale_tree_list : list of InterscaleTree
         Trees of this iteration, in the order the caller gave them.
     size_patch_small, size_patch_big : int
         Trees per patch, for ordinary and for big objects.
@@ -402,7 +401,7 @@ def _schedule_patches(
 
 
 def restore_objects_default(
-    interscale_tree_list: list[interscale_tree_type],
+    interscale_tree_list: list[InterscaleTree],
     oimage: np.ndarray,
     cg_gamma: float,
     niter: int,
@@ -442,7 +441,7 @@ def restore_objects_default(
 
     Parameters
     ----------
-    interscale_tree_list : list of interscale_tree
+    interscale_tree_list : list of InterscaleTree
         Trees to synthesise. Read, never reordered.
     oimage : numpy.ndarray
         Not used; see Notes.

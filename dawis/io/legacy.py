@@ -14,7 +14,8 @@ a run written before the carve names ``dawis.restore_objects.restored_object``,
 ``dawis.make_interscale_trees.interscale_tree``, ``dawis.make_regions.region``
 and the cube classes under ``dawis.datacube``. Those paths resolved only
 because the flat shims existed, and the contract ticket (#50) deleted them; the
-rename sweep (#51) then changed the class names themselves. So this module maps
+rename sweep (#51) and the Phase A gate (#59) then changed the class names
+themselves. So this module maps
 both halves itself, in :class:`_LegacyUnpickler`. Without the module map a
 pre-carve file raises ``ModuleNotFoundError``; without the class map it raises
 ``AttributeError`` — either way the published ``v0.0.7-h`` outputs stop being
@@ -37,7 +38,7 @@ from typing import TYPE_CHECKING, BinaryIO
 if TYPE_CHECKING:  # annotations only, so no runtime edge to the other blocks
     from dawis.detection import region
     from dawis.restoration import Atom
-    from dawis.trees import interscale_tree
+    from dawis.trees import InterscaleTree
 
 
 #: Where the classes a pre-carve pickle names used to live, and where each
@@ -50,14 +51,17 @@ _PRE_CARVE_MODULES = {
     'dawis.datacube': 'dawis.cubes',
 }
 
-#: What the classes the rename sweep (#51) touched used to be called, keyed by
+#: What the classes the two rename passes touched used to be called, keyed by
 #: the module they live in *now* and their old name. Keying on the carved
 #: module rather than the flat one means one table covers both a pre-carve file
 #: (whose module is rewritten by :data:`_PRE_CARVE_MODULES` first) and a file
-#: written between the carve and the rename. ``interscale_tree`` and ``region``
-#: are absent because #51 left their names alone.
+#: written between the carve and a rename. The sweep of #51 renamed the cube
+#: family and ``restored_object``; the Phase A gate (#59) then renamed
+#: ``interscale_tree``, the one class #4 asked for that #51 left out. ``region``
+#: is absent because neither pass touched its name.
 _PRE_RENAME_CLASSES = {
     ('dawis.restoration.synthesis', 'restored_object'): 'Atom',
+    ('dawis.trees.construction', 'interscale_tree'): 'InterscaleTree',
     ('dawis.cubes', 'datacube'): 'Cube',
     ('dawis.cubes', 'wavelet_datacube'): 'WaveletCube',
     ('dawis.cubes', 'coarse_datacube'): 'CoarseCube',
@@ -71,7 +75,7 @@ class _LegacyUnpickler(pickle.Unpickler):
 
     :meth:`pickle.Unpickler.find_class` is the single point every class in a
     pickle stream is resolved through, so rewriting the four moved modules and
-    the six renamed classes there covers atoms, trees, regions and cubes at any
+    the seven renamed classes there covers atoms, trees, regions and cubes at any
     depth of nesting. The module is rewritten first and the name is looked up
     against the result, so the two maps compose for a file that predates both
     changes. A module or name outside the maps is passed through untouched, so
@@ -152,7 +156,7 @@ def read_ol_from_pickle(filename: str) -> list[Atom]:
 
 
 def write_itl_to_pickle(
-    interscale_tree_list: list[interscale_tree],
+    interscale_tree_list: list[InterscaleTree],
     filename: str,
     overwrite: bool = True,
 ) -> None:
@@ -160,7 +164,7 @@ def write_itl_to_pickle(
 
     Parameters
     ----------
-    interscale_tree_list : list of interscale_tree
+    interscale_tree_list : list of InterscaleTree
         The trees of one iteration.
     filename : str
         Path to write to.
@@ -180,7 +184,7 @@ def write_itl_to_pickle(
         pickle.dump(interscale_tree_list, outfile)
 
 
-def read_itl_from_pickle(filename: str) -> list[interscale_tree]:
+def read_itl_from_pickle(filename: str) -> list[InterscaleTree]:
     """Read a list of interscale trees back from a pickle file.
 
     Parameters
@@ -190,7 +194,7 @@ def read_itl_from_pickle(filename: str) -> list[interscale_tree]:
 
     Returns
     -------
-    list of interscale_tree
+    list of InterscaleTree
         The trees, in the order they were written.
 
     Notes

@@ -22,7 +22,7 @@ coefficients need — are one :func:`plot_cube` that dispatches on the type of
 the cube it is given, so a caller no longer has to know which class it holds.
 
 :mod:`dawis.viz.regions` and :mod:`dawis.viz.trees` draw one detection and
-one interscale tree, replacing ``region.plot`` and ``interscale_tree.plot``.
+one interscale tree, replacing ``region.plot`` and ``InterscaleTree.plot``.
 
 :mod:`dawis.viz.animation` is the run animation. It is the reason this ticket
 is more than a move: the pipeline used to write one frame per iteration from

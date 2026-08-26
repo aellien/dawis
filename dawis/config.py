@@ -273,7 +273,7 @@ class Config:
         docstring. Explicit seeds are for tests. Default None.
     cg_max_iter : int, optional
         Iteration cap of the conjugate-gradient solver inside
-        :meth:`~dawis.trees.construction.interscale_tree.CG_minimization`.
+        :meth:`~dawis.trees.construction.InterscaleTree.CG_minimization`.
         Default :data:`DEFAULT_CG_MAX_ITER`, the published 200; **#26 owns
         the question of what it should be.**
 

@@ -94,7 +94,7 @@ def test_the_solver_inherits_that_cap_when_nobody_passes_one():
     """
     import inspect
 
-    signature = inspect.signature(dawis.interscale_tree.CG_minimization)
+    signature = inspect.signature(dawis.InterscaleTree.CG_minimization)
 
     assert signature.parameters['max_iter'].default == DEFAULT_CG_MAX_ITER
 

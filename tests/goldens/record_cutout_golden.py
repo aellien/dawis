@@ -140,7 +140,7 @@ def main():
         "n_atoms": len(atoms),
     }, comment=(
         "cg_max_iter is the conjugate-gradient solver's cap inside\n"
-        "interscale_tree.CG_minimization, and it is A SPEED KNOB, NOT A SCIENCE\n"
+        "InterscaleTree.CG_minimization, and it is A SPEED KNOB, NOT A SCIENCE\n"
         "CLAIM. Tier 1 catches structural breakage during the carve, which it\n"
         "does equally well at any iteration count; the shipping 200 costs about\n"
         "six times more per atom (#33) and would break this tier's three-minute\n"

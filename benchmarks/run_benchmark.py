@@ -16,7 +16,7 @@ full configuration plus machine identification needed to reproduce it.
 Two ``max_iter`` knobs exist and they are unrelated. ``--pipeline-max-iter``
 caps the number of greedy outer iterations (``Config.max_iter`` on the 1.0
 tree). ``--cg-max-iter`` is the conjugate-gradient solver's iteration cap
-inside ``interscale_tree.CG_minimization``, which is the knob #29 restores
+inside ``InterscaleTree.CG_minimization``, which is the knob #29 restores
 from 3 to 200 and the one this benchmark sweeps.
 
 Usage
@@ -392,9 +392,9 @@ def force_cg_max_iter(max_iter):
     sets the keyword after the caller has. Returns (original_default,
     call_counter).
     """
-    from dawis.trees import interscale_tree
+    from dawis.trees import InterscaleTree
 
-    original = interscale_tree.CG_minimization
+    original = InterscaleTree.CG_minimization
     default = inspect.signature(original).parameters["max_iter"].default
     counter = {"calls": 0}
 
@@ -406,7 +406,7 @@ def force_cg_max_iter(max_iter):
     # A wrapper that forces a value equal to the source default is a no-op; the
     # results file needs to be able to say which of the two runs was patched.
 
-    interscale_tree.CG_minimization = patched
+    InterscaleTree.CG_minimization = patched
     return default, counter
 
 
@@ -633,7 +633,7 @@ def main():
     ap.add_argument(
         "--cg-max-iter",
         type=int,
-        help="CG solver iteration cap, forced onto interscale_tree.CG_minimization "
+        help="CG solver iteration cap, forced onto InterscaleTree.CG_minimization "
         "(the knob #29 restores from 3 to 200)",
     )
     ap.add_argument(

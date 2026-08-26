@@ -108,7 +108,7 @@ def cg_max_iter_default(dawis) -> int:
     import inspect
 
     parameter = inspect.signature(
-        dawis.interscale_tree.CG_minimization
+        dawis.InterscaleTree.CG_minimization
     ).parameters["max_iter"]
     return int(parameter.default)
 

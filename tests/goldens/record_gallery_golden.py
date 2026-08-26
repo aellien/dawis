@@ -140,7 +140,7 @@ def main():
         "n_atoms": len(atoms),
     }, comment=(
         "cg_max_iter is the conjugate-gradient solver's cap inside\n"
-        "interscale_tree.CG_minimization, and here it is A SCIENCE CLAIM, NOT A\n"
+        "InterscaleTree.CG_minimization, and here it is A SCIENCE CLAIM, NOT A\n"
         "SPEED KNOB. 200 is the published Ellien+2021 value; 7c5ba8e cut it to 3\n"
         "in 2024 and #32 reverted that drift. At 200 the solver's sigma_flux\n"
         "convergence test is live rather than vestigial, and atom fluxes sit\n"

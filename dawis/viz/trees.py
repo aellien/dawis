@@ -1,6 +1,6 @@
 """Drawing one interscale tree.
 
-:func:`plot_interscale_tree` is ``interscale_tree.plot`` before #46: the
+:func:`plot_interscale_tree` is ``InterscaleTree.plot`` before #46: the
 tree's summed wavelet coefficients on the left, the regions it groups on the
 right. It is the picture to reach for when asking whether the deblending put
 the right regions in the same tree.
@@ -18,7 +18,7 @@ import numpy as np
 from matplotlib.colors import SymLogNorm
 
 from dawis.cubes import LabelCube, WaveletCube
-from dawis.trees import interscale_tree
+from dawis.trees import InterscaleTree
 from dawis.viz.regions import contourable
 
 __all__ = ['plot_interscale_tree']
@@ -26,7 +26,7 @@ __all__ = ['plot_interscale_tree']
 log = logging.getLogger(__name__)
 
 
-def plot_interscale_tree(tree: interscale_tree,
+def plot_interscale_tree(tree: InterscaleTree,
                          wavelet_cube: WaveletCube,
                          label_cube: LabelCube,
                          name: str | None = None, show: bool = True,
@@ -35,7 +35,7 @@ def plot_interscale_tree(tree: interscale_tree,
 
     Parameters
     ----------
-    tree : dawis.trees.construction.interscale_tree
+    tree : dawis.trees.construction.InterscaleTree
         The tree to draw.
     wavelet_cube : dawis.cubes.WaveletCube
         Wavelet planes the tree was built on.

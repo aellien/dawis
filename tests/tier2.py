@@ -40,7 +40,7 @@ from goldenrun import (
 )
 
 #: Iteration cap of the conjugate-gradient solver inside
-#: ``interscale_tree.CG_minimization``, for Tier 2.
+#: ``InterscaleTree.CG_minimization``, for Tier 2.
 #:
 #: Unlike Tier 1's, this is a science claim and not a speed knob: 200 is the
 #: value Ellien+2021 ran, `7c5ba8e` cut it to 3 in 2024, and #32 reverted that
