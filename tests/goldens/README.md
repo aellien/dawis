@@ -25,7 +25,7 @@ iterations, 76 atoms.
 | `residuals.fits` | what the loop left behind |
 | `atoms.csv` | one row per atom: position, scale, operator, flux |
 | `convergence.csv` | one row per greedy iteration |
-| `provenance.toml` | commit, seed, thread count, tolerances, pinned `max_iter`, author, date |
+| `provenance.toml` | commit, seed, thread count, dependency versions, tolerances, pinned `max_iter`, author, date |
 
 `input_cutout.fits` is a golden in its own right: a misread cutout coordinate
 still lands on a valid patch, so comparing the input first turns a silent
@@ -58,7 +58,7 @@ pytest -m slow tests/regression/test_golden_gallery.py
 | `residuals.fits` | what the loop left behind |
 | `atoms.csv` | one row per atom: position, scale, operator, flux |
 | `convergence.csv` | one row per greedy iteration |
-| `provenance.toml` | commit, seed, thread count, tolerances, shipping `max_iter`, measured runtime |
+| `provenance.toml` | commit, seed, thread count, tolerances, shipping `max_iter`, measured runtime — not yet the dependency versions, see below |
 
 There is no `input_gallery.fits`. The image ships inside the package and is
 already under version control, so `provenance.toml` records its sha256 and the
@@ -94,9 +94,28 @@ under another.
 `provenance-audit.md` is the standing answer, written for #62 after the thread
 count turned up by accident: every field a golden records and whether it can
 move output, every candidate input that is *not* recorded, and which of those
-were measured to move output rather than assumed to. Three do and are named
-there. `audit_environment.py` beside it prints every candidate off a machine,
-so the audit is re-run at the next release rather than re-invented.
+were measured to move output rather than assumed to.
+
+Three move output. One was acted on and two were weighed and left, and Part 3
+of the audit records that decision with its reasoning — so a later reader does
+not re-derive the finding and assume it was missed.
+
+The one acted on is `[dependencies]`. A golden used to record `numpy` and no
+other package, while astropy sets the noise sigma behind every detection
+threshold, photutils produces the segmentation, scikit-image supplies the
+region morphology that picks an atom's restoration operator, and scipy clips
+on the simple detector path. Those four move an **atom count**, not an atom's
+last digits: on the Tier 1 cutout a noise sigma 1e-4 higher restores 74 atoms
+in 19 iterations rather than 76 in 20, while the same sigma one float32 ulp
+higher changes nothing at all.
+
+**Tier 1 carries the table; Tier 2 does not yet.** Tier 2's re-recording costs
+1702 s and has not been run, so it lands at that tier's next regeneration —
+until then Tier 2 still records `numpy` under `[machine]`.
+
+`audit_environment.py` prints every candidate off a machine, so the audit is
+re-run at the next release rather than re-invented. It shares its package list
+with `recording.py`, so the audit cannot drift from what is recorded.
 
 ```bash
 python tests/goldens/audit_environment.py --pin-threads 1

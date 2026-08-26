@@ -108,48 +108,11 @@ def numpy_build() -> dict:
     }
 
 
-#: Every third-party package a run can import that has a say in what it
-#: computes. ``matplotlib`` and ``psutil`` are absent on purpose: #46 moved
-#: the drawing out of the loop, and psutil only measures. ``ray`` is in the
-#: list not because it computes anything itself but because it is the backend
-#: that hands out the work -- an unverified candidate (F9), and one this
-#: script should report rather than assume absent.
-#:
-#: Keep this list and the ``[dependencies]`` table proposed in
-#: ``provenance-audit.md`` identical. Two hand-maintained copies of one list
-#: are one copy too many, and the audit is the thing that would go stale.
-RUN_INFLUENCING_PACKAGES = (
-    "numpy",
-    "scipy",
-    "astropy",
-    "photutils",
-    "skimage",
-    "h5py",
-    "threadpoolctl",
-    "ray",
-)
-
-
-def package_versions() -> dict:
-    """The installed version of every package a run's result can depend on.
-
-    ``None`` means not installed, which is a real answer: ``ray`` is absent on
-    the audited machine and the serial backend is what ran. HDF5's own
-    library version rides along with ``h5py``, because the two move
-    independently.
-    """
-    out = {}
-    for name in RUN_INFLUENCING_PACKAGES:
-        try:
-            out[name] = __import__(name).__version__
-        except ImportError:
-            out[name] = None
-    try:
-        import h5py
-        out["hdf5"] = h5py.version.hdf5_version
-    except ImportError:
-        out["hdf5"] = None
-    return out
+# The list of packages, and the reading of their versions, both live in
+# `recording.py` -- the module that writes provenance. This script is the
+# audit, and an audit that kept its own copy of the list would be the thing
+# that went stale while the recording quietly moved on.
+from recording import package_versions  # noqa: E402
 
 
 def floating_point_state() -> dict:

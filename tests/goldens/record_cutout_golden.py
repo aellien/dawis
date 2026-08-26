@@ -181,6 +181,7 @@ def main():
         "worker count as the only variable (#61). It is not a property of the\n"
         "goldens and no golden comparison rests on it."
     ))
+    lines += recording.dependencies_table()
     lines += recording.machine_table(goldenrun.GOLDEN_N_THREADS)
 
     (goldens / "provenance.toml").write_text("\n".join(lines))

@@ -202,6 +202,7 @@ def main():
         "recording additionally reads every atom pickle back off disk. Budget a\n"
         "full half hour for a checkpoint run."
     ))
+    lines += recording.dependencies_table()
     lines += recording.machine_table(goldenrun.GOLDEN_N_THREADS)
 
     (goldens / "provenance.toml").write_text("\n".join(lines))

@@ -267,6 +267,109 @@ def golden_table(tier: int, author: str, reason: str, ticket_url: str,
     })
 
 
+#: Every third-party package whose version can change what a run computes,
+#: recorded by :func:`dependencies_table`.
+#:
+#: The four in the middle are the reason this table exists (#62). The noise
+#: sigma that sets every detection threshold comes out of
+#: ``astropy.stats.sigma_clip``; the segmentation itself out of photutils'
+#: ``detect_sources`` and ``deblend_sources``; the region morphology that
+#: picks an atom's restoration operator out of ``skimage.measure.regionprops``;
+#: and the simple detector's clip out of ``scipy.stats.sigmaclip``. Each sits
+#: on a *decision* path, where there is no tolerance to absorb a difference —
+#: a changed sigma changes the atom count, not merely an atom's last digits.
+#:
+#: ``matplotlib`` and ``psutil`` are deliberately absent: #46 moved the
+#: drawing out of the loop, and psutil only measures. ``ray`` is here not
+#: because it computes anything but because it is the backend that hands the
+#: work out.
+#:
+#: ``tests/goldens/audit_environment.py`` imports this list rather than
+#: keeping a second copy. Two hand-maintained copies of one list are one copy
+#: too many, and it is the audit that would go stale.
+RUN_INFLUENCING_PACKAGES = (
+    "numpy",
+    "scipy",
+    "astropy",
+    "photutils",
+    "skimage",
+    "h5py",
+    "threadpoolctl",
+    "ray",
+)
+
+
+def package_versions() -> dict:
+    """The version of every package in :data:`RUN_INFLUENCING_PACKAGES`.
+
+    Observed in the recording process itself, which is the process that ran
+    the pipeline — so what is recorded is what the run actually imported, not
+    what an environment file says should have been installed.
+
+    An empty string means no version was there to read. That is a real
+    answer and not a failure, and it covers two cases that both mean "this
+    package did not contribute anything to the run": the package is not
+    installed, or :func:`stub_missing` replaced it with a do-nothing
+    stand-in, which has no ``__version__`` because it has no behaviour
+    either. ``[source].stubbed_modules`` is what separates the two, and it is
+    recorded a few tables up.
+
+    ``ray`` reaches this function stubbed on every serial recording, so the
+    empty string is the expected reading rather than an edge case.
+
+    HDF5's own library version rides along with ``h5py``, because the two
+    move independently of each other.
+    """
+    versions = {}
+    for name in RUN_INFLUENCING_PACKAGES:
+        try:
+            module = __import__(name)
+        except ImportError:
+            versions[name] = ""
+            continue
+        # `getattr` rather than attribute access: a stub has no `__version__`,
+        # and a stubbed dependency must read as absent rather than crash the
+        # recording after the run has already been paid for.
+        versions[name] = getattr(module, "__version__", "")
+    try:
+        import h5py
+        versions["hdf5"] = h5py.version.hdf5_version
+    except ImportError:
+        versions["hdf5"] = ""
+    return versions
+
+
+def dependencies_table() -> list[str]:
+    """The ``[dependencies]`` table, identical at every tier.
+
+    Separate from ``[machine]`` because it answers a different question.
+    ``[machine]`` says which box this was; this says what was installed on it,
+    and the two drift independently — the same laptop grows a new photutils
+    without becoming a different machine.
+    """
+    return toml_table("dependencies", package_versions(), comment=(
+        "Every package whose version can change what this run computed,\n"
+        "observed in the recording process itself. An empty string means no\n"
+        "version was there to read -- the package was not installed, or it\n"
+        "was stubbed by this recording. [source].stubbed_modules above says\n"
+        "which. Either way that package contributed nothing to this run: ray\n"
+        "is stubbed on every serial recording.\n"
+        "\n"
+        "Recorded because of #62, and NOT for diagnosis. astropy sets the\n"
+        "noise sigma behind every detection threshold, photutils produces the\n"
+        "segmentation, scikit-image supplies the region morphology that picks\n"
+        "an atom's restoration operator, and scipy clips on the simple\n"
+        "detector path. Every one of those is a DECISION, where no tolerance\n"
+        "absorbs a difference: measured on the Tier 1 cutout, a noise sigma\n"
+        "1e-4 higher restores 74 atoms in 19 iterations rather than 76 in 20,\n"
+        "while the same sigma one float32 ulp higher changes nothing at all.\n"
+        "So a version bump moves a decision when it changes an ALGORITHM --\n"
+        "a default maxiters, a centre statistic -- and not when it merely\n"
+        "rounds differently. Until #62 a golden recorded numpy and none of\n"
+        "the four that actually pick the atoms."
+    ))
+
+
 def machine_table(n_threads: int) -> list[str]:
     """The ``[machine]`` table, identical at every tier.
 
@@ -276,9 +379,12 @@ def machine_table(n_threads: int) -> list[str]:
     reports under that request, and which library it turned out to be. The two
     are recorded separately because they can disagree, and a knob that
     silently failed is the bug #61 exists to make visible.
-    """
-    import numpy as np
 
+    Package versions used to include ``numpy`` and live here. They are their
+    own table now (#62): what box this is and what was installed on it are
+    two facts, and one laptop grows a new photutils without becoming a
+    different machine.
+    """
     import goldenrun
 
     effective, vendor = goldenrun.observed_threads_at(n_threads)
@@ -287,13 +393,13 @@ def machine_table(n_threads: int) -> list[str]:
         "hostname": platform.node(),
         "platform": platform.platform(),
         "python": platform.python_version(),
-        "numpy": np.__version__,
         "blas_vendor": vendor or "none",
         "effective_n_threads": -1 if effective is None else effective,
     }, comment=(
         "Recorded for diagnosis only, EXCEPT the two thread fields. The\n"
         "goldens are expected to reproduce across machines within the\n"
-        "tolerances above.\n"
+        "tolerances above. What was INSTALLED on this machine is a separate\n"
+        "table, [dependencies], and is not diagnostic at all (#62).\n"
         "\n"
         "effective_n_threads is what the loaded BLAS reported it would\n"
         "actually use when this run asked it for [run].n_threads, and\n"

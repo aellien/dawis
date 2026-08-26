@@ -62,8 +62,10 @@ runs; every finding below is visible at Tier 1.
 
 ### Golden provenance, field by field
 
-Tier 1 has 7 tables and 73 fields; Tier 2 has 8 tables and 73 fields — it adds
-`[budget]`'s 5 and its `[input]` carries 5 fields where Tier 1's carries 10.
+Counted after #62 moved the package versions into their own table. Tier 1 has
+8 tables and 81 fields; Tier 2 has 8 tables and 73 fields — it adds `[budget]`'s
+5 and its `[input]` carries 5 fields where Tier 1's carries 10, and it has yet
+to be re-recorded with `[dependencies]`.
 
 | Table | Fields | What they capture | Can they move output? |
 |---|---|---|---|
@@ -82,7 +84,7 @@ Tier 1 has 7 tables and 73 fields; Tier 2 has 8 tables and 73 fields — it adds
 | `[machine]` | `hostname` | which machine | **No.** Identification. |
 | `[machine]` | `platform` | `platform.platform()` | **Yes, partly** — see F6. The OS, the kernel, the architecture *and*, as a substring on Linux, the glibc version. |
 | `[machine]` | `python` | interpreter version | **Yes.** |
-| `[machine]` | `numpy` | numpy version | **Yes**, and it is the only dependency version a golden records. See F4. |
+| `[dependencies]` | `numpy`, `scipy`, `astropy`, `photutils`, `skimage`, `h5py`, `threadpoolctl`, `ray`, `hdf5` | every package version a run's result can depend on | **Yes.** Added by F4 below, which is why this row describes the table as it is *now*: before #62, `[machine]` carried `numpy` alone. Tier 2 is still a recording behind and has yet to gain the table. |
 | `[machine]` | `blas_vendor`, `effective_n_threads` | which maths library loaded, and what thread count it actually gave | **Yes.** Added by #61, and the file says so: these two are load-bearing where the four above are declared diagnostic. |
 | `[budget]` T2 | `wall_s`, `benchmark_wall_s`, `benchmark_source`, `marker`, `runs_on` | what the tier costs and when it runs | **No.** Scheduling. |
 
@@ -141,64 +143,74 @@ Baseline for every measurement: Tier 1, seed 20260823, `n_threads=1`,
 | F13 | **`os.cpu_count()`** | **Does not move output. Established by inspection.** | No default in `dawis/` derives from it; `n_workers` and `n_threads` are both explicit and both recorded. The benchmark record's `n_cpus_machine` is identification. |
 | F14 | **Maths-library thread environment variables** | **Cannot move output.** | `threadpoolctl` overrides `OMP_NUM_THREADS` and its siblings outright, and `tests/conftest.py` asserts the *effective* count rather than the variable. This is the one candidate that used to be a real hidden input and has been closed: #61 made the thread count a knob DAWIS owns, and `[machine].effective_n_threads` records what the library actually gave. |
 
-## Part 3 — Findings, and the tickets they become
+## Part 3 — Findings, and what was decided about them
 
-Three candidates move output and are not recorded. Each gets its own ticket,
-because each is a separate claim that can be accepted or refused on its own
-evidence.
+Three candidates move output and were not recorded. One was acted on; two were
+weighed and left. The decision was Amaël's, on 2026-08-26, and it is recorded
+here with its reasoning because a future reader will otherwise re-derive the
+finding and assume it was missed.
 
-### Ticket A — Record the CPU dispatch path (F1)
+### Acted on — the dependency versions are recorded now (F4)
 
-The only **measured** finding. `[machine]` says nothing about which
-instruction set the maths library dispatched to, and F1 shows that choice
-moves an atom's flux with the same signature the thread count has. `blas_vendor`
-was added by #61 on the strength of exactly that signature, so the argument
-for adding this is the argument already accepted.
+`[machine]` recorded `numpy` and no other dependency, while the detection
+threshold comes from astropy, the segmentation from photutils, the region
+morphology and the inpainting histogram mode from scikit-image, and the simple
+detector's clip from scipy. Every one is on a decision path. The benchmark
+record, which measures only speed, already recorded all of them.
 
-Record numpy's compiled-in SIMD set and the CPU's runtime feature set, both
-printed by `audit_environment.py`'s *numpy build and CPU dispatch* section.
+This is the finding that matters, and the reason is F5: these four can move an
+**atom count**, where F1 and F2 can only move an atom's last digits. A decision
+has no tolerance to absorb it.
 
-### Ticket B — Record the BLAS version and threading layer (F2)
+`recording.py` now writes a `[dependencies]` table — `numpy`, `scipy`,
+`astropy`, `photutils`, `skimage`, `h5py`, `threadpoolctl`, `ray` and HDF5's
+own library version — observed in the recording process itself. `numpy` moved
+out of `[machine]` and into it: what box this is and what was installed on it
+are two facts that drift independently.
 
-`[machine].blas_vendor` is read from a `threadpool_info()` entry that also
-carries `version` and `threading_layer`, and both are dropped on the floor.
-Recording a vendor without its version says MKL and not which MKL; F1 shows
-kernel choice inside one library already moves flux, so a different build of
-that library is not a smaller change than the one already recorded.
+**Tier 1 is re-recorded and carries the table. Tier 2 does not yet.** Its
+re-recording costs 1702 s and was deliberately not run; the table lands there
+at its next regeneration. Until then the two goldens disagree in shape, and
+Tier 2 is the one that is a recording behind.
 
-Unverified rather than measured — it needs two MKL builds side by side — and
-the ticket should say so, so that whoever picks it up measures rather than
-inherits this document's reasoning.
+The Tier 1 re-recording moved no golden data: `atoms.csv`, `convergence.csv`,
+`input_cutout.fits`, `residuals.fits` and `restored.fits` are byte-identical
+to their previous recording, and `provenance.toml` is the only file that
+changed. Same 76 atoms in 20 iterations.
 
-### Ticket C — Record the numerical dependency versions (F4)
+### Weighed and left — the dispatch path and the BLAS build (F1, F2)
 
-`[machine]` records `numpy` and no other dependency, while the detection
-threshold comes from astropy, the segmentation from photutils, the labels and
-region morphology and the inpainting seeds from scikit-image, and the simple
-detector's clip from scipy. Every one is on a decision path and none is
-recorded by a golden. The benchmark record, which measures only speed, records
-all of them.
+Both are real and F1 is measured. Neither is being recorded, and this is a
+judgement about significance rather than about evidence.
 
-F5 is what makes this a real risk rather than a tidy one: a decision moves when
-the sigma moves by more than about 1e-4 relative, which is an algorithm change
-rather than a rounding change — and an algorithm change is precisely what a
-version bump is.
+What F1 actually moves is an atom's flux in its last digits —
+`253.93024126701312` against `253.93024126701309`, a relative difference of
+about 1e-16. `[tolerances].atom_rtol` is 1e-4, twelve orders of magnitude
+wider. The atom count, the iteration count, every level, bounding box, filter
+and convergence flag are unchanged. F2 is the same mechanism one level up and
+is not even measured.
 
-Record `scipy`, `astropy`, `photutils`, `skimage`, `h5py`, `threadpoolctl` and
-`ray` beside the existing `numpy`. That list is
-`audit_environment.py`'s `RUN_INFLUENCING_PACKAGES`; keep the two identical.
+So they are exactly the class of difference #3 chose float tolerance over
+bit-for-bit comparison in order to survive. Recording them would add two
+fields that can never explain a golden failure, because no golden failure can
+be caused by them.
 
-### Watch list — not tickets
+The distinction worth keeping from #61: the thread count was recorded not
+because its effect was large but because *nothing said it existed*, and a
+run compared at one thread against a golden recorded at four differed for a
+reason no file gave. That argument does not carry to F1 and F2 now, because
+`provenance-audit.md` is the file that says they exist and bounds their size.
+
+Re-open this if a golden ever fails a comparison and the dependency versions,
+the thread count and the seed all match. That is the situation in which these
+two become the remaining explanation, and this section is where to start.
+
+### Watch list — measured, and no difference found
 
 F7 and F8 are unrecorded and both measured **no** difference: no `-ffast-math`
 in the numpy build, and no flush-to-zero under the thread pin. Neither is a
-demonstrated defect, so neither earns a ticket — the criterion is that a thing
-which *moves* output and is unrecorded gets one.
-
-They are written down because "we checked once, on one machine, and it was
-fine" is the kind of claim that ages badly, which is the whole lesson of the
-thread count. If Ticket A is implemented, both are nearly free to record
-alongside it, and that is the moment to reconsider.
+demonstrated defect. Written down because "we checked once, on one machine, and
+it was fine" is the kind of claim that ages badly.
 
 ### Closed, so the next audit skips them
 
