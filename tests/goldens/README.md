@@ -89,6 +89,19 @@ Tolerances are deliberately *not* shared: each tier reads its own out of its
 `provenance.toml`, so a golden cannot be recorded under one rule and compared
 under another.
 
+## What provenance does not record
+
+`provenance-audit.md` is the standing answer, written for #62 after the thread
+count turned up by accident: every field a golden records and whether it can
+move output, every candidate input that is *not* recorded, and which of those
+were measured to move output rather than assumed to. Three do and are named
+there. `audit_environment.py` beside it prints every candidate off a machine,
+so the audit is re-run at the next release rather than re-invented.
+
+```bash
+python tests/goldens/audit_environment.py --pin-threads 1
+```
+
 ## Threads
 
 Every golden is recorded and compared at `goldenrun.GOLDEN_N_THREADS` maths-library
