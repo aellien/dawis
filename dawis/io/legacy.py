@@ -15,8 +15,8 @@ a run written before the carve names ``dawis.restore_objects.restored_object``,
 and the cube classes under ``dawis.datacube``. Those paths resolved only
 because the flat shims existed, and the contract ticket (#50) deleted them; the
 rename sweep (#51) and the Phase A gate (#59) then changed the class names
-themselves. So this module maps
-both halves itself, in :class:`_LegacyUnpickler`. Without the module map a
+themselves. So this module maps both halves itself, in
+:class:`_LegacyUnpickler`. Without the module map a
 pre-carve file raises ``ModuleNotFoundError``; without the class map it raises
 ``AttributeError`` — either way the published ``v0.0.7-h`` outputs stop being
 readable, which is the one thing this module exists to prevent.

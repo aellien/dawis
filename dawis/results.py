@@ -268,6 +268,18 @@ class RunResult:
     array and hands one of these back, so a caller — a test, a notebook, a
     campaign script — can work entirely in memory.
 
+    .. note::
+
+       #4 calls this class ``Result`` and gives it fields Phase A has no way
+       to fill: ``objects`` as a lazy ``ObjectStore``, ``converged``, and
+       ``config`` as a ``ConfigHistory`` recording every resume. Phase A
+       writes its atoms to disk from inside the loop and has neither a store
+       nor a resume, so what it can hand back is a *different* object, and it
+       carries a different name to say so. The gate on #59 left it that way
+       deliberately: taking the name ``Result`` now would promise #4's fields
+       to anyone reading #4. Phase B builds that class, and the rename lands
+       with it.
+
     Attributes
     ----------
     config : dawis.config.Config

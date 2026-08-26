@@ -115,8 +115,8 @@ from dawis.restoration import (
     unpad,
 )
 from dawis.trees import (
-    interscale_connectivity,
     InterscaleTree,
+    interscale_connectivity,
     make_interscale_trees,
 )
 from dawis.wavelets import (
@@ -144,6 +144,7 @@ __all__ = [
     'DawisError',
     'DawisValueError',
     'InputDiagnostics',
+    'InterscaleTree',
     'LabelCube',
     'Reconstruction',
     'RunResult',
@@ -157,7 +158,6 @@ __all__ = [
     'hard_threshold',
     'inpaint_with_gaussian_noise',
     'interscale_connectivity',
-    'InterscaleTree',
     'inverse_anscombe',
     'label_regions',
     'load_atom_from_hdf5_group',

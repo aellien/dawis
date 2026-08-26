@@ -44,7 +44,7 @@ from dawis.trees.deblending import (
 )
 
 __all__ = [
-    'interscale_connectivity',
     'InterscaleTree',
+    'interscale_connectivity',
     'make_interscale_trees',
 ]

@@ -14,7 +14,7 @@ One scale of the à trous (starlet) decomposition of an image. A set of wavelet 
 Container stacking per-scale 2D planes into a 3D array (x, y, scale). Four kinds, tracing distinct mathematical objects: wavelet coefficients (WaveletCube), the coarse/smooth planes (CoarseCube, deeply coupled to the WaveletCube it comes from), binary significance masks (SupportCube), and integer region labels (LabelCube). Not multi-wavelength data. Base class: `Cube`. Called "datacube" before 1.0, a name that survives only in pre-1.0 pickles.
 
 ### Interscale tree
-A hierarchical grouping connecting significant regions across adjacent wavelet scales, rooted at a coarse-scale region. The unit handed to restoration; deblending decides where trees split. Class: `InterscaleTree`. Called `interscale_tree` before 1.0, a name that survives only in pre-1.0 pickles.
+A hierarchical grouping connecting significant regions across adjacent wavelet scales, rooted at a coarse-scale region. The unit handed to restoration; deblending decides where trees split. Class: `InterscaleTree`. Called "interscale_tree" before 1.0, a name that survives only in pre-1.0 pickles.
 
 ### Atom
 The output unit of the pipeline: a structure reconstructed (synthesised) from an interscale tree, carrying its image-domain footprint and flux. Atoms are raw synthesis building blocks — not yet astrophysically meaningful sources. Class: `Atom`. Called "restored object" before 1.0, a name that survives only in pre-1.0 pickles.
