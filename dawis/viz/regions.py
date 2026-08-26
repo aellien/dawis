@@ -113,7 +113,7 @@ def plot_region(region: region_class, wavelet_cube: WaveletCube,
                 region.label, \
                 extent = ( region.bbox[1], region.bbox[3], \
                            region.bbox[0], region.bbox[2] ), \
-                levels = 0, color = 'black', linewidth = 3 )
+                levels = 0, colors = 'black', linewidths = 3 )
     else:
         log.debug('Region too small for contours.')
 

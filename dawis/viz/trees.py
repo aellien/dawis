@@ -111,7 +111,7 @@ def plot_interscale_tree(tree: interscale_tree,
                                  extent = ( tree.bbox[1], tree.bbox[3], \
                                             tree.bbox[0], tree.bbox[2] ), \
                                  levels = 0, \
-                                 color = 'cyan')
+                                 colors = 'cyan')
         else:
             log.debug('Region too small for contours.')
 
