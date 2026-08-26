@@ -1,21 +1,18 @@
-"""Tier 0 — the viz block and the rule it exists to enforce (#46).
+"""Tier 0 — the viz block, and the drawing the carve moved into it (#46).
 
-Two things are checked here. First, the architectural rule: no module outside
-``dawis.viz`` imports matplotlib, and ``import dawis`` therefore works with the
+Two things are checked here. First, that ``import dawis`` works with the
 ``[viz]`` extra absent. Second, the two functions that replaced code which used
 to run inside the pipeline — the per-type cube dispatch, and the animation
 rebuilt from a finished run's own output.
 
-The import rule is checked by reading the source tree rather than by importing
-it, so a module that only fails to import under some other condition cannot
-hide the violation. #58 generalises this into the full import-graph test over
-all three of #4's dependency rules; this is the matplotlib half of it, pinned
-where the code moved.
+The import rule itself moved to ``test_import_graph.py`` with #58, which
+walks the source tree once for all three of #4's dependency rules instead of
+pinning each beside the code that moved. What stays here is the half that is
+about the drawing: that a headless install still runs.
 """
 
 from __future__ import annotations
 
-import ast
 import subprocess
 import sys
 from pathlib import Path
@@ -37,41 +34,6 @@ from dawis.cubes import (  # noqa: E402
     SupportCube,
     WaveletCube,
 )
-
-PACKAGE = Path(dawis.__file__).parent
-
-
-def imported_modules(source: Path) -> set[str]:
-    """Every top-level module name imported by a Python file."""
-    names = set()
-    for node in ast.walk(ast.parse(source.read_text())):
-        if isinstance(node, ast.Import):
-            names.update(alias.name.split(".")[0] for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            names.add(node.module.split(".")[0])
-    return names
-
-
-def test_nothing_outside_viz_imports_matplotlib():
-    """#4's first dependency rule, made executable."""
-    offenders = [
-        path.relative_to(PACKAGE).as_posix()
-        for path in sorted(PACKAGE.rglob("*.py"))
-        if path.parent.name != "viz" and "matplotlib" in imported_modules(path)
-    ]
-    assert offenders == [], (
-        "matplotlib is the optional [viz] extra and belongs only to dawis.viz"
-    )
-
-
-def test_viz_does_import_matplotlib():
-    """The rule above is only meaningful because the drawing really is here."""
-    drawing = [
-        path
-        for path in sorted((PACKAGE / "viz").glob("*.py"))
-        if "matplotlib" in imported_modules(path)
-    ]
-    assert drawing != []
 
 
 def test_dawis_imports_without_matplotlib():

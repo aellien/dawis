@@ -19,7 +19,6 @@ absent.
 
 from __future__ import annotations
 
-import ast
 import builtins
 import importlib
 import sys
@@ -420,36 +419,18 @@ def test_the_thread_count_is_per_process_and_not_a_budget_divided_up():
 
 
 # ---------------------------------------------------------------------------
-# The architectural rules the seam exists to make true
+# The architectural rule the seam exists to make true
 # ---------------------------------------------------------------------------
 
 
-# These two walk the package's imports the way `tests/unit/test_viz.py` walks
-# them for matplotlib. #58 replaces both with one import-graph test that
-# asserts all three of the architecture's dependency rules at once.
+# The static half of the rule — that no module outside this one imports ray —
+# moved to `tests/unit/test_import_graph.py` with #58, which walks the source
+# tree once for all three of the architecture's dependency rules. What is left
+# here is the behaviour that rule buys: every module of the package really does
+# import with the [ray] extra absent.
 def _dawis_sources():
     package = Path(parallel.__file__).parent
     return sorted(package.rglob('*.py'))
-
-
-def _imported_names(path):
-    tree = ast.parse(path.read_text(), filename=str(path))
-    names = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            names.update(alias.name.split('.')[0] for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
-            names.add(node.module.split('.')[0])
-    return names
-
-
-def test_nothing_outside_the_parallelism_module_imports_ray():
-    offenders = [
-        path.name
-        for path in _dawis_sources()
-        if path.name != 'parallel.py' and 'ray' in _imported_names(path)
-    ]
-    assert offenders == []
 
 
 def test_the_package_imports_with_ray_uninstalled():
