@@ -38,7 +38,7 @@ script and by the comparison in `tests/regression/test_golden_cutout.py`.
 ## `tier2_gallery/` — the checkpoint science check (#37)
 
 One seeded run on the **whole** 900x900 gallery image at the **shipping** CG
-`max_iter=200`, recorded from the same `legacy-seeded` commit `1434f66`. 1702 s,
+`max_iter=200`, recorded from the same `legacy-seeded` commit `1434f66`. 1708 s,
 27 iterations, 463 atoms.
 
 Tier 1 asks whether the carve broke the structure of the pipeline; Tier 2 asks
@@ -58,7 +58,7 @@ pytest -m slow tests/regression/test_golden_gallery.py
 | `residuals.fits` | what the loop left behind |
 | `atoms.csv` | one row per atom: position, scale, operator, flux |
 | `convergence.csv` | one row per greedy iteration |
-| `provenance.toml` | commit, seed, thread count, tolerances, shipping `max_iter`, measured runtime — not yet the dependency versions, see below |
+| `provenance.toml` | commit, seed, thread count, dependency versions, tolerances, shipping `max_iter`, measured runtime |
 
 There is no `input_gallery.fits`. The image ships inside the package and is
 already under version control, so `provenance.toml` records its sha256 and the
@@ -109,9 +109,12 @@ last digits: on the Tier 1 cutout a noise sigma 1e-4 higher restores 74 atoms
 in 19 iterations rather than 76 in 20, while the same sigma one float32 ulp
 higher changes nothing at all.
 
-**Tier 1 carries the table; Tier 2 does not yet.** Tier 2's re-recording costs
-1702 s and has not been run, so it lands at that tier's next regeneration —
-until then Tier 2 still records `numpy` under `[machine]`.
+Both tiers were re-recorded to carry the table, and **neither golden moved**:
+`atoms.csv`, `convergence.csv`, `residuals.fits`, `restored.fits` and Tier 1's
+`input_cutout.fits` are byte-identical to their previous recordings, and
+`provenance.toml` is the only file that changed in either. Same 76 atoms in 20
+iterations at Tier 1, same 463 in 27 at Tier 2. Every tolerance, including the
+residual sigma each is derived from, came out unchanged.
 
 `audit_environment.py` prints every candidate off a machine, so the audit is
 re-run at the next release rather than re-invented. It shares its package list

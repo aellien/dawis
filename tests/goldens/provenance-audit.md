@@ -55,17 +55,16 @@ Re-run this audit at the next release rather than re-inventing it.
    its own ticket. Anything that does not gets a row in Part 2 saying so, so
    the next audit does not re-measure it.
 
-Do not use Tier 2 for this. It is 1702 s per run and the audit needs a dozen
+Do not use Tier 2 for this. It is 1708 s per run and the audit needs a dozen
 runs; every finding below is visible at Tier 1.
 
 ## Part 1 — What is recorded today
 
 ### Golden provenance, field by field
 
-Counted after #62 moved the package versions into their own table. Tier 1 has
-8 tables and 81 fields; Tier 2 has 8 tables and 73 fields — it adds `[budget]`'s
-5 and its `[input]` carries 5 fields where Tier 1's carries 10, and it has yet
-to be re-recorded with `[dependencies]`.
+Counted after #62 moved the package versions into their own table. Both tiers
+carry 81 fields. Tier 1 has 8 tables; Tier 2 has 9, because it adds `[budget]`'s
+5 while its `[input]` carries 5 fields where Tier 1's carries 10.
 
 | Table | Fields | What they capture | Can they move output? |
 |---|---|---|---|
@@ -84,7 +83,7 @@ to be re-recorded with `[dependencies]`.
 | `[machine]` | `hostname` | which machine | **No.** Identification. |
 | `[machine]` | `platform` | `platform.platform()` | **Yes, partly** — see F6. The OS, the kernel, the architecture *and*, as a substring on Linux, the glibc version. |
 | `[machine]` | `python` | interpreter version | **Yes.** |
-| `[dependencies]` | `numpy`, `scipy`, `astropy`, `photutils`, `skimage`, `h5py`, `threadpoolctl`, `ray`, `hdf5` | every package version a run's result can depend on | **Yes.** Added by F4 below, which is why this row describes the table as it is *now*: before #62, `[machine]` carried `numpy` alone. Tier 2 is still a recording behind and has yet to gain the table. |
+| `[dependencies]` | `numpy`, `scipy`, `astropy`, `photutils`, `skimage`, `h5py`, `threadpoolctl`, `ray`, `hdf5` | every package version a run's result can depend on | **Yes.** Added by F4 below, which is why this row describes the table as it is *now*: before #62, `[machine]` carried `numpy` alone. An empty string means the package was absent or stubbed, which `[source].stubbed_modules` distinguishes. |
 | `[machine]` | `blas_vendor`, `effective_n_threads` | which maths library loaded, and what thread count it actually gave | **Yes.** Added by #61, and the file says so: these two are load-bearing where the four above are declared diagnostic. |
 | `[budget]` T2 | `wall_s`, `benchmark_wall_s`, `benchmark_source`, `marker`, `runs_on` | what the tier costs and when it runs | **No.** Scheduling. |
 
@@ -168,15 +167,18 @@ own library version — observed in the recording process itself. `numpy` moved
 out of `[machine]` and into it: what box this is and what was installed on it
 are two facts that drift independently.
 
-**Tier 1 is re-recorded and carries the table. Tier 2 does not yet.** Its
-re-recording costs 1702 s and was deliberately not run; the table lands there
-at its next regeneration. Until then the two goldens disagree in shape, and
-Tier 2 is the one that is a recording behind.
+**Both tiers were re-recorded and both carry the table.**
 
-The Tier 1 re-recording moved no golden data: `atoms.csv`, `convergence.csv`,
+Neither golden moved. At Tier 1, `atoms.csv`, `convergence.csv`,
 `input_cutout.fits`, `residuals.fits` and `restored.fits` are byte-identical
-to their previous recording, and `provenance.toml` is the only file that
-changed. Same 76 atoms in 20 iterations.
+to their previous recording; at Tier 2, the same four files it keeps are too.
+`provenance.toml` is the only file that changed in either tier. Same 76 atoms
+in 20 iterations at Tier 1, same 463 in 27 at Tier 2, and every tolerance —
+including the residual sigma each is derived from — came out unchanged.
+
+That is the outcome this change had to have. Adding a provenance field must
+not move a golden, and the byte comparison is what proves it did not rather
+than assuming it.
 
 ### Weighed and left — the dispatch path and the BLAS build (F1, F2)
 
