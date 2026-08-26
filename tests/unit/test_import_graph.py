@@ -38,19 +38,25 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-#: The package directory, found without importing the package.
-#:
-#: ``import dawis`` would execute every module the rules are about, so a
-#: violation bad enough to break the import — ``import ray`` at the top of a
-#: solver, on a machine without the [ray] extra — would collapse this file at
-#: collection time and report as an error rather than as the broken rule it
-#: is. ``find_spec`` reads the same install and executes nothing.
+# ``find_spec`` rather than ``import dawis``: importing would execute every
+# module the rules are about, so a violation bad enough to break the import —
+# ``import ray`` at the top of a solver, on a machine without the [ray] extra
+# — would collapse this file rather than be reported by it. ``find_spec``
+# reads the same install and executes nothing.
+#
+# This buys the module its own independence, not the whole session's: the
+# suite's ``conftest`` imports dawis in a session-scoped autouse fixture, so
+# in a full pytest run such a violation still surfaces first as an error at
+# setup. Running this file alone, or importing it outside pytest, then names
+# the rule.
 _SPEC = importlib.util.find_spec('dawis')
+
+#: The package directory, found without importing the package.
 PACKAGE_ROOT = Path(list(_SPEC.submodule_search_locations)[0]).resolve()
 
-#: The package the source tree is rooted at, so relative imports can be
-#: resolved to the absolute names the rules are written in.
-PACKAGE = PACKAGE_ROOT.name
+#: The name the source tree is rooted at, so relative imports can be resolved
+#: to the absolute names the rules are written in.
+PACKAGE_NAME = PACKAGE_ROOT.name
 
 
 def module_names(path: Path) -> tuple[str, str]:
@@ -61,7 +67,7 @@ def module_names(path: Path) -> tuple[str, str]:
     ``dawis.detection``, and is contained by it too — which is what ``from
     . import x`` means in an ``__init__``.
     """
-    parts = [PACKAGE, *path.relative_to(PACKAGE_ROOT).with_suffix('').parts]
+    parts = [PACKAGE_NAME, *path.relative_to(PACKAGE_ROOT).with_suffix('').parts]
     if parts[-1] == '__init__':
         parts.pop()
         return '.'.join(parts), '.'.join(parts)
@@ -107,7 +113,13 @@ def imported_modules(path: Path) -> frozenset[str]:
 
 
 def package_modules() -> list[Path]:
-    """Every source file in the installed package."""
+    """Every source file in the installed package.
+
+    The *installed* one, which under the editable install contributors and CI
+    use is the working tree. A non-editable install would put site-packages
+    here, and the rules would then be checked against what was installed
+    rather than against what is being edited.
+    """
     return sorted(PACKAGE_ROOT.rglob('*.py'))
 
 
@@ -128,6 +140,19 @@ class Rule:
     exempt: frozenset[str]
     statement: str
 
+    def owns(self, path: Path) -> bool:
+        """Whether the rule exempts ``path``.
+
+        An entry ending in ``/`` exempts a directory and everything under it;
+        any other entry is one file, matched whole. Matching on a bare string
+        prefix instead would let ``parallel.py`` exempt ``parallel.pyi`` too.
+        """
+        name = path.relative_to(PACKAGE_ROOT).as_posix()
+        return any(
+            name.startswith(entry) if entry.endswith('/') else name == entry
+            for entry in self.exempt
+        )
+
     def offenders(self) -> list[str]:
         """Every module that breaks this rule, by its path in the package."""
         return [
@@ -136,17 +161,6 @@ class Rule:
             if not self.owns(path)
             and imports(imported_modules(path), self.forbidden)
         ]
-
-    def owns(self, path: Path) -> bool:
-        """Whether ``path`` is one of the modules the rule exempts wholesale.
-
-        A rule exempting ``viz/`` exempts everything under it; one exempting a
-        single module names that file.
-        """
-        return any(
-            path.relative_to(PACKAGE_ROOT).as_posix().startswith(prefix)
-            for prefix in self.exempt
-        )
 
 
 #: The three rules, as data. Adding a fourth is one entry, not a fourth walk.
@@ -216,19 +230,28 @@ def test_the_walk_reaches_every_module_in_the_package():
         assert isinstance(imported_modules(path), frozenset)
 
 
-def test_each_rule_would_catch_a_violation():
-    """A rule that can never match passes for the wrong reason.
+def test_a_rule_matches_exactly_what_it_names():
+    """A rule that matches too little, or too much, passes for a wrong reason.
 
-    The package cannot be given a bad import to find, so the matcher is fed
-    the import names it is looking for directly: the bare module, a submodule
-    of it, and a name that merely starts with the same letters. Without this,
-    a rule matching on a prefix would flag ``rays`` as ``ray``, and a typo in
-    ``forbidden`` — ``matplotlab`` — would be a green test forever.
+    Both halves are fed their inputs directly, because the package cannot be
+    given a bad import to find. Matching too little is a typo in ``forbidden``
+    — ``matplotlab`` — which is a green test forever. Matching too much is a
+    string prefix: ``ray`` flagging ``rays``, or an exemption of ``io`` also
+    exempting ``iolib.py``, which quietly switches the rule off for files it
+    should cover.
     """
     for name, rule in RULES.items():
         assert imports({rule.forbidden}, rule.forbidden), name
         assert imports({rule.forbidden + '.pyplot'}, rule.forbidden), name
         assert not imports({rule.forbidden + 'x'}, rule.forbidden), name
+
+    directory = Rule(forbidden='x', exempt=frozenset({'viz/'}), statement='')
+    assert directory.owns(PACKAGE_ROOT / 'viz' / 'cubes.py')
+    assert not directory.owns(PACKAGE_ROOT / 'cubes.py')
+
+    one_file = Rule(forbidden='x', exempt=frozenset({'parallel.py'}), statement='')
+    assert one_file.owns(PACKAGE_ROOT / 'parallel.py')
+    assert not one_file.owns(PACKAGE_ROOT / 'parallel.pyi')
 
 
 def test_the_rules_name_dependencies_the_package_really_has():
@@ -253,18 +276,24 @@ def test_the_walk_runs_well_under_a_second():
     """The budget that makes the whole walk worth keeping in every run.
 
     Parsing the package takes a few tens of milliseconds, so the budget below
-    is roughly twenty times what the walk costs. It is not a benchmark: it
-    fails when someone makes the walk import the package, shell out, or read
-    something off the network, which is the only way it grows an order of
-    magnitude.
+    is more than an order of magnitude above what the walk costs. It is not a
+    benchmark: it fails when someone makes the walk import the package, shell
+    out, or read something off the network, which is the only way it grows
+    that far.
 
-    The parse cache is cleared first, so what is timed is the cold walk a
-    fresh test session pays for and not three cache hits.
+    The parse cache is cleared before each attempt, so what is timed is the
+    cold walk a fresh test session pays for and not three cache hits. The best
+    of three attempts is taken: a loaded machine can lose a scheduling slice
+    in any one of them, and this test is not there to measure the machine.
     """
-    imported_modules.cache_clear()
-    started = time.perf_counter()
-    for rule in RULES.values():
-        rule.offenders()
-    elapsed = time.perf_counter() - started
+    attempts = []
+    for _ in range(3):
+        imported_modules.cache_clear()
+        started = time.perf_counter()
+        for rule in RULES.values():
+            rule.offenders()
+        attempts.append(time.perf_counter() - started)
 
-    assert elapsed < 1.0, 'the import-graph walk took %.2f s' % elapsed
+    assert min(attempts) < 1.0, (
+        'the import-graph walk took %.2f s' % min(attempts)
+    )

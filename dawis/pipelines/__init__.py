@@ -9,7 +9,8 @@ The rule the layout rests on runs one way: **pipelines depend on blocks, blocks
 never depend on pipelines.** A block that imported this package would be a
 block that cannot be used without the whole solver behind it, and the toolbox
 of #4 would collapse back into the flat package it came from. The rule is
-checkable, and #59 makes it a test.
+checkable, and #58 makes it a test, in
+``tests/unit/test_import_graph.py``.
 
 That is also why this package is thin. It holds the order the steps run in, the
 conditions the loop stops under, and the files a run leaves behind — no

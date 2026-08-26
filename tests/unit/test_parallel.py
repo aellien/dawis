@@ -428,17 +428,12 @@ def test_the_thread_count_is_per_process_and_not_a_budget_divided_up():
 # tree once for all three of the architecture's dependency rules. What is left
 # here is the behaviour that rule buys: every module of the package really does
 # import with the [ray] extra absent.
-def _dawis_sources():
-    package = Path(parallel.__file__).parent
-    return sorted(package.rglob('*.py'))
-
-
 def test_the_package_imports_with_ray_uninstalled():
     """Every module of the package, not only the top-level namespace."""
     package_root = Path(parallel.__file__).parent
     modules = [
         'dawis.' + '.'.join(path.relative_to(package_root).with_suffix('').parts)
-        for path in _dawis_sources()
+        for path in sorted(package_root.rglob('*.py'))
         if path.name != '__init__.py'
     ]
     # dawis.viz needs matplotlib, the [viz] extra, which is a different
