@@ -32,11 +32,23 @@ from dawis.exceptions import ConfigError
 #: any other array.
 IMAGE_HDU_TYPES = (_fits.PrimaryHDU, _fits.ImageHDU, _fits.CompImageHDU)
 
+#: The one image HDU class that does not hold an image.
+#:
+#: :class:`~astropy.io.fits.GroupsHDU` — random groups, which is how UV-FITS
+#: carries interferometric visibilities — *subclasses*
+#: :class:`~astropy.io.fits.PrimaryHDU`, so it passes the test above and its
+#: ``data`` is the record array that test exists to keep out. Named apart
+#: rather than dropped from the tuple, because the exclusion is a fact about
+#: astropy's hierarchy and not about what DAWIS wants.
+NOT_IMAGE_HDU_TYPES = (_fits.GroupsHDU,)
+
 
 def _holds_an_image(hdu) -> bool:
     """Whether one HDU is an image HDU that actually carries pixels."""
 
-    return isinstance(hdu, IMAGE_HDU_TYPES) and hdu.data is not None
+    return (isinstance(hdu, IMAGE_HDU_TYPES)
+            and not isinstance(hdu, NOT_IMAGE_HDU_TYPES)
+            and hdu.data is not None)
 
 
 def _describe(hdulist: _fits.HDUList) -> str:
@@ -87,7 +99,16 @@ def read_image(filename: str, hdu: int | None = None
     An HDU "holds an image" if it is a :class:`~astropy.io.fits.PrimaryHDU`,
     an :class:`~astropy.io.fits.ImageHDU` or a
     :class:`~astropy.io.fits.CompImageHDU` *and* its data is not None. A shape
-    test alone would not do: a table HDU has data too.
+    test alone would not do: a table HDU has data too. The one exception is
+    :class:`~astropy.io.fits.GroupsHDU`, which subclasses ``PrimaryHDU`` and
+    carries a record array; see :data:`NOT_IMAGE_HDU_TYPES`.
+
+    The test is on the HDU's class, not on the rank of its array. A 1-D or 3-D
+    ``ImageHDU`` therefore wins the search if it comes first, and the run fails
+    on it in :func:`~dawis.run` with a
+    :class:`~dawis.exceptions.DawisDimensionError` naming the rank. That is the
+    intended reading of "type test, not shape test" (#65): a file whose first
+    image is not the science image is a file whose HDU should be named.
 
     The header comes from the same HDU as the image, and **the primary header
     is not merged into an extension's**. That is a decision, not an oversight
@@ -112,8 +133,8 @@ def read_image(filename: str, hdu: int | None = None
                 selected = hdulist[hdu]
             except (IndexError, KeyError):
                 raise ConfigError(
-                    'No such HDU --> %s has no HDU %s, only %d of them'
-                    % (filename, hdu, len(hdulist))
+                    'No such HDU --> %s has no HDU %s, only: %s'
+                    % (filename, hdu, _describe(hdulist))
                 ) from None
 
             if not _holds_an_image(selected):

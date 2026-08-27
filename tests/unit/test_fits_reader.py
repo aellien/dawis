@@ -196,7 +196,29 @@ def test_a_named_hdu_that_holds_no_image_never_falls_back_to_the_search(tmp_path
 
     message = str(raised.value)
     assert path in message
-    assert '0' in message
+    assert 'HDU 0 of' in message
+
+
+def test_random_groups_are_not_an_image(tmp_path):
+    """``GroupsHDU`` subclasses ``PrimaryHDU`` and carries a record array.
+
+    UV-FITS visibilities pass the class test by inheritance, which is the one
+    way a :class:`~astropy.io.fits.FITS_rec` could still reach a wavelet
+    transform. Named as its own exclusion rather than trusted to the tuple.
+    """
+    visibilities = fits.GroupData(
+        np.arange(12.0, dtype = 'float32').reshape(2, 1, 1, 2, 3),
+        parnames = ['UU'],
+        pardata = [np.zeros(2, dtype = 'float32')],
+        bitpix = -32,
+    )
+    path = write(tmp_path / 'uv.fits', fits.GroupsHDU(visibilities))
+
+    with pytest.raises(ConfigError, match = 'GroupsHDU'):
+        read_image(path)
+
+    with pytest.raises(ConfigError):
+        read_image(path, hdu = 0)
 
 
 def test_a_named_hdu_that_is_not_in_the_file_is_a_configuration_error(tmp_path):
@@ -206,7 +228,10 @@ def test_a_named_hdu_that_is_not_in_the_file_is_a_configuration_error(tmp_path):
     with pytest.raises(ConfigError) as raised:
         read_image(path, hdu = 3)
 
-    assert path in str(raised.value)
+    message = str(raised.value)
+    assert path in message
+    assert 'no HDU 3' in message
+    assert 'PrimaryHDU' in message
 
 
 # ---------------------------------------------------------------------------
