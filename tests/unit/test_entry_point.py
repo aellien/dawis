@@ -329,4 +329,4 @@ def test_the_entry_point_signature_names_no_knob():
     assert list(inspect.signature(dawis.run).parameters) == [
         'image', 'config', 'outdir', 'name', 'header']
     assert list(inspect.signature(dawis.run_fits).parameters) == [
-        'path', 'config', 'outdir', 'name']
+        'path', 'config', 'outdir', 'name', 'hdu']

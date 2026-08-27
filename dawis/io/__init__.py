@@ -21,6 +21,9 @@ run time — so the store can read a legacy run without any edge pointing back.
 
 :mod:`dawis.io.fits` is the boundary the image itself comes across, kept thin
 so that the entry point of #54 is the only caller that knows about paths.
+:func:`read_image` reads the first HDU that holds an image, in file order,
+unless the caller names an index (#65) — a metadata-only primary with the
+pixels in an extension is the normal shape of survey data.
 
 The on-disk format is unchanged in Phase A, which is what makes the goldens
 diagnostic; the HDF5-backed ``ObjectStore`` proper is Phase B.

@@ -152,7 +152,8 @@ def _write_fits(path: str, image, header = None) -> None:
 
 
 def run_fits(path: str, config: Config | None = None, *,
-             outdir: str = '.', name: str | None = None) -> RunResult:
+             outdir: str = '.', name: str | None = None,
+             hdu: int | None = None) -> RunResult:
     """Run the pipeline on a FITS image. The thin wrapper, and the only one.
 
     DAWIS works on arrays; FITS is how an image usually reaches it. This is
@@ -160,11 +161,15 @@ def run_fits(path: str, config: Config | None = None, *,
     the header so the outputs carry the astrometry of the input, and hands the
     array to :func:`run`. Nothing below this function ever sees a path (#54).
 
+    The image is read from the first HDU that holds one, in file order, so a
+    survey cutout whose primary carries only a header runs with no unpacking
+    by the caller (#65). ``hdu`` names one instead. The header comes from the
+    same HDU as the image, and is what the outputs carry.
+
     Parameters
     ----------
     path : str
-        The FITS file to run on. Its primary HDU is the image, and its name
-        must end in ``.fits``.
+        The FITS file to run on. Its name must end in ``.fits``.
     config : Config, optional
         The knobs of the run. Default builds a :class:`~dawis.config.Config`
         of published defaults.
@@ -173,6 +178,10 @@ def run_fits(path: str, config: Config | None = None, *,
     name : str, optional
         Stem the outputs are named after. Default is the input filename
         without its ``.fits``, which is what DAWIS has always written.
+    hdu : int, optional
+        Index of the HDU the image is read from. Default searches the file
+        for the first one that holds an image. See
+        :func:`~dawis.io.read_image`.
 
     Returns
     -------
@@ -184,7 +193,9 @@ def run_fits(path: str, config: Config | None = None, *,
     ConfigError
         If ``path`` does not end in ``.fits``. Checked before the file is
         opened, so a mistyped extension is a configuration error and not a
-        confusing read failure halfway down astropy.
+        confusing read failure halfway down astropy. Also if the file holds no
+        image, or if ``hdu`` names an HDU that holds none — raised by
+        :func:`~dawis.io.read_image`.
 
     Examples
     --------
@@ -197,7 +208,7 @@ def run_fits(path: str, config: Config | None = None, *,
         raise ConfigError('Incorrect file extension --> %s does not end in %s'
                           % (path, FITS_EXTENSION))
 
-    image, header = read_image(path)
+    image, header = read_image(path, hdu)
 
     if name is None:
         name = os.path.basename(path)[:-len(FITS_EXTENSION)]
