@@ -2,7 +2,8 @@
 
 Synthetic FITS images with exact ground truth, for the restoration test
 battery of #25. Hand-run, not a pytest tier, not CI. Spec: #67. This directory
-was built by #68; #69 added the generator's full command line.
+was built by #68; #69 added the generator's full command line; #70 added the
+`point` and `sersic_n1_halo` classes.
 
 DAWIS has one image it can run on today, and nobody knows the right answer for
 it. Every claim about over-subtraction, flux conservation or shape recovery is
@@ -117,14 +118,59 @@ in the pixels — which is the comparison it is recorded for.
 ## What is built
 
 #68 was the tracer bullet: one narrow path through all three layers, for
-`sersic_n4` / `balanced` / `r0`. Both tiers of that path build, so `--all`
-sweeps **two** of the 72 entries #67 specifies.
+`sersic_n4` / `balanced` / `r0`. #70 added the other two **isolated** classes,
+`point` and `sersic_n1_halo`. Both tiers of all three build, so `--all` sweeps
+**six** of the 72 entries #67 specifies.
 
 Every other combination of the four axes is **refused**, not guessed. Asking
 for the `blend` class or the `photon` regime raises `AxisNotBuiltError` with a
 message saying the numbers belong to the ticket that decides them. A recipe
 that invented them would put an entry on disk that looks exactly as
 authoritative as a decided one.
+
+### The three isolated classes
+
+| class | profile | half-light radius | truncation | bright-end magnitude |
+|---|---|---|---|---|
+| `sersic_n4` | de Vaucouleurs, sheared | 0.30" | 8 r_e | 18.1 |
+| `point` | delta function | — | — | 20.4 |
+| `sersic_n1_halo` | exponential, sheared | 0.50" | 6 r_e | 16.1 |
+
+They share their whole layout and differ only in `SOURCE_PROFILES`: the same
+grid, the same jitter, the same peak-SNR ladder from roughly 1000 down to 3,
+on the same two tiers. #70 therefore added source construction, not grid
+logic.
+
+The **same** SNR range for all three is the point of the design, not an
+oversight in the halo's case. What makes the halo the ICL-like
+under-restoration case is its *surface* brightness: at a matched peak SNR it
+needs about seven times the total flux of the n=4 class, spread seven times
+more thinly. Holding the peak SNR common is what lets a result on one class be
+read against another at matched detectability.
+
+By total flux the halo is therefore the **brightest** class in the gallery,
+which is deliberate and worth stating plainly: "faint" here means faint per
+pixel, not faint overall. Giving the halo a shorter ladder instead would have
+decided a number #67 does not state, and would have cost the matched-SNR
+comparison that makes the three classes readable against each other.
+
+A point source is a delta function, so it has no Sérsic index, no half-light
+radius and no truncation. `sources.csv` is a fixed-column table, so all three
+are recorded as zero — literally true for the radius, and not a value any real
+Sérsic index takes.
+
+Its **true `e1`/`e2` are zero, and that is a post-PSF statement**, not a
+missing value: #67's PSF is a circular Moffat, so a delta convolved with it is
+round, and zero is exactly the truth value #25's shape-bias fit compares
+against. Adaptive moments on the rendered `truth_conv.fits` measure
+`|e| < 1e-5`.
+
+GalSim refuses to draw a bare delta function — it has no scale, so there are
+no drawing bounds to choose — and it is right to. `truth_preconv.fits` for the
+`point` class is therefore written directly: each source's whole flux in the
+one pixel that contains it, and nothing anywhere else. The **convolved** truth
+beside it is still GalSim's own work, and is what the flux check runs on. That
+hand-written path gets a check of its own; see below.
 
 The parts that #67 decides outright are already general: seed derivation over
 all four classes and three regimes, both tiers' geometry, the entry and file
@@ -203,12 +249,21 @@ the rendered profile would make it the cut's prisoner, and no brightness could
 ever trip the refusal.
 
 The truncation must in turn sit past the wing radius, or the cut lands above
-the noise and shows as a hard circular edge in the truth image.
+the noise and shows as a hard circular edge in the truth image. The `point`
+class is exempt from this one and only this one: a delta function has no cut,
+so there is no cut that could show.
 
 Every source must clear the image edge by its own truncation radius plus the
 PSF's reach, or the flux check above could not pass.
 
 All three are live: brightening the ladder a hundredfold trips the first two.
+
+**Point placement.** The pre-convolution truth of a `point` entry is the only
+thing in the gallery GalSim does not draw, so it is the only place a
+coordinate-convention mistake would survive the flux check — moving all the
+flux one pixel sideways changes no total. The two truth images are therefore
+compared against each other: each point source's truth pixel must be where
+GalSim's own convolved image peaks.
 
 ## Packaging
 

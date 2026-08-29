@@ -1,4 +1,4 @@
-"""The recipe layer — one entry of the simulation gallery, described (#68).
+"""The recipe layer — one entry of the simulation gallery, described (#68, #70).
 
 This module is the pure half of the generator. It takes the four axes of the
 gallery — tier, class, regime, realisation — and returns a complete
@@ -12,20 +12,31 @@ keeping every decision of #67 on this side of the seam is what lets those
 decisions be unit-tested in the ordinary test environment in seconds. See
 ``tests/unit/test_simulation_recipe.py``.
 
-Scope of #68
-------------
-#68 is a tracer bullet: one narrow path through every layer, with the other
-axes hard-coded for now. Two things follow.
+What is decided, and what is refused
+------------------------------------
+#68 was a tracer bullet: one narrow path through every layer, with the other
+axes hard-coded. #70 added the ``point`` and ``sersic_n1_halo`` classes. Two
+things follow.
 
 The parts that are *general* are general here — seed derivation, entry and
-file naming, tier geometry, the noise regime table. Those are decided outright
-by #67 and cost nothing to state completely.
+file naming, tier geometry, the noise regime table, and the grid the three
+isolated classes share. Those are decided outright by #67 and cost nothing to
+state completely.
 
 The parts #67 leaves to a later ticket are **refused**, not guessed. Asking
-for a class or a regime whose numbers no ticket has decided raises
-``AxisNotBuiltError``. A recipe that invented them would put an entry on disk
-that looks exactly as authoritative as a decided one, and no later reader
-could tell the two apart.
+for a class, a regime or a realisation whose numbers no ticket has decided
+raises ``AxisNotBuiltError``. A recipe that invented them would put an entry
+on disk that looks exactly as authoritative as a decided one, and no later
+reader could tell the two apart.
+
+The three isolated classes
+--------------------------
+``sersic_n4``, ``point`` and ``sersic_n1_halo`` share their whole layout —
+magnitude across the grid, position jitter down it, the same peak-SNR range
+on the same tiers — and differ only in :data:`SOURCE_PROFILES`. That is why
+#70 added source construction and not a line of grid logic. ``blend`` is the
+odd one out: it spends its grid on separation and flux ratio instead, so it
+is a different layout rather than a different profile, and it stays refused.
 
 Units
 -----
@@ -63,6 +74,7 @@ __all__ = [
     'REALISATIONS',
     'REGIMES',
     'SOURCE_CLASSES',
+    'SOURCE_PROFILES',
     'TIERS',
     'ZERO_POINT',
     'AxisNotBuiltError',
@@ -72,6 +84,7 @@ __all__ = [
     'Recipe',
     'Source',
     'SourceClippedError',
+    'SourceProfile',
     'TruncationTooTightError',
     'Tier',
     'all_entries',
@@ -165,8 +178,10 @@ def derive_seed(source_class: str, regime: str, realisation: int) -> int:
 class AxisNotBuiltError(NotImplementedError):
     """An axis value whose numbers no ticket has decided yet.
 
-    #68 builds ``full`` / ``sersic_n4`` / ``balanced`` / ``r0``. Everything
-    else is refused rather than guessed.
+    Both tiers build, and so do the three isolated classes of
+    :data:`SOURCE_PROFILES`. The ``blend`` class, the two regimes beside
+    ``balanced`` and the realisations beyond ``r0`` are refused rather than
+    guessed, each until the ticket that decides its numbers lands.
     """
 
 
@@ -379,7 +394,34 @@ SERSIC_N4_HALF_LIGHT_RADIUS = 0.30
 #: the ladder is at about a quarter of the background sigma there, so the
 #: truncation is invisible rather than a hard circular edge in the truth image.
 #: Five was tried first and put the cut right at the noise floor.
-SERSIC_TRUNCATION_FACTOR = 8.0
+SERSIC_N4_TRUNCATION_FACTOR = 8.0
+
+#: Half-light radius for the ``sersic_n1_halo`` class, in arcseconds — about
+#: seventeen pixels, well over the ``sersic_n4`` class's ten (#70).
+#:
+#: The class exists for the ICL-like *under*-restoration case, and what makes
+#: that case is low surface brightness, not a low total flux. An n=1 profile
+#: has no cusp, so at this radius it spreads its light about seven times more
+#: thinly than the n=4 class does at the same peak SNR — the same ladder, a
+#: seventh of the peak-pixel share, seven times the total flux. That contrast
+#: is the whole point of running the two classes side by side.
+#:
+#: The size is bounded from above by the ``small`` tier, not by the ``full``
+#: one: three grid steps on a 512-pixel image leave the least room, and the
+#: brightest halo's wings have to stay inside one cell there too. 0.60" was
+#: tried and passes :func:`check_grid_spacing` by only fifteen pixels once the
+#: jitter has pushed two neighbours together; 0.75" is refused outright.
+SERSIC_N1_HALO_HALF_LIGHT_RADIUS = 0.50
+
+#: The ``sersic_n1_halo`` truncation, as a multiple of its half-light radius.
+#: Smaller than the n=4 factor because an exponential falls off far faster
+#: than a de Vaucouleurs profile: six half-light radii puts the cut at about a
+#: twentieth of the background sigma for the brightest halo on the ladder,
+#: comfortably invisible, where :data:`SERSIC_N4_TRUNCATION_FACTOR` needs
+#: eight to reach a quarter of sigma. Five was tried and lands at a quarter of
+#: sigma here too, but buys no isolation: the extra edge margin six costs is
+#: repaid by the wing radius it does not have to cover.
+SERSIC_N1_HALO_TRUNCATION_FACTOR = 6.0
 
 #: Position jitter, in pixels. The second grid axis buys independent samples
 #: of one brightness rather than copies of it: sub-pixel phase relative to the
@@ -400,6 +442,100 @@ EDGE_PAD_PIXELS = 2.0
 #: Ellipticity is drawn uniformly in magnitude below this, at a uniform angle.
 #: Round sources would make the shape-bias metric of #25 a test of nothing.
 MAX_ELLIPTICITY = 0.3
+
+#: How far out the ``point`` class's wing radius is probed, in PSF FWHM.
+#:
+#: A point source has no truncation to probe past, so the probe needs a stated
+#: reach of its own. Thirty FWHM is far enough that the measurement is never
+#: the stamp's own edge in disguise: a beta=3.5 Moffat is ten orders of
+#: magnitude below its peak there, so :func:`check_grid_spacing` stays a live
+#: check on any ladder a ticket could sensibly ask for, which is the property
+#: the Sérsic classes get from :data:`WING_PROBE_TRUNCATION_FACTOR`.
+POINT_WING_PROBE_FWHM = 30.0
+
+
+# --------------------------------------------------------------------------
+# The source classes (#67, #68, #70)
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SourceProfile:
+    """The shape one class draws — everything about a class except its grid.
+
+    The three isolated classes of #67 differ in exactly this object and in
+    nothing else: they share the grid, the jitter, the ladder's SNR range, the
+    PSF and the noise. Keeping the difference in one table is what lets #70
+    add two classes without touching a line of grid logic.
+
+    Radii are in **arcseconds**, matching :class:`Source` and ``sources.csv``.
+    """
+
+    #: Sérsic index, or ``0.0`` for a point source. A delta function has no
+    #: index, and no half-light radius either; zero records both facts as
+    #: numbers rather than leaving a cell of ``sources.csv`` empty. For the
+    #: half-light radius zero is literally true — a delta encloses all of its
+    #: light at every radius.
+    sersic_index: float
+    half_light_radius: float
+    #: Multiples of the half-light radius at which the profile is cut. Zero
+    #: for a point source, which has nothing to cut.
+    truncation_factor: float
+    #: The ellipticity ceiling the class draws from. Zero for the point class:
+    #: a delta function has no shape of its own, so the shape a metric can
+    #: measure is the PSF's, and #67's PSF is a circular Moffat. Recording
+    #: ``e1 = e2 = 0`` is therefore the point source's true *post-PSF* value,
+    #: not a placeholder (#70).
+    max_ellipticity: float
+
+    @property
+    def is_point(self) -> bool:
+        """Whether this class is a delta function rather than a profile."""
+        return self.sersic_index == 0.0
+
+    @property
+    def truncation_radius(self) -> float:
+        """Arcseconds past which the profile is zero; zero for a point source."""
+        return self.half_light_radius * self.truncation_factor
+
+    def wing_probe_radius(self, psf_fwhm: float) -> float:
+        """How far out the wing radius is measured, in arcseconds.
+
+        Deliberately well past whatever gets rendered, so that the measured
+        radius is where the source really falls under the background and not
+        wherever the render happened to stop. See
+        :data:`WING_PROBE_TRUNCATION_FACTOR`, and
+        :data:`POINT_WING_PROBE_FWHM` for the point class, which has no
+        truncation to be measured past.
+        """
+        if self.is_point:
+            return POINT_WING_PROBE_FWHM * psf_fwhm
+        return WING_PROBE_TRUNCATION_FACTOR * self.half_light_radius
+
+
+#: The three isolated classes of #67, keyed by class name. ``blend`` is absent:
+#: it varies separation and flux ratio rather than brightness, so it is a
+#: different grid and not a different profile, and #71 owns it.
+SOURCE_PROFILES = {
+    'sersic_n4': SourceProfile(
+        sersic_index=4.0,
+        half_light_radius=SERSIC_N4_HALF_LIGHT_RADIUS,
+        truncation_factor=SERSIC_N4_TRUNCATION_FACTOR,
+        max_ellipticity=MAX_ELLIPTICITY,
+    ),
+    'point': SourceProfile(
+        sersic_index=0.0,
+        half_light_radius=0.0,
+        truncation_factor=0.0,
+        max_ellipticity=0.0,
+    ),
+    'sersic_n1_halo': SourceProfile(
+        sersic_index=1.0,
+        half_light_radius=SERSIC_N1_HALO_HALF_LIGHT_RADIUS,
+        truncation_factor=SERSIC_N1_HALO_TRUNCATION_FACTOR,
+        max_ellipticity=MAX_ELLIPTICITY,
+    ),
+}
 
 
 # --------------------------------------------------------------------------
@@ -432,6 +568,17 @@ class Source:
     e2: float
     truncation_radius: float
     peak_snr: float
+
+    @property
+    def is_point(self) -> bool:
+        """Whether this source is a delta function rather than a profile.
+
+        A Sérsic index of zero is the recipe's sentinel for the ``point``
+        class, and no real profile takes it. The render layer asks this rather
+        than repeating the comparison, so the sentinel is written down in one
+        place on the object that carries it (#70).
+        """
+        return self.sersic_index == 0.0
 
 
 # --------------------------------------------------------------------------
@@ -597,7 +744,7 @@ def truncated_scale_radius(
 
 #: The truncation used only to *measure* the wing radius, as a multiple of the
 #: half-light radius. It is deliberately far larger than
-#: :data:`SERSIC_TRUNCATION_FACTOR`. Anything past it reads as "wings wider
+#: :data:`SERSIC_N4_TRUNCATION_FACTOR`. Anything past it reads as "wings wider
 #: than the probe", which every refusal already rejects.
 #:
 #: Measuring on the rendered truncation would make the wing radius its own
@@ -625,16 +772,25 @@ PROFILE_OVERSAMPLE = 15
 WING_PROBE_OVERSAMPLE = 3
 
 
-@lru_cache(maxsize=8)
+@lru_cache(maxsize=16)
 def convolved_unit_profile(
     sersic_index: float,
     half_light_radius_pixels: float,
-    truncation_pixels: float,
+    extent_pixels: float,
     psf_fwhm_pixels: float,
     psf_beta: float,
     oversample: int = PROFILE_OVERSAMPLE,
 ) -> np.ndarray:
-    """A unit-flux truncated Sérsic convolved with the Moffat PSF, per pixel.
+    """A unit-flux source convolved with the Moffat PSF, per pixel.
+
+    ``sersic_index`` of zero asks for a point source, and
+    ``half_light_radius_pixels`` is then ignored: a delta function convolved
+    with the PSF is the PSF, which is exactly the observed profile of the
+    ``point`` class (#70).
+
+    ``extent_pixels`` is how far the source itself reaches — the truncation
+    radius for a Sérsic, and for a point source simply how much of the PSF's
+    skirt to model. Either way the grid is that much wider than the PSF margin.
 
     Source, PSF and convolution are all computed on a grid oversampled by
     :data:`PROFILE_OVERSAMPLE` and binned down at the end, so the pixel
@@ -649,20 +805,27 @@ def convolved_unit_profile(
     GalSim's.
     """
     psf_margin = int(np.ceil(6.0 * psf_fwhm_pixels))
-    half_width = int(np.ceil(truncation_pixels)) + psf_margin
+    half_width = int(np.ceil(extent_pixels)) + psf_margin
     side = 2 * half_width + 1
 
     fine_side = side * oversample
     axis = (np.arange(fine_side) - (fine_side - 1) / 2.0) / oversample
     radius = np.hypot(*np.meshgrid(axis, axis, indexing='ij'))
 
-    scale_radius = truncated_scale_radius(
-        sersic_index, half_light_radius_pixels, truncation_pixels
-    )
-    source = np.exp(
-        -((np.maximum(radius, 1e-12) / scale_radius) ** (1.0 / sersic_index))
-    )
-    source[radius > truncation_pixels] = 0.0
+    if sersic_index == 0.0:
+        # A delta function: one fine-grid cell holds all of it. The grid has
+        # an odd side at every oversampling used here, so there is a cell
+        # exactly on centre and the source needs no interpolation.
+        source = np.zeros_like(radius)
+        source[fine_side // 2, fine_side // 2] = 1.0
+    else:
+        scale_radius = truncated_scale_radius(
+            sersic_index, half_light_radius_pixels, extent_pixels
+        )
+        source = np.exp(
+            -((np.maximum(radius, 1e-12) / scale_radius) ** (1.0 / sersic_index))
+        )
+        source[radius > extent_pixels] = 0.0
     source /= source.sum()
 
     moffat_scale = psf_fwhm_pixels / (2.0 * np.sqrt(2.0 ** (1.0 / psf_beta) - 1.0))
@@ -713,17 +876,30 @@ def _magnitude_from_flux(flux: float, zero_point: float) -> float:
     return float(zero_point - 2.5 * np.log10(flux))
 
 
-def _draw_ellipticity(rng: np.random.Generator) -> tuple[float, float]:
-    """A random ellipticity below :data:`MAX_ELLIPTICITY`, uniform in angle."""
-    magnitude = rng.uniform(0.0, MAX_ELLIPTICITY)
+def _draw_ellipticity(
+    rng: np.random.Generator, max_ellipticity: float
+) -> tuple[float, float]:
+    """A random ellipticity below ``max_ellipticity``, uniform in angle.
+
+    A ceiling of zero returns ``(0.0, 0.0)``, which is the point class's true
+    post-PSF shape and not an absence of one: #67's PSF is a circular Moffat,
+    so a delta function convolved with it is round.
+    """
+    magnitude = rng.uniform(0.0, max_ellipticity)
     angle = rng.uniform(0.0, np.pi)
+    if max_ellipticity == 0.0:
+        # Returned outright rather than multiplied through, which would put
+        # signed zeros in ``sources.csv`` for half the sources. The draws above
+        # still happen, so the jitter that follows them lands in the same place
+        # whatever a class's ellipticity ceiling is.
+        return 0.0, 0.0
     return float(magnitude * np.cos(2.0 * angle)), float(magnitude * np.sin(2.0 * angle))
 
 
 def _refuse_unbuilt_axes(
     tier: str, source_class: str, regime: str, realisation: int
 ) -> None:
-    """Everything #68 did not decide, refused with a message that says why."""
+    """Every axis value no ticket has decided, refused with the reason why."""
     # The tier is checked but never deferred. #67 decides both tiers outright —
     # an image size and a grid side each, and nothing else — so unlike the other
     # three axes there is no undecided number here to guess at.
@@ -737,11 +913,13 @@ def _refuse_unbuilt_axes(
             'unknown class %r: the gallery has %s'
             % (source_class, ', '.join(SOURCE_CLASSES))
         )
-    if source_class != 'sersic_n4':
+    if source_class not in SOURCE_PROFILES:
         raise AxisNotBuiltError(
-            'the %r class is specified in #67 but not built: #68 is the tracer '
-            'bullet and builds sersic_n4 only. Its parameters belong to the '
-            'ticket that decides them.' % source_class
+            'the %r class is specified in #67 but not built: it has no entry '
+            'in SOURCE_PROFILES, so its parameters belong to the ticket that '
+            'decides them. For blend that ticket also owns a grid of its own, '
+            'because it varies separation and flux ratio rather than '
+            'brightness.' % source_class
         )
     if regime not in KNOWN_REGIME_NAMES:
         raise AxisNotBuiltError(
@@ -781,21 +959,24 @@ def build_recipe(
 
     grid_side = tier_geometry.grid_side
     jitter_amplitude = JITTER_PIXELS
+    profile = SOURCE_PROFILES[source_class]
 
-    half_light_radius_pixels = SERSIC_N4_HALF_LIGHT_RADIUS / PIXEL_SCALE
-    truncation_pixels = SERSIC_TRUNCATION_FACTOR * half_light_radius_pixels
+    half_light_radius_pixels = profile.half_light_radius / PIXEL_SCALE
+    truncation_pixels = profile.truncation_radius / PIXEL_SCALE
     psf_fwhm_pixels = PSF_FWHM / PIXEL_SCALE
 
     # Room for the whole of a jittered source, so that none of them is cut by
-    # the border and the analytic flux sum stays recoverable.
+    # the border and the analytic flux sum stays recoverable. A point source
+    # contributes nothing to the first term and lives entirely inside the PSF
+    # margin, which is why its grid is the roomiest of the three.
     psf_margin = PSF_MARGIN_FWHM * psf_fwhm_pixels
     edge_margin = truncation_pixels + psf_margin + jitter_amplitude + EDGE_PAD_PIXELS
     spacing = tier_geometry.grid_spacing(edge_margin)
 
     unit_profile = convolved_unit_profile(
-        sersic_index=4.0,
+        sersic_index=profile.sersic_index,
         half_light_radius_pixels=half_light_radius_pixels,
-        truncation_pixels=truncation_pixels,
+        extent_pixels=truncation_pixels,
         psf_fwhm_pixels=psf_fwhm_pixels,
         psf_beta=PSF_BETA,
     )
@@ -803,9 +984,9 @@ def build_recipe(
 
     # Measured on a far wider probe, so the render's own cut does not bound it.
     probe_profile = convolved_unit_profile(
-        sersic_index=4.0,
+        sersic_index=profile.sersic_index,
         half_light_radius_pixels=half_light_radius_pixels,
-        truncation_pixels=WING_PROBE_TRUNCATION_FACTOR * half_light_radius_pixels,
+        extent_pixels=profile.wing_probe_radius(PSF_FWHM) / PIXEL_SCALE,
         psf_fwhm_pixels=psf_fwhm_pixels,
         psf_beta=PSF_BETA,
         oversample=WING_PROBE_OVERSAMPLE,
@@ -826,14 +1007,18 @@ def build_recipe(
     wing_radius = _wing_radius(
         probe_profile * float(flux_ladder[0]), brightness_floor=noise.sigma
     )
-    check_truncation(wing_radius=wing_radius, truncation_radius=truncation_pixels)
+    # A point source is not truncated, so there is no cut that could show as a
+    # hard edge and nothing for this check to be about. Every profile class
+    # answers to it.
+    if not profile.is_point:
+        check_truncation(wing_radius=wing_radius, truncation_radius=truncation_pixels)
     check_grid_spacing(wing_radius=wing_radius, grid_spacing=spacing)
 
     sources = []
     source_id = 0
     for row in range(grid_side):
         for column in range(grid_side):
-            e1, e2 = _draw_ellipticity(rng)
+            e1, e2 = _draw_ellipticity(rng, profile.max_ellipticity)
             sources.append(
                 Source(
                     source_id=source_id,
@@ -847,12 +1032,11 @@ def build_recipe(
                     + float(rng.uniform(-jitter_amplitude, jitter_amplitude)),
                     magnitude=magnitude_ladder[column],
                     flux=float(flux_ladder[column]),
-                    sersic_index=4.0,
-                    half_light_radius=SERSIC_N4_HALF_LIGHT_RADIUS,
+                    sersic_index=profile.sersic_index,
+                    half_light_radius=profile.half_light_radius,
                     e1=e1,
                     e2=e2,
-                    truncation_radius=SERSIC_N4_HALF_LIGHT_RADIUS
-                    * SERSIC_TRUNCATION_FACTOR,
+                    truncation_radius=profile.truncation_radius,
                     peak_snr=float(peak_snr_ladder[column]),
                 )
             )
@@ -922,12 +1106,13 @@ def built_entries(
 ) -> tuple[EntryAxes, ...]:
     """The entries this recipe can actually build, narrowed by any axis given.
 
-    #67 specifies 72 entries and #68 decided the numbers for one path through
-    them; the rest are refused rather than guessed. So "every entry" means every entry
-    whose parameters a ticket has written down, and this asks the refusal
-    itself rather than keeping a second list beside it. A ticket that decides
-    the ``point`` class lifts one refusal and ``--all`` grows by itself, with
-    no list here to forget to update.
+    #67 specifies 72 entries and each ticket decides the numbers for some of
+    them; the rest are refused rather than guessed. So "every entry" means
+    every entry whose parameters a ticket has written down, and this asks the
+    refusal itself rather than keeping a second list beside it. #70 lifted the
+    refusals on ``point`` and ``sersic_n1_halo`` and the sweep grew from two
+    entries to six by itself, with no list here to forget to update. The
+    ticket that decides ``blend`` will do the same.
 
     Only :class:`AxisNotBuiltError` is treated as "not built". A decided entry
     that fails a *geometry* check — :class:`GridTooTightError`,

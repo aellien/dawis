@@ -34,8 +34,11 @@ from simulations.recipe import Recipe, Source
 
 __all__ = [
     'FLUX_TOLERANCE',
+    'POINT_PLACEMENT_WINDOW',
     'FluxCheckError',
+    'PointPlacementError',
     'RenderedEntry',
+    'check_point_placement',
     'check_rendered_flux',
     'render',
 ]
@@ -54,6 +57,13 @@ PSF_STAMP_HALF_WIDTH_FWHM = 8.0
 #: while still catching the mistakes this check exists for — a shear applied
 #: to the wrong object, a flux normalisation dropped, a source drawn twice.
 FLUX_TOLERANCE = 1e-2
+
+#: Half-width, in pixels, of the window :func:`check_point_placement` compares
+#: the two truth images in. Wide enough that a wrong convention lands inside
+#: it and is reported rather than silently missed, narrow enough that it never
+#: reaches a neighbouring source — the recipe's tightest grid spacing for the
+#: point class is over twenty times this.
+POINT_PLACEMENT_WINDOW = 5
 
 
 @dataclass(frozen=True)
@@ -88,7 +98,14 @@ def _profile(source: Source) -> galsim.GSObject:
     ``flux`` is the total flux of the *truncated* profile, which is what makes
     the recipe's analytic sum an exact statement rather than an approximate
     one. ``shear`` applies the true ``e1``/``e2`` the truth table records.
+
+    A point source is a delta function instead, and is not sheared: it has no
+    shape of its own, so the recipe records its true post-PSF ``e1``/``e2`` as
+    zero and there is nothing here to apply.
     """
+    if source.is_point:
+        return galsim.DeltaFunction(flux=source.flux)
+
     profile = galsim.Sersic(
         n=source.sersic_index,
         half_light_radius=source.half_light_radius,
@@ -112,12 +129,39 @@ def _source_centre(source: Source) -> galsim.PositionD:
     return galsim.PositionD(source.x + 0.5, source.y + 0.5)
 
 
+def _add_delta(canvas: galsim.Image, source: Source) -> None:
+    """Put a point source's whole flux in the pixel that contains it.
+
+    GalSim refuses to draw a bare delta function, and it is right to: a delta
+    has no scale, so there are no drawing bounds to choose and no accuracy
+    question to answer. The pre-convolution truth of a point source is not an
+    image that has to be rendered — it is the statement that one pixel holds
+    all the flux and every other pixel holds none, which is what this does.
+    The *convolved* truth beside it is still GalSim's own work.
+
+    Placed through :func:`_source_centre` and GalSim's own image coordinates
+    rather than by indexing the array, so the recipe's pixel convention is
+    converted in exactly the one place every other draw converts it. A GalSim
+    pixel ``n`` spans ``[n - 0.5, n + 0.5)``, so rounding the source centre
+    names the pixel that contains it.
+
+    The recipe keeps every source clear of the border by at least the PSF
+    margin, so that pixel is always inside the image.
+    """
+    centre = _source_centre(source)
+    canvas.addValue(round(centre.x), round(centre.y), source.flux)
+
+
 def _draw_sources(recipe: Recipe, convolve_with_psf: bool) -> np.ndarray:
     """Every source added to one blank image, with or without the PSF."""
     canvas = _blank(recipe)
     psf = _psf(recipe)
 
     for source in recipe.sources:
+        if source.is_point and not convolve_with_psf:
+            _add_delta(canvas, source)
+            continue
+
         profile = _profile(source)
         if convolve_with_psf:
             profile = galsim.Convolve([profile, psf])
@@ -191,12 +235,76 @@ def check_rendered_flux(
         )
 
 
+def _peak_pixel(window: np.ndarray) -> tuple[int, int]:
+    """The row and column of the brightest pixel, as plain ints.
+
+    Plain rather than numpy scalars so that the refusal below reads as a pixel
+    coordinate to whoever it stops.
+    """
+    row, column = np.unravel_index(np.argmax(window), window.shape)
+    return int(row), int(column)
+
+
+class PointPlacementError(ValueError):
+    """A point source's truth pixel is not where its convolved image peaks.
+
+    The pre-convolution truth of a point source is the only thing in the
+    gallery that GalSim does not draw (see :func:`_add_delta`), so it is the
+    only place where a coordinate-convention mistake would survive the flux
+    check: moving all the flux one pixel sideways changes no total. Comparing
+    the two truth images against each other is what closes that gap, and it
+    belongs at generation time for the same reason the flux check does — #67
+    wants a rendering mistake to stop the generator while a human is present.
+    """
+
+
+def check_point_placement(
+    recipe: Recipe, truth_preconv: np.ndarray, truth_conv: np.ndarray
+) -> None:
+    """Check each point source against the peak GalSim drew for it.
+
+    Does nothing for a class of profiles, whose pre-convolution truth GalSim
+    draws itself and which therefore cannot disagree with anything.
+
+    The recipe's own position only picks the window to look in; what is
+    compared is the two images, so this does not re-derive the convention it
+    exists to check.
+    """
+    half = POINT_PLACEMENT_WINDOW
+    for source in recipe.sources:
+        if not source.is_point:
+            continue
+
+        window = (
+            slice(int(source.y) - half, int(source.y) + half + 1),
+            slice(int(source.x) - half, int(source.x) + half + 1),
+        )
+        placed = _peak_pixel(truth_preconv[window])
+        drawn = _peak_pixel(truth_conv[window])
+
+        if placed != drawn:
+            raise PointPlacementError(
+                'source %d has its whole flux in the truth pixel %s but the '
+                'convolved truth peaks at %s, %d rows and %d columns away: the '
+                'pre-convolution truth is not on the same pixel grid as the '
+                'image DAWIS reads, so this entry is not ground truth'
+                % (
+                    source.source_id,
+                    placed,
+                    drawn,
+                    drawn[0] - placed[0],
+                    drawn[1] - placed[1],
+                )
+            )
+
+
 def render(recipe: Recipe, tolerance: float = FLUX_TOLERANCE) -> RenderedEntry:
-    """Draw one entry, and refuse to return pixels that fail the flux check."""
+    """Draw one entry, and refuse to return pixels that fail its own checks."""
     truth_preconv = _draw_sources(recipe, convolve_with_psf=False)
     truth_conv = _draw_sources(recipe, convolve_with_psf=True)
 
     check_rendered_flux(recipe, truth_conv, tolerance=tolerance)
+    check_point_placement(recipe, truth_preconv, truth_conv)
 
     return RenderedEntry(
         image=_add_noise(recipe, truth_conv),

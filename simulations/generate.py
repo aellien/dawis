@@ -49,9 +49,10 @@ With ``--all``, any axis given is held fixed and the rest are swept, so
 ``--all --tier small`` builds every known entry of the cheap tier.
 
 ``--all`` builds every entry the *recipe* knows about, which today is fewer
-than the 72 #67 specifies: 70 of those need axis values no ticket has decided,
+than the 72 #67 specifies: the rest need axis values no ticket has decided,
 and the recipe refuses them rather than guessing. Each ticket that decides an
-axis lifts a refusal, and ``--all`` grows with it.
+axis lifts a refusal, and ``--all`` grows with it — #70 lifted two class
+refusals and the sweep went from two entries to six on its own.
 """
 
 from __future__ import annotations

@@ -132,9 +132,19 @@ def test_the_sweep_holds_the_entry_the_tracer_ticket_built():
 
 
 def test_an_axis_no_ticket_has_decided_is_not_swept():
-    """#68 decided ``sersic_n4`` / ``balanced`` / ``r0`` and nothing else."""
+    """The sweep holds exactly the axis values a ticket has written down.
+
+    #68 decided ``sersic_n4`` / ``balanced`` / ``r0``, and #70 added the other
+    two isolated classes. ``blend`` needs a grid of its own, and the other two
+    regimes and realisations need numbers, so all three axes stay narrowed
+    until the ticket that owns them lands.
+    """
     swept = recipe_module.built_entries()
-    assert {axes.source_class for axes in swept} == {'sersic_n4'}
+    assert {axes.source_class for axes in swept} == {
+        'sersic_n4',
+        'point',
+        'sersic_n1_halo',
+    }
     assert {axes.regime for axes in swept} == {'balanced'}
     assert {axes.realisation for axes in swept} == {0}
 
