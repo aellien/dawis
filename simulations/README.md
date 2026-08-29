@@ -2,7 +2,7 @@
 
 Synthetic FITS images with exact ground truth, for the restoration test
 battery of #25. Hand-run, not a pytest tier, not CI. Spec: #67. This directory
-was built by #68.
+was built by #68; #69 added the generator's full command line.
 
 DAWIS has one image it can run on today, and nobody knows the right answer for
 it. Every claim about over-subtraction, flux conservation or shape recovery is
@@ -42,13 +42,51 @@ conda run -n dawis-sim python simulations/generate.py \
     --tier full --class sersic_n4 --regime balanced --realisation 0
 ```
 
-`--out` defaults to `~/dawis-data/simulations` and stays overridable, so
-generating into a scratch location for inspection needs no code change. An
-entry whose `manifest.json` already exists is skipped, so an interrupted
-generation resumes; `--force` rebuilds it.
+Or every entry the recipe knows how to build:
 
-`--all`, which #67 specifies as the way to build all 72 entries, is not wired
-up yet. See "What is built" below.
+```
+conda run -n dawis-sim python simulations/generate.py --all
+```
+
+Without `--all`, all four axes are required and name exactly one entry. With
+`--all`, any axis you give is held fixed and the rest are swept, so
+`--all --tier small` builds every known entry of the cheap tier.
+
+`--out` defaults to `~/dawis-data/simulations` and stays overridable, so
+generating into a scratch location for inspection needs no code change.
+
+### Resuming, and staleness
+
+Generation is idempotent. An entry whose directory already holds a
+`manifest.json` **matching the recipe** is skipped, so an interrupted `--all`
+resumes where it stopped rather than starting over. `--force` rebuilds one
+deliberately.
+
+Matching, not merely present. The comparison covers every manifest key except
+the three provenance ones — the GalSim version, the numpy version and the
+source commit — because those record what drew the pixels rather than what the
+recipe decided, and an upgrade alone moves no ground truth. It lives on the
+recipe, as `Recipe.matches_manifest`, because that is the only object it reads.
+
+An entry whose manifest describes a *different* recipe — or is unreadable —
+is **stale**, and the generator stops rather than skipping it or overwriting
+it:
+
+```
+generate.py: .../sersic_n4_balanced_r0 holds a manifest that does not
+describe this entry: it is unreadable, or it was written by a recipe that has
+since changed. Rebuild it with --force, or move it aside to keep it.
+```
+
+Skipping would leave last month's ground truth on disk under a name that says
+it is this month's, which is exactly the silent drift #67 stores the gallery
+to prevent. Overwriting would be a rebuild nobody asked for, and a researcher
+may already have numbers recorded against those images. Both need a human, so
+both are refused.
+
+An entry interrupted *before* its manifest is written counts as absent, not
+stale — the manifest goes last for that reason — so a killed run rebuilds only
+the entry it was in the middle of.
 
 ## What one entry holds
 
@@ -78,8 +116,9 @@ in the pixels — which is the comparison it is recorded for.
 
 ## What is built
 
-#68 is the tracer bullet: **one** entry, `full` / `sersic_n4` / `balanced` /
-`r0`, one narrow path through all three layers.
+#68 was the tracer bullet: one narrow path through all three layers, for
+`sersic_n4` / `balanced` / `r0`. Both tiers of that path build, so `--all`
+sweeps **two** of the 72 entries #67 specifies.
 
 Every other combination of the four axes is **refused**, not guessed. Asking
 for the `blend` class or the `photon` regime raises `AxisNotBuiltError` with a
@@ -100,6 +139,20 @@ three axes each need parameters no ticket has written down.
 not a schema: the extra keys are provenance a later reader is better off
 having, and nothing reads the manifest by position.
 
+`--all` is the complement of those refusals rather than a second list beside
+them: it walks all 72 axis combinations and keeps the ones the recipe does not
+refuse. A ticket that decides the `point` class lifts one refusal and the
+sweep grows by itself, with no list here to forget to update. `--realisation`
+carries no `choices` list for the same reason: `r3` is refused by the recipe,
+with a message naming the ticket that owns it, rather than by argparse with
+"invalid choice".
+
+A *geometry* failure is not filtered out of the sweep. If a decided entry
+trips the wing-radius, truncation or edge-margin refusal, `--all` stops on it:
+that is a broken decision, and #67 puts those checks in the generator so a
+human sees them. Entries already written stay written, so the rerun after the
+fix still resumes.
+
 ## The three layers
 
 | module | what it does | imports |
@@ -108,11 +161,19 @@ having, and nothing reads the manifest by position.
 | `render.py` | hands a recipe to GalSim, returns arrays | GalSim |
 | `write.py` | arrays to FITS, CSV and JSON; owns the idempotent skip | astropy |
 
-Only `recipe.py` is a test seam, and that is the whole reason the split
+`recipe.py` is the main test seam, and that is the whole reason the split
 exists. It holds every decision of #67 and imports no GalSim, so those
 decisions are unit-tested in the ordinary DAWIS test environment in seconds:
-`tests/unit/test_simulation_recipe.py`. The render and write layers are
-deliberately thin and are not separately unit-tested.
+`tests/unit/test_simulation_recipe.py`.
+
+`write.py` is a seam too, for one thing only: the skip. It imports the render
+layer under `TYPE_CHECKING` and not at run time, so `entry_state` — which
+decides whether an entry is absent, built or stale — is reachable without
+GalSim. `generate.py` takes its renderer as an argument for the same reason,
+so a stub can drive the resume and rebuild paths. That is what
+`tests/unit/test_simulation_generator.py` runs on. Nothing there asserts
+anything about pixels; the drawn flux is checked by the generator itself, as
+#67 asks.
 
 `recipe.py` predicts a peak SNR ladder with its own numpy model of a
 PSF-convolved truncated Sérsic. That model is a **design** calculation, not a

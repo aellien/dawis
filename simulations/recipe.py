@@ -44,7 +44,8 @@ it is what GalSim's ``CCDNoise`` consumes directly.
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+import itertools
+from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
 
@@ -55,14 +56,17 @@ __all__ = [
     'KNOWN_REGIME_NAMES',
     'MANIFEST_FILE_NAME',
     'PIXEL_SCALE',
+    'PROVENANCE_KEYS',
     'PSF_BETA',
     'PSF_FWHM',
     'PSF_TYPE',
+    'REALISATIONS',
     'REGIMES',
     'SOURCE_CLASSES',
     'TIERS',
     'ZERO_POINT',
     'AxisNotBuiltError',
+    'EntryAxes',
     'GridTooTightError',
     'NoiseParameters',
     'Recipe',
@@ -70,7 +74,9 @@ __all__ = [
     'SourceClippedError',
     'TruncationTooTightError',
     'Tier',
+    'all_entries',
     'build_recipe',
+    'built_entries',
     'check_grid_spacing',
     'check_truncation',
     'check_image_margin',
@@ -101,6 +107,12 @@ ENTRY_FILE_NAMES = (
 #: The file whose presence means an entry is already built. The generator's
 #: idempotent skip keys on it, so it is written last.
 MANIFEST_FILE_NAME = 'manifest.json'
+
+#: The manifest keys that record *what drew the pixels* rather than *what the
+#: recipe decided*. The skip of #69 compares a manifest on disk against the
+#: recipe and ignores these: a numpy upgrade alone changes no ground truth, and
+#: treating it as a change would regenerate the whole gallery for nothing.
+PROVENANCE_KEYS = ('galsim_version', 'numpy_version', 'source_commit')
 
 
 def default_output_root() -> Path:
@@ -317,6 +329,11 @@ REGIMES = {'balanced': _BALANCED_NOISE}
 #: yet" rather than "no such thing".
 KNOWN_REGIME_NAMES = ('read_noise', 'balanced', 'photon')
 
+#: The three noise realisations of #67. Raising the count later adds ``r3``
+#: onward without disturbing these, which is the point of deriving the seed
+#: from the realisation index rather than from a position in a list.
+REALISATIONS = (0, 1, 2)
+
 
 # --------------------------------------------------------------------------
 # Optics and the brightness ladder (#67)
@@ -422,6 +439,13 @@ class Source:
 # --------------------------------------------------------------------------
 
 
+def _decided_fields(manifest: dict) -> dict:
+    """A manifest with its provenance dropped — only what the recipe decided."""
+    return {
+        key: value for key, value in manifest.items() if key not in PROVENANCE_KEYS
+    }
+
+
 @dataclass(frozen=True)
 class Recipe:
     """A complete description of one gallery entry, decided and not yet drawn.
@@ -472,6 +496,17 @@ class Recipe:
         """Every file of the entry, keyed by its contract name."""
         directory = self.entry_directory(root)
         return {name: directory / name for name in ENTRY_FILE_NAMES}
+
+    def matches_manifest(self, manifest: dict) -> bool:
+        """Whether a manifest on disk describes the entry this recipe describes.
+
+        Compares every key except :data:`PROVENANCE_KEYS`. The comparison is
+        exact rather than tolerant on purpose: the numbers here are the ground
+        truth the restoration battery measures against, and a recipe that has
+        drifted by a last digit has still drifted. #67 states outright that
+        ground truth must not move without a signal, and this is the signal.
+        """
+        return _decided_fields(self.manifest()) == _decided_fields(manifest)
 
     def manifest(self, galsim_version: str = '', source_commit: str = '') -> dict:
         """Provenance and parameters, ready for :func:`json.dump`.
@@ -852,3 +887,75 @@ def build_recipe(
         peak_snr_ladder=tuple(float(value) for value in peak_snr_ladder),
         wing_radius=wing_radius,
     )
+
+
+# --------------------------------------------------------------------------
+# The gallery as a whole (#69)
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class EntryAxes:
+    """One point on the four axes — the address of a single gallery entry."""
+
+    tier: str
+    source_class: str
+    regime: str
+    realisation: int
+
+
+def all_entries() -> tuple[EntryAxes, ...]:
+    """Every point on the four axes of #67 — all 72 of them, built or not."""
+    return tuple(
+        EntryAxes(tier, source_class, regime, realisation)
+        for tier, source_class, regime, realisation in itertools.product(
+            TIERS, SOURCE_CLASSES, KNOWN_REGIME_NAMES, REALISATIONS
+        )
+    )
+
+
+def built_entries(
+    tier: str | None = None,
+    source_class: str | None = None,
+    regime: str | None = None,
+    realisation: int | None = None,
+) -> tuple[EntryAxes, ...]:
+    """The entries this recipe can actually build, narrowed by any axis given.
+
+    #67 specifies 72 entries and #68 decided the numbers for one path through
+    them; the rest are refused rather than guessed. So "every entry" means every entry
+    whose parameters a ticket has written down, and this asks the refusal
+    itself rather than keeping a second list beside it. A ticket that decides
+    the ``point`` class lifts one refusal and ``--all`` grows by itself, with
+    no list here to forget to update.
+
+    Only :class:`AxisNotBuiltError` is treated as "not built". A decided entry
+    that fails a *geometry* check — :class:`GridTooTightError`,
+    :class:`SourceClippedError` — is left in the sweep on purpose, so that
+    ``--all`` stops on it. Dropping it here would hide a broken decision behind
+    a shorter run, and #67 puts those checks in the generator precisely so a
+    human sees them. Entries already written stay written, so the rerun after
+    a fix still resumes.
+
+    An axis passed as ``None`` is swept; an axis given a value is fixed.
+    """
+    wanted = {
+        'tier': tier,
+        'source_class': source_class,
+        'regime': regime,
+        'realisation': realisation,
+    }
+    selected = []
+    for axes in all_entries():
+        axis_values = asdict(axes)
+        if any(
+            value is not None and axis_values[name] != value
+            for name, value in wanted.items()
+        ):
+            continue
+        try:
+            _refuse_unbuilt_axes(**axis_values)
+        except AxisNotBuiltError:
+            continue
+        selected.append(axes)
+    return tuple(selected)

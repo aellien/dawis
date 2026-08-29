@@ -11,23 +11,35 @@ gain go in ``manifest.json``, for a human reading a result. They do not go in
 
 ``manifest.json`` is written last. It is the file the skip keys on, so an
 interrupted generation leaves an entry that is visibly unfinished rather than
-one that is silently half-built.
+one that is silently half-built. The skip reads it rather than merely looking
+for it: an entry whose manifest describes a different recipe is *stale*, not
+built, and :class:`EntryState` is what says so (#69).
 """
 
 from __future__ import annotations
 
 import csv
+import enum
 import json
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 from astropy.io import fits
 
 from simulations.recipe import MANIFEST_FILE_NAME, Recipe
-from simulations.render import RenderedEntry
 
-__all__ = ['SOURCE_COLUMNS', 'is_already_built', 'source_commit', 'write_entry']
+if TYPE_CHECKING:  # pragma: no cover - the annotation only, never at runtime
+    from simulations.render import RenderedEntry
+
+__all__ = [
+    'EntryState',
+    'SOURCE_COLUMNS',
+    'entry_state',
+    'source_commit',
+    'write_entry',
+]
 
 #: The columns of ``sources.csv``, in the order #67 lists them. The blend
 #: class adds companion id, separation and flux ratio; #68 does not build that
@@ -75,9 +87,46 @@ def source_commit(repository_root: Path | None = None) -> str:
     return '%s-dirty' % commit if dirty else commit
 
 
-def is_already_built(recipe: Recipe, root: Path | str) -> bool:
-    """Whether this entry's manifest is on disk, so generation can resume."""
-    return recipe.output_paths(root)[MANIFEST_FILE_NAME].exists()
+class EntryState(enum.Enum):
+    """What the entry directory holds, as the generator's skip reads it (#69)."""
+
+    #: No manifest. Either never built, or interrupted before the last file.
+    ABSENT = 'absent'
+    #: A manifest describing exactly the entry the recipe describes now.
+    BUILT = 'built'
+    #: A manifest that is unreadable, or describes a different entry. The
+    #: images beside it were drawn from a recipe that no longer exists.
+    STALE = 'stale'
+
+
+def entry_state(recipe: Recipe, root: Path | str) -> EntryState:
+    """Whether this entry is on disk, and whether what is there is still right.
+
+    #67 asks for the skip to key on a *matching* manifest, not merely on a
+    present one. Presence alone is what makes an interrupted generation resume;
+    matching is what stops a recipe change from leaving last month's images in
+    place under a name that says they are this month's.
+
+    Provenance is excluded from the comparison. The GalSim version, the numpy
+    version and the source commit record what drew the pixels; they are not
+    decisions the recipe makes, and a rebuild triggered by a numpy upgrade
+    alone would regenerate the whole gallery for no change in ground truth.
+    """
+    path = recipe.output_paths(root)[MANIFEST_FILE_NAME]
+    if not path.exists():
+        return EntryState.ABSENT
+
+    try:
+        manifest = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        # A manifest nobody can read cannot be shown to match, and #67 writes
+        # it last precisely so that a half-written entry is visible as one.
+        return EntryState.STALE
+
+    if not isinstance(manifest, dict) or not recipe.matches_manifest(manifest):
+        return EntryState.STALE
+
+    return EntryState.BUILT
 
 
 def _write_fits(path: Path, array: np.ndarray, header: dict) -> None:
@@ -126,7 +175,7 @@ def write_entry(
 ) -> Path:
     """Write the six files of one entry, and return its directory.
 
-    ``manifest.json`` goes last, because it is what :func:`is_already_built`
+    ``manifest.json`` goes last, because it is what :func:`entry_state`
     reads.
     """
     directory = recipe.entry_directory(root)
