@@ -1,0 +1,35 @@
+# The isolated environment the simulation gallery is generated in (#68).
+#
+# GalSim is a heavy dependency with its own solver stack. Adding it to DAWIS's
+# runtime, test or optional dependencies to serve a hand-run experiment is not
+# acceptable (#67), so it lives here and nowhere else. DAWIS itself never runs
+# in this environment, and this environment never imports DAWIS.
+#
+# Create it with:
+#
+#     conda env create -f simulations/environment.yml
+#
+# and generate through it with:
+#
+#     conda run -n dawis-sim python simulations/generate.py ...
+#
+# GalSim is pinned to an exact conda-forge build so that the environment which
+# produced the baked images is reconstructible. The images are ground truth:
+# a GalSim upgrade would silently change them and every number already
+# recorded against them would become uncomparable with no signal that it had
+# happened. Changing this pin is therefore a deliberate act that regenerates
+# the gallery, not routine maintenance.
+name: dawis-sim
+channels:
+  - conda-forge
+  - nodefaults
+#
+# Only GalSim and the Python it is built against are pinned. numpy and astropy
+# are left to the solver on purpose: #67 asks for the numpy version to be
+# *recorded* per entry, and the manifest records the one that actually ran,
+# which is a stronger reproducibility statement than a pin nobody re-checks.
+dependencies:
+  - python=3.13
+  - galsim=2.8.5
+  - numpy
+  - astropy
