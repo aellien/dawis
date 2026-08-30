@@ -238,7 +238,8 @@ def _read_dump(path: str) -> list:
     return _DUMP_READERS[os.path.splitext(path)[1]](path)
 
 
-def _worked_image(image, outpath: str) -> np.ndarray | None:
+def _worked_image(image: np.ndarray | str | os.PathLike | None,
+                  outpath: str) -> np.ndarray | None:
     """The image the loop worked on: what the caller gave, or what the run left.
 
     Parameters
@@ -287,6 +288,11 @@ def _shape_from_dumps(dumps: list[tuple[int, str]]) -> tuple[int, int]:
     was. It is a lower bound on the run's own frame — an atom-free border is
     invisible to it — and it is the only shape the dumps themselves state, so
     it is the honest one to draw a partial frame at.
+
+    Reads every dump, which :func:`rebuild_animation` then reads again to
+    draw. That second pass is the price of not holding a whole run's atoms in
+    memory at once, and it is paid only on the partial path — a run that left
+    its final images states its own shape and never comes here.
     """
 
     x_size = y_size = 1
@@ -298,8 +304,9 @@ def _shape_from_dumps(dumps: list[tuple[int, str]]) -> tuple[int, int]:
     return (x_size, y_size)
 
 
-def rebuild_animation(outpath: str, image = None, framerate: int = 3,
-                      show_progress: bool = True) -> int:
+def rebuild_animation(outpath: str,
+                      image: np.ndarray | str | os.PathLike | None = None,
+                      framerate: int = 3, show_progress: bool = True) -> int:
     """Rebuild a run's animation from what the run stored.
 
     Replays the run: the atoms of each iteration are read back, summed into

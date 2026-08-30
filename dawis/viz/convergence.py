@@ -109,6 +109,13 @@ def read_convergence_table(outpath: str) -> list[list[str]]:
     run that did not finish is the whole reason this is lenient. A short row
     anywhere earlier cannot have been left by an interruption: it is
     corruption, and it still raises.
+
+    A row is split from the left into
+    :data:`~dawis.convergence.CONVERGENCE_FIELDS` fields, so the last one
+    keeps whatever is left of the line. The wall time is that last column and
+    it is the one field that can hold a space: a ``timedelta`` of a day or
+    more stringifies as ``1 day, 0:00:01``. Splitting on every space would
+    make an iteration that ran for a day look like corruption.
     """
 
     numbered = []
@@ -116,7 +123,7 @@ def read_convergence_table(outpath: str) -> list[list[str]]:
         for number, line in enumerate(trace, start = 1):
             line = line.strip()
             if line and not line.startswith('#'):
-                numbered.append((number, line.split()))
+                numbered.append((number, line.split(None, CONVERGENCE_FIELDS - 1)))
 
     rows = []
     for position, (number, fields) in enumerate(numbered):
@@ -139,7 +146,10 @@ def read_convergence_table(outpath: str) -> list[list[str]]:
 
 def rebuild_convergence_plot(outpath: str, marker: str = 'o',
                              linewidth: float = 2, **kwargs) -> None:
-    """Draw the convergence trace of a finished run, from its ``.cpar.txt``.
+    """Draw the convergence trace of a run, from its ``.cpar.txt``.
+
+    The run need not have finished: the trace is written a line at a time as
+    the loop goes (#66), so an interrupted run has one too.
 
     Parameters
     ----------

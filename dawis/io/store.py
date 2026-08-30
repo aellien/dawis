@@ -49,12 +49,13 @@ from dawis.trees import InterscaleTree
 log = logging.getLogger(__name__)
 
 
-def load_hdf5_attribute(dataset: h5py.Dataset) -> object:
+def _load_hdf5_attribute(dataset: h5py.Dataset) -> object:
     """Read one stored attribute back, as the type it was written as.
 
     The one door every HDF5 group loader in this module reads a dataset
     through, so that the two concessions the format asks for are made once
-    rather than three times.
+    rather than three times. Private, unlike the three loaders it serves: it
+    is how they read, not a way to read a run.
 
     Parameters
     ----------
@@ -83,8 +84,9 @@ def load_hdf5_attribute(dataset: h5py.Dataset) -> object:
 
     value = np.squeeze(dataset[()])
 
-    if isinstance(value, bytes):
-        return value.decode()
+    # `S` is numpy's fixed-width bytes kind, which is what a stored string
+    # squeezes to: h5py hands one back as `bytes` and `np.squeeze` wraps that
+    # in a 0-d array. So the test is on the array, not on `bytes` itself.
     if isinstance(value, np.ndarray) and value.dtype.kind == 'S':
         text = value.astype(str)
         return text.item() if text.ndim == 0 else text
@@ -218,7 +220,7 @@ def load_interscale_tree_from_hdf5_group(grp: h5py.Group) -> InterscaleTree:
         
         # If dataset --> standard attribute
         if isinstance(attr, h5py.Dataset):
-            setattr(it, attr_name, load_hdf5_attribute(attr))
+            setattr(it, attr_name, _load_hdf5_attribute(attr))
             
         # If group --> a list of regions, or a region
         elif isinstance(attr, h5py.Group):
@@ -253,7 +255,7 @@ def load_region_from_hdf5_group(grp: h5py.Group) -> region:
     r = region()
     for attr_name in grp.keys():
         attr = grp[attr_name]
-        setattr(r, attr_name, load_hdf5_attribute(attr))
+        setattr(r, attr_name, _load_hdf5_attribute(attr))
     return r
 
 
@@ -322,7 +324,7 @@ def load_atom_from_hdf5_group(grp: h5py.Group) -> Atom:
     for attr_name in grp.keys():
         
         attr = grp[attr_name]
-        setattr(o, attr_name, load_hdf5_attribute(attr))
+        setattr(o, attr_name, _load_hdf5_attribute(attr))
     return o
 
 

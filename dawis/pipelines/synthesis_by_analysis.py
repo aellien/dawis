@@ -278,8 +278,10 @@ def run(image, config: Config | None = None, *, outdir: str = '.',
     concerning ones go to the log. See :mod:`dawis.results`.
 
     :func:`dawis.viz.rebuild_convergence_plot` and
-    :func:`dawis.viz.rebuild_animation` draw a finished run from
-    :attr:`~dawis.results.RunResult.outpath`.
+    :func:`dawis.viz.rebuild_animation` draw a run from
+    :attr:`~dawis.results.RunResult.outpath`. A run that was killed can be
+    drawn too (#66); the animation then wants the image handed to it, since
+    the run never got as far as writing one.
 
     Examples
     --------

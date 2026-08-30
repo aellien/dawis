@@ -50,8 +50,12 @@ python benchmarks/run_benchmark.py --report ~/dawis-bench
 `--report` aggregates every `benchmark.json` under a directory into the
 markdown table that goes into `results/`.
 
-`data_dump` and `gif` are off by default, so the measurement is CPU work and
-not disk or matplotlib work. Turn them on with `--data-dump` / `--gif` when
+`data_dump` and `gif` are pinned off, so the measurement is CPU work and not
+disk or matplotlib work. Neither is a flag any more: #46 took the animation
+out of the configuration and #66 deleted `data_dump` outright, so on the 1.0
+tree neither knob exists and on `legacy` / `legacy-seeded` both are pinned off
+by the script. `--gif` survives as a flag for the legacy trees alone, and it
+draws frames inside the loop -- 52% of it, per #5 -- so turn it on only when
 that is the thing being measured.
 
 `--indir` / `--infile` point the run at a different image. The baseline never

@@ -439,6 +439,14 @@ def run(args):
         REFERENCE_PARAMS,
         n_workers=args.n_workers,
         max_iter=args.pipeline_max_iter,
+        # Pinned off rather than dropped when #66 deleted the flag. The 1.0
+        # tree has no such knob and filters this out against `Config`, but
+        # `legacy` and `legacy-seeded` still take it and default it to True --
+        # so dropping it here would silently put the per-iteration region
+        # pickle and three FITS writes back into exactly the runs this script
+        # times against the 1.0 tree. The measurement is CPU work, on all
+        # three trees or on none.
+        data_dump=False,
         resume=False,
     )
 

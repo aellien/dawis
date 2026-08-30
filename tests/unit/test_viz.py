@@ -280,8 +280,12 @@ def test_iteration_dumps_are_ordered_and_deduplicated(tmp_path):
     assert [it for it, _ in dumps] == [1, 2]
 
 
-def test_rebuild_animation_needs_a_finished_run(tmp_path):
-    """Without the atom dumps there is nothing to replay, and it says so."""
+def test_rebuild_animation_needs_the_atom_dumps(tmp_path):
+    """Without the atom dumps there is nothing to replay, and it says so.
+
+    The dumps are now the *only* thing it insists on: #66 dropped the
+    requirement that the run also left its two final images.
+    """
     with pytest.raises(FileNotFoundError, match="no atom dumps"):
         viz.rebuild_animation(str(tmp_path / "nothing"))
 

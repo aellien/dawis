@@ -43,8 +43,8 @@ from datetime import timedelta
 
 import numpy as np
 
-__all__ = ['CONVERGENCE_FIELDS', 'CONVERGENCE_HEADER', 'ConvergenceMonitor',
-           'ConvergenceStep']
+__all__ = ['CONVERGENCE_COLUMNS', 'CONVERGENCE_FIELDS', 'CONVERGENCE_HEADER',
+           'ConvergenceMonitor', 'ConvergenceStep']
 
 #: Comment line the pipeline writes at the top of ``<outpath>.cpar.txt``.
 #:
@@ -54,17 +54,23 @@ __all__ = ['CONVERGENCE_FIELDS', 'CONVERGENCE_HEADER', 'ConvergenceMonitor',
 #: the order :meth:`ConvergenceMonitor.update` builds a row in.
 CONVERGENCE_HEADER = '# level, it, window_normeps, normeps, eps, n_obj, time_it'
 
-#: Fields in one row of ``<outpath>.cpar.txt``.
+#: The columns of ``<outpath>.cpar.txt``, in the order
+#: :meth:`ConvergenceMonitor.update` builds a row in.
 #:
-#: Nine: level, iteration, window-normalised epsilon, normalised epsilon,
-#: epsilon, the two flux fractions, the atom count and the wall time — the
-#: order :meth:`ConvergenceMonitor.update` builds a row in.
-#: :data:`CONVERGENCE_HEADER` names only seven of them, which is why the count
-#: is stated here rather than read off the header.
+#: :data:`CONVERGENCE_HEADER` names only seven of the nine — the two flux
+#: fractions are run together and the atom count is missing — and is kept
+#: verbatim because Phase A does not change what a run puts on disk. So this
+#: is the authoritative list, and it sits beside the method that builds the
+#: row so the two cannot drift apart.
+CONVERGENCE_COLUMNS = ('level', 'iteration', 'window_normeps', 'normeps',
+                       'eps', 'flux_rec', 'flux_res', 'n_atoms', 'time_it')
+
+#: Fields in one row of ``<outpath>.cpar.txt``. Derived, not written down: a
+#: column added to :data:`CONVERGENCE_COLUMNS` moves this with it.
 #:
 #: A reader needs it to tell a row truncated by a kill mid-write from a row
 #: that is corrupt; see :func:`dawis.viz.read_convergence_table`.
-CONVERGENCE_FIELDS = 9
+CONVERGENCE_FIELDS = len(CONVERGENCE_COLUMNS)
 
 #: How many iterations the window average covers.
 WINDOW_SIZE = 5
@@ -225,9 +231,15 @@ class ConvergenceMonitor:
             self._window.pop(0)
         self.avnormeps = np.mean(self._window)
 
-        self.rows.append([ str(level), str(iteration), str(self.avnormeps),
-                           str(normeps), str(eps), str(flux_rec),
-                           str(flux_res), str(n_atoms), str(elapsed) ])
+        # `elapsed` last, and last for a reason a reader depends on: it is the
+        # one field that can hold a space. A `timedelta` of a day or more
+        # stringifies as `1 day, 0:00:01`, so a row is split from the left into
+        # `CONVERGENCE_FIELDS` fields and the wall time is whatever is left.
+        row = [ str(level), str(iteration), str(self.avnormeps),
+                str(normeps), str(eps), str(flux_rec),
+                str(flux_res), str(n_atoms), str(elapsed) ]
+        assert len(row) == CONVERGENCE_FIELDS, CONVERGENCE_COLUMNS
+        self.rows.append(row)
 
         return ConvergenceStep(level = level, iteration = iteration, eps = eps,
                                normeps = normeps, avnormeps = self.avnormeps,
