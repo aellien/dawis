@@ -420,6 +420,13 @@ def run_golden(dawis, image: np.ndarray, work_dir: Path, infile: str,
 
 #: Per-atom columns of the golden catalogue. ``flux`` and ``peak`` are derived
 #: from the atom image; everything else is stored on the atom itself.
+#:
+#: ``algorithm`` and ``synthesis_operator``, which #66 added to the atom, are
+#: deliberately *not* here. Today they are a deterministic function of columns
+#: this table already records — the filter and the level — against the run's
+#: ``lvl_sep_op``, so recording them would buy no coverage and cost two
+#: re-recordings. The day a second reconstruction algorithm makes that mapping
+#: non-derivable, they become golden columns and both tiers are re-recorded.
 ATOM_COLUMNS = (
     "iteration",
     "index",

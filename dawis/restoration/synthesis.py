@@ -16,6 +16,10 @@ scale: small or elongated structures below ``lvl_sep_lin`` are synthesised
 with the Haar filter, everything else with the B3-spline, starting from the
 plain sum of planes at or below ``lvl_sep_op`` and from the adjoint operator
 above it. It also builds the detection-error image and traps a diverged solve.
+And it *says what it chose*: the algorithm and the synthesis operator come
+back with the image and are recorded on the atom (#66), so a reader never has
+to re-derive them from the filter, the level and a configuration value the
+atom file does not hold.
 
 :func:`restore_objects_default` runs that over a list of trees. It cuts the
 list into patches, hands them to :func:`dawis.parallel.pmap`, and lays the
@@ -63,6 +67,20 @@ from dawis.parallel import cut_into_patches, pmap
 
 log = logging.getLogger(__name__)
 
+#: What :attr:`Atom.algorithm` holds for an atom this module reconstructed.
+#: The conjugate-gradient descent is the only reconstruction DAWIS has, so it
+#: is the only value a run produces; the attribute exists so that a second one
+#: would be distinguishable, not because a second one is being added.
+CG_ALGORITHM = 'CG'
+
+#: What :attr:`Atom.algorithm` and :attr:`Atom.synthesis_operator` read on an
+#: atom written before #66 gave them to the atom. Class attributes of
+#: :class:`Atom` rather than a reader's default, because unpickling restores
+#: the stored ``__dict__`` straight onto a new instance and never runs
+#: ``__init__``: a name the old dictionary has no key for has to resolve on
+#: the class or not at all.
+UNKNOWN_PROVENANCE = 'UNKNOWN'
+
 # Annotations only. dawis.trees imports the deconvolution of this package, so
 # importing it back at runtime would close a cycle.
 if TYPE_CHECKING:
@@ -104,10 +122,37 @@ class Atom(object):
         Sum of the wavelet residual at the last iteration of the solve.
     norm_wr : float, optional
         Norm of the wavelet residual at the last iteration of the solve.
+    algorithm : str, optional
+        Which reconstruction produced the image. :data:`CG_ALGORITHM` for
+        everything DAWIS reconstructs today. Default
+        :data:`UNKNOWN_PROVENANCE`.
+    synthesis_operator : str, optional
+        Which synthesis operator that reconstruction ran with, ``'SUM'`` or
+        ``'ADJOINT'`` — the same two words :meth:`InterscaleTree.CG_minimization
+        <dawis.trees.construction.InterscaleTree.CG_minimization>` branches on.
+        Default :data:`UNKNOWN_PROVENANCE`.
     blank : bool, optional
         If True, set no attributes at all and ignore every other argument.
         Default False.
+
+    Notes
+    -----
+    ``algorithm`` and ``synthesis_operator`` are also *class* attributes,
+    holding :data:`UNKNOWN_PROVENANCE`. That is what an atom written before
+    #66 reads: an HDF5 group with no such dataset leaves the blank instance
+    with nothing set, and a pickle restores a ``__dict__`` with no such key
+    without ever calling this constructor. Either way the lookup falls through
+    to the class and answers ``'UNKNOWN'`` instead of raising.
+
+    The operator is worth having on disk for a second reason: the optional
+    deconvolution inside the solver runs on the adjoint branch only, so an
+    atom that records ``'ADJOINT'`` is an atom that was deconvolved if the run
+    asked for deconvolution at all — a fact nothing else records.
     """
+
+    # Read by an atom whose stored state predates these two fields. See Notes.
+    algorithm: str = UNKNOWN_PROVENANCE
+    synthesis_operator: str = UNKNOWN_PROVENANCE
 
     def __init__(
         self,
@@ -120,6 +165,8 @@ class Atom(object):
         flag_convergence: bool | None = None,
         sum_wr: float | None = None,
         norm_wr: float | None = None,
+        algorithm: str = UNKNOWN_PROVENANCE,
+        synthesis_operator: str = UNKNOWN_PROVENANCE,
         blank: bool = False,
     ):
         
@@ -134,6 +181,8 @@ class Atom(object):
             self.flag_convergence = flag_convergence
             self.sum_wr = sum_wr
             self.norm_wr = norm_wr
+            self.algorithm = str(algorithm)
+            self.synthesis_operator = str(synthesis_operator)
 
 def restore_patch(
     interscale_tree_patch: list[InterscaleTree],
@@ -198,7 +247,8 @@ def restore_patch(
     object_patch = []
     for tree in interscale_tree_patch:
 
-        image, det_err_image, filter_kw, flag_convergence, sum_wr, norm_wr = restore_object( tree, \
+        image, det_err_image, filter_kw, flag_convergence, sum_wr, norm_wr, \
+                              algorithm, synthesis_operator = restore_object( tree, \
                                                                               wavelet_cube, \
                                                                               label_cube, \
                                                                               extent_sep, \
@@ -221,7 +271,9 @@ def restore_patch(
                                             filter_kw, \
                                             flag_convergence, \
                                             sum_wr, \
-                                            norm_wr ))
+                                            norm_wr, \
+                                            algorithm, \
+                                            synthesis_operator ))
 
     return object_patch
 
@@ -237,7 +289,7 @@ def restore_object(
     deconv: bool = True,
     cg_max_iter: int = DEFAULT_CG_MAX_ITER,
     verbose: bool = False,
-) -> tuple[np.ndarray, np.ndarray, str, bool, float, float]:
+) -> tuple[np.ndarray, np.ndarray, str, bool, float, float, str, str]:
     """Synthesise one interscale tree into an image.
 
     Picks the filter and the starting operator from the shape and the scale of
@@ -295,11 +347,25 @@ def restore_object(
         Sum of the wavelet residual at the last solver iteration.
     norm_wr : float
         Norm of the wavelet residual at the last solver iteration.
+    algorithm : str
+        :data:`CG_ALGORITHM`, the one reconstruction this function calls.
+    synthesis_operator : str
+        ``'SUM'`` or ``'ADJOINT'``, whichever this call handed the solver.
 
     Notes
     -----
     ``lvl_sep_big`` is accepted so the signature matches :func:`restore_patch`
     and is not read here; the attenuation it governs is applied by the caller.
+
+    The last two values are returned rather than left to be re-derived (#66).
+    The derivation they replace — Haar, or B3-spline at or below
+    ``lvl_sep_op``, took the sum — is correct today and is folklore: it needs
+    ``lvl_sep_op``, which no atom file records, and it stops being correct the
+    moment a second reconstruction is tried. The return grew by two values
+    rather than changing into an object, because the attenuation factor is
+    applied between this call and the atom's construction; folding the atom
+    into this function would drag the attenuation parameters down with it.
+    That restructuring belongs with the minimizer interface work.
     """
 
     bspl = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
@@ -309,19 +375,22 @@ def restore_object(
 
     if (( interscale_tree.extent < extent_sep ) or (  interscale_tree.eccentricity >= ecc_sep )) & ( interscale_tree.interscale_maximum.level < lvl_sep_lin ) :
         
+        synthesis_operator = 'SUM'
         image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_cube, label_cube, filter = haar, \
-                                                        synthesis_operator = 'SUM', deconv = deconv, \
+                                                        synthesis_operator = synthesis_operator, deconv = deconv, \
                                                         max_iter = cg_max_iter, verbose = verbose )
         filter_kw = 'HAAR'
 
     else:
         if interscale_tree.interscale_maximum.level <= lvl_sep_op:
+            synthesis_operator = 'SUM'
             image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_cube, label_cube, filter = bspl, \
-                                                    synthesis_operator = 'SUM', deconv = deconv, \
+                                                    synthesis_operator = synthesis_operator, deconv = deconv, \
                                                     max_iter = cg_max_iter, verbose = verbose )
         else:
+            synthesis_operator = 'ADJOINT'
             image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_cube, label_cube, filter = bspl, \
-                                                    synthesis_operator = 'ADJOINT', deconv = deconv, \
+                                                    synthesis_operator = synthesis_operator, deconv = deconv, \
                                                     max_iter = cg_max_iter, verbose = verbose )
         filter_kw = 'BSPL'
 
@@ -335,7 +404,8 @@ def restore_object(
         image = np.zeros( image.shape )
         flag_convergence = False
 
-    return image, det_err_image, filter_kw, flag_convergence, sum_wr, norm_wr
+    return (image, det_err_image, filter_kw, flag_convergence, sum_wr, norm_wr,
+            CG_ALGORITHM, synthesis_operator)
 
 
 def _schedule_patches(

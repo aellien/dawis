@@ -49,6 +49,49 @@ from dawis.trees import InterscaleTree
 log = logging.getLogger(__name__)
 
 
+def load_hdf5_attribute(dataset: h5py.Dataset) -> object:
+    """Read one stored attribute back, as the type it was written as.
+
+    The one door every HDF5 group loader in this module reads a dataset
+    through, so that the two concessions the format asks for are made once
+    rather than three times.
+
+    Parameters
+    ----------
+    dataset : h5py.Dataset
+        A dataset written by :func:`object_recursive_save_to_hdf5`.
+
+    Returns
+    -------
+    object
+        The stored value: an array as an array, a number as a scalar, and a
+        string as :class:`str`.
+
+    Notes
+    -----
+    Two concessions. The writer stores a scalar as a length-1 array, so this
+    squeezes; a genuine length-1 array therefore comes back as a scalar, which
+    is the round trip's one lossy corner and predates this function.
+
+    And h5py hands a stored string back as :class:`bytes`, so
+    ``atom.filter`` read out of HDF5 used to be ``b'BSPL'`` where the same atom
+    read out of a pickle was ``'BSPL'`` — one attribute with two types
+    depending on which file it came from. Decoding here makes the two agree
+    (#66). The goldens are recorded from pickles, where the filter was already
+    text, so nothing recorded can move.
+    """
+
+    value = np.squeeze(dataset[()])
+
+    if isinstance(value, bytes):
+        return value.decode()
+    if isinstance(value, np.ndarray) and value.dtype.kind == 'S':
+        text = value.astype(str)
+        return text.item() if text.ndim == 0 else text
+
+    return value
+
+
 def object_recursive_save_to_hdf5(o: object, h5grp: h5py.Group) -> None:
     """Recursively save a Python object to an HDF5 group.
 
@@ -175,8 +218,7 @@ def load_interscale_tree_from_hdf5_group(grp: h5py.Group) -> InterscaleTree:
         
         # If dataset --> standard attribute
         if isinstance(attr, h5py.Dataset):
-            setattr(it, attr_name, np.squeeze(attr[()])) # squeeze to remove the 
-                                                         # useless dimension added when creating HDF5
+            setattr(it, attr_name, load_hdf5_attribute(attr))
             
         # If group --> a list of regions, or a region
         elif isinstance(attr, h5py.Group):
@@ -211,7 +253,7 @@ def load_region_from_hdf5_group(grp: h5py.Group) -> region:
     r = region()
     for attr_name in grp.keys():
         attr = grp[attr_name]
-        setattr(r, attr_name, np.squeeze(attr[()]))
+        setattr(r, attr_name, load_hdf5_attribute(attr))
     return r
 
 
@@ -268,12 +310,19 @@ def load_atom_from_hdf5_group(grp: h5py.Group) -> Atom:
     -------
     Atom
         A blank atom with the stored attributes set on it.
+
+    Notes
+    -----
+    An atom written before #66 holds no ``algorithm`` and no
+    ``synthesis_operator`` dataset, so the blank instance keeps the class
+    attributes :class:`~dawis.restoration.synthesis.Atom` declares and both
+    read ``'UNKNOWN'`` rather than raising.
     """
     o = Atom(blank = True)
     for attr_name in grp.keys():
         
         attr = grp[attr_name]
-        setattr(o, attr_name, np.squeeze(attr[()]))
+        setattr(o, attr_name, load_hdf5_attribute(attr))
     return o
 
 
