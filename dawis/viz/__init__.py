@@ -43,6 +43,7 @@ it.
 from dawis.viz.animation import make_gif, plot_frame, rebuild_animation
 from dawis.viz.convergence import (
     plot_convergence,
+    read_convergence_table,
     rebuild_convergence_plot,
 )
 from dawis.viz.cubes import (
@@ -64,6 +65,7 @@ __all__ = [
     'plot_noise_histogram',
     'plot_region',
     'plot_wavelet_stds',
+    'read_convergence_table',
     'rebuild_animation',
     'rebuild_convergence_plot',
 ]

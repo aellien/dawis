@@ -10,6 +10,11 @@ does, for the same reason it no longer writes animation frames: the numbers
 are already on disk, so the picture can be made afterwards by anyone who wants
 it, and the solver keeps no dependency on a plotting library.
 :func:`rebuild_convergence_plot` is that afterwards.
+
+The run does not have to have finished. The trace is written a line at a time
+as the loop goes (#66), so a run that was killed has one, and
+:func:`read_convergence_table` drops a trailing half-line rather than refusing
+the file.
 """
 
 from __future__ import annotations
@@ -17,6 +22,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import matplotlib.pyplot as plt
+
+from dawis.convergence import CONVERGENCE_FIELDS
 
 __all__ = ['plot_convergence', 'read_convergence_table', 'rebuild_convergence_plot']
 
@@ -87,14 +94,45 @@ def read_convergence_table(outpath: str) -> list[list[str]]:
         One row of fields per iteration, in the order the run wrote them.
         Comment lines are dropped; the fields are left as strings, which is
         the form :func:`plot_convergence` reads.
+
+    Raises
+    ------
+    ValueError
+        If a row anywhere but at the end of the file does not hold
+        :data:`~dawis.convergence.CONVERGENCE_FIELDS` fields.
+
+    Notes
+    -----
+    A *trailing* row of the wrong width is dropped instead, silently. That is
+    the shape a run killed mid-write leaves — the pipeline flushes the trace
+    per iteration (#66), so the last line can be half a line — and reading a
+    run that did not finish is the whole reason this is lenient. A short row
+    anywhere earlier cannot have been left by an interruption: it is
+    corruption, and it still raises.
     """
 
-    rows = []
+    numbered = []
     with open(''.join(( outpath, '.cpar.txt' ))) as trace:
-        for line in trace:
+        for number, line in enumerate(trace, start = 1):
             line = line.strip()
             if line and not line.startswith('#'):
-                rows.append(line.split())
+                numbered.append((number, line.split()))
+
+    rows = []
+    for position, (number, fields) in enumerate(numbered):
+
+        if len(fields) != CONVERGENCE_FIELDS:
+
+            if position == len(numbered) - 1:
+                break
+
+            raise ValueError(
+                "%s.cpar.txt line %d: %d fields where %d were expected --> the "
+                "trace is corrupt, not truncated"
+                % (outpath, number, len(fields), CONVERGENCE_FIELDS)
+            )
+
+        rows.append(fields)
 
     return rows
 

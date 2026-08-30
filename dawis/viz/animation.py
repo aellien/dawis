@@ -19,6 +19,14 @@ runtime cost: a normal run never draws, and any run — including one recorded
 long ago, by an older version, as long as its atom dumps are next to it — can
 be animated later.
 
+Including a run that never finished (#66). A greedy loop that takes hours gets
+killed for good reasons, and the two final images are written only when it
+ends, so an interrupted run has no image to sum. :func:`rebuild_animation`
+therefore takes that image from its caller, as an array or as a path, and when
+nothing supplies it draws the two panels the atom dumps alone determine and
+leaves the other two blank. The frame's title says it is partial; nothing is
+warned and nothing is logged.
+
 :func:`plot_frame` and :func:`make_gif` are the two halves of the old
 ``dawis.gif``: one draws a frame, the other calls ``ffmpeg`` to assemble the
 frames into an ``.mp4``. ``ffmpeg`` must be on ``PATH``; when it is not, the
@@ -61,9 +69,9 @@ def plot_frame(
     level: int,
     it: int,
     nobj: int,
-    original_image: np.ndarray,
+    original_image: np.ndarray | None,
     restored_image: np.ndarray,
-    residuals: np.ndarray,
+    residuals: np.ndarray | None,
     atom: np.ndarray,
     outpath: str = '',
 ) -> None:
@@ -78,46 +86,67 @@ def plot_frame(
         Iteration number, which also numbers the file written.
     nobj : int
         Number of atoms the iteration restored.
-    original_image : numpy.ndarray
-        The image the run started from.
+    original_image : numpy.ndarray or None
+        The image the run started from, or None when the caller could not
+        recover it. The panel is then left blank and the frame is titled
+        partial.
     restored_image : numpy.ndarray
         Sum of every atom restored up to and including this iteration.
-    residuals : numpy.ndarray
-        What is left of the image after that subtraction.
+    residuals : numpy.ndarray or None
+        What is left of the image after that subtraction, or None. Blank on
+        the same terms as ``original_image``, since the residual is the
+        original less the restored image and neither can be had without it.
     atom : numpy.ndarray
         Sum of the atoms of this iteration alone.
     outpath : str, optional
         Path stem of the run. The frame is written to
         ``<outpath>.frame.it<NNN>.png``.
+
+    Notes
+    -----
+    The two left-hand panels are computed from the atom dumps alone, so they
+    are drawn whatever else is missing; the two right-hand ones need the image
+    the loop worked on. A frame drawn without it says so in its title and
+    nowhere else — nothing is warned and nothing is logged, so the picture is
+    what describes itself and the terminal stays quiet (#66).
     '''
+
+    partial = original_image is None or residuals is None
+    # What the two panels that *can* always be drawn are scaled against. With
+    # the original in hand it is the original, exactly as before, so a
+    # complete frame is drawn identically to one drawn before #66.
+    reference = restored_image if original_image is None else original_image
 
     fig = plt.figure(dpi = 500)
     ax = fig.subplots(2, 2, sharex = True, sharey = True, \
                                 gridspec_kw = { 'hspace': 0.1, 'wspace': 0.1 })
-    fig.suptitle('Level %d\nIteration %d\n%d objects' %(level, it, nobj), fontsize = 10)
+    fig.suptitle('Level %d\nIteration %d\n%d objects%s'
+                 %(level, it, nobj, '\npartial' if partial else ''), fontsize = 10)
 
-    axim = ax[0][0].imshow(original_image,  norm = ImageNormalize( original_image, \
-                                            interval = ZScaleInterval(), \
-                                            stretch = LinearStretch()), \
-                                            origin = 'lower', \
-                                            cmap = 'binary' )
-    cax = plt.colorbar(axim, ax = ax[0][0], aspect = 10, pad = 0, \
-                                    orientation = 'vertical')
-    cax.ax.tick_params(labelsize = 5)
+    if original_image is not None:
+        axim = ax[0][0].imshow(original_image,  norm = ImageNormalize( original_image, \
+                                                interval = ZScaleInterval(), \
+                                                stretch = LinearStretch()), \
+                                                origin = 'lower', \
+                                                cmap = 'binary' )
+        cax = plt.colorbar(axim, ax = ax[0][0], aspect = 10, pad = 0, \
+                                        orientation = 'vertical')
+        cax.ax.tick_params(labelsize = 5)
     ax[0][0].set_title('Original', fontsize = 8)
 
-    axim = ax[0][1].imshow(residuals, norm = ImageNormalize( original_image, \
-                                      interval = ZScaleInterval(),
-                                      stretch = LinearStretch()), \
-                                      origin = 'lower', \
-                                      cmap = 'binary' )
+    if residuals is not None:
+        axim = ax[0][1].imshow(residuals, norm = ImageNormalize( reference, \
+                                          interval = ZScaleInterval(),
+                                          stretch = LinearStretch()), \
+                                          origin = 'lower', \
+                                          cmap = 'binary' )
 
-    cax = plt.colorbar(axim, ax = ax[0][1], aspect = 10, pad = 0, \
-                                    orientation = 'vertical')
-    cax.ax.tick_params(labelsize = 5)
+        cax = plt.colorbar(axim, ax = ax[0][1], aspect = 10, pad = 0, \
+                                        orientation = 'vertical')
+        cax.ax.tick_params(labelsize = 5)
     ax[0][1].set_title('Residuals', fontsize = 8)
 
-    axim = ax[1][0].imshow(restored_image,  norm = ImageNormalize( original_image, \
+    axim = ax[1][0].imshow(restored_image,  norm = ImageNormalize( reference, \
                                             interval = ZScaleInterval(),
                                             stretch = LinearStretch()), \
                                             origin = 'lower', \
@@ -203,13 +232,84 @@ def iteration_dumps(outpath: str) -> list[tuple[int, str]]:
     return sorted(found.items())
 
 
-def rebuild_animation(outpath: str, framerate: int = 3, show_progress: bool = True) -> int:
-    """Rebuild a finished run's animation from what the run stored.
+def _read_dump(path: str) -> list:
+    """Read one iteration's atoms, in whichever of the two formats it is in."""
+
+    return _DUMP_READERS[os.path.splitext(path)[1]](path)
+
+
+def _worked_image(image, outpath: str) -> np.ndarray | None:
+    """The image the loop worked on: what the caller gave, or what the run left.
+
+    Parameters
+    ----------
+    image : numpy.ndarray, str or None
+        An array, a path to a FITS file holding one, or None to look for the
+        run's own final images.
+    outpath : str
+        Path stem of the run.
+
+    Returns
+    -------
+    numpy.ndarray or None
+        The image, or None when nothing supplied it — which is what an
+        interrupted run leaves behind, and what makes a frame partial.
+
+    Notes
+    -----
+    Recovered from the run as ``restored + residuals`` rather than re-read
+    from the input FITS file, because the pipeline subtracts the background
+    before iterating and inpaints the residuals as it goes. The sum of what a
+    run wrote is what it actually iterated on, and it needs no knowledge of
+    where the input came from. Those two files are written when the loop
+    *ends*, so a run that was killed has neither, and the caller is then the
+    only source there is (#66).
+    """
+
+    if image is not None:
+        if isinstance(image, (str, os.PathLike)):
+            return np.asarray(fits.getdata(image), dtype = float)
+        return np.asarray(image, dtype = float)
+
+    restored_path = ''.join(( outpath, '.restored.fits' ))
+    residuals_path = ''.join(( outpath, '.residuals.fits' ))
+    if not (os.path.isfile(restored_path) and os.path.isfile(residuals_path)):
+        return None
+
+    return np.asarray(fits.getdata(restored_path), dtype = float) \
+               + np.asarray(fits.getdata(residuals_path), dtype = float)
+
+
+def _shape_from_dumps(dumps: list[tuple[int, str]]) -> tuple[int, int]:
+    """The smallest frame every atom of a run fits in.
+
+    What the restored image is drawn on when no image says how big the frame
+    was. It is a lower bound on the run's own frame — an atom-free border is
+    invisible to it — and it is the only shape the dumps themselves state, so
+    it is the honest one to draw a partial frame at.
+    """
+
+    x_size = y_size = 1
+    for _, path in dumps:
+        for o in _read_dump(path):
+            x_size = max(x_size, int(o.bbox[2]))
+            y_size = max(y_size, int(o.bbox[3]))
+
+    return (x_size, y_size)
+
+
+def rebuild_animation(outpath: str, image = None, framerate: int = 3,
+                      show_progress: bool = True) -> int:
+    """Rebuild a run's animation from what the run stored.
 
     Replays the run: the atoms of each iteration are read back, summed into
     the restored image and taken out of the residuals exactly as the loop did,
     and one frame is drawn per iteration. The frames are then assembled into
     ``<outpath>.run.mp4``.
+
+    The run does not have to have finished. A run that was killed has its atom
+    dumps and nothing else, which is enough for two of the four panels; see
+    Notes.
 
     Parameters
     ----------
@@ -217,6 +317,11 @@ def rebuild_animation(outpath: str, framerate: int = 3, show_progress: bool = Tr
         Path stem of the run, as handed to the pipeline —
         ``<outdir>/<infile without .fits>``. Every file read and written
         hangs off it.
+    image : numpy.ndarray or str, optional
+        The image the loop worked on, as an array or as the path of a FITS
+        file holding one. Default None looks for the run's own
+        ``.restored.fits`` and ``.residuals.fits`` and sums them; when those
+        are absent too, the frames are drawn partial.
     framerate : int, optional
         Frames per second of the animation. Default is 3.
     show_progress : bool, optional
@@ -230,19 +335,23 @@ def rebuild_animation(outpath: str, framerate: int = 3, show_progress: bool = Tr
     Raises
     ------
     FileNotFoundError
-        If the run left no atom dumps, or no restored and residual images, at
-        ``outpath``.
+        If the run left no atom dumps at ``outpath``. There is then nothing
+        to replay.
 
     Notes
     -----
-    The image the loop worked on is recovered as ``restored + residuals``
-    rather than re-read from the input FITS file, because the pipeline
-    subtracts the background before iterating and inpaints the residuals as it
-    goes. The sum of what a run wrote is what it actually iterated on, and it
-    needs no knowledge of where the input came from.
+    Two of the four panels — the restored image and the atom of the iteration
+    — are computed from the atom dumps alone, so they are drawn for any run
+    that got through one iteration. The other two need the image the loop
+    worked on, and an interrupted run does not leave one: the final images are
+    written when the loop ends, and #66 deliberately left no other fallback on
+    disk. So the image comes from the caller when the run cannot supply it,
+    and when nothing supplies it the two panels are blank and the frame's
+    title says the frame is partial. Nothing is warned and nothing is logged
+    about it.
 
-    Frames are drawn from the atoms alone, which is all a run leaves per
-    iteration.
+    With the final images present, or an image supplied, behaviour is what it
+    was before #66.
     """
 
 
@@ -253,31 +362,23 @@ def rebuild_animation(outpath: str, framerate: int = 3, show_progress: bool = Tr
             "'.hdf5'" % (outpath, outpath)
         )
 
-    restored_path = ''.join(( outpath, '.restored.fits' ))
-    residuals_path = ''.join(( outpath, '.residuals.fits' ))
-    for path in (restored_path, residuals_path):
-        if not os.path.isfile(path):
-            raise FileNotFoundError(
-                "run '%s' is missing '%s': an animation is rebuilt from a "
-                "finished run" % (outpath, path)
-            )
+    image = _worked_image(image, outpath)
+    shape = _shape_from_dumps(dumps) if image is None else image.shape
 
-    image = np.asarray(fits.getdata(restored_path), dtype = float) \
-                + np.asarray(fits.getdata(residuals_path), dtype = float)
-
-    res = np.copy(image)
-    rec = np.zeros(image.shape)
+    res = None if image is None else np.copy(image)
+    rec = np.zeros(shape)
 
     for it, path in dumps:
 
-        ol = _DUMP_READERS[os.path.splitext(path)[1]](path)
+        ol = _read_dump(path)
 
-        atom = np.zeros(image.shape)
+        atom = np.zeros(shape)
         for o in ol:
             x_min, y_min, x_max, y_max = o.bbox
             atom[ x_min : x_max, y_min : y_max ] += o.image
 
-        res -= atom
+        if res is not None:
+            res -= atom
         rec += atom
         level = np.max([ o.level for o in ol ]) if ol else 0
 

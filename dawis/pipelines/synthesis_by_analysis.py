@@ -70,8 +70,15 @@ Files a run writes, all hanging off ``<outdir>/<name>``:
 ``.restored.fits``          the sum of every atom
 ``.deterror.fits``          the accumulated detection error
 ``.scl.restored.fits``      the same sum, split by wavelet scale
-``.cpar.txt``               the convergence trace
+``.cpar.txt``               the convergence trace, one line per iteration
 =========================== ================================================
+
+Every one of those but the trace is written when the loop ends. The trace is
+written as the loop goes, one flushed line per iteration, so a run that is
+killed still leaves a readable one (#66) — that and the atom and tree dumps
+are all an interrupted run leaves, which is why
+:func:`dawis.viz.rebuild_animation` takes the image it worked on from its
+caller rather than looking for a file.
 
 ``name`` is what that stem is called. :func:`run_fits` takes it from the input
 filename, so a run driven from ``ngc1275.fits`` writes ``ngc1275.restored.fits``
@@ -402,117 +409,140 @@ def run(image, config: Config | None = None, *, outdir: str = '.',
             it = 1
             n_atoms = 0
 
-            for level in range( config.starting_level, n_levels ):
+            # The convergence trace, written one line per iteration as the run
+            # goes rather than in one block at the end (#66). A run is a greedy
+            # loop that can take hours and is killed for good reasons -- a
+            # wall-clock limit, a full disk, a decision to stop once the
+            # trajectory is clear -- and a trace written only at the end is a
+            # trace such a run never leaves. Flushed per line, so what is on
+            # disk is what has happened.
+            #
+            # Opened for writing, not appending. A resumed run replays every
+            # earlier iteration through the monitor, so truncating here keeps
+            # the monitor the single source of truth and duplicates no row;
+            # appending would invent a merge problem. This is the one
+            # writer-side exception to taking the drawing off the loop (#46),
+            # and it is a text append rather than an image.
+            with open( ''.join(( outpath, '.cpar.txt' )), 'w') as conv:
 
-                monitor.begin_level()
-                while monitor.avnormeps > config.ceps :
+                conv.write('%s\n' %(CONVERGENCE_HEADER))
+                conv.flush()
 
-                    start_time_it = datetime.now()
-                    log.info('[ %s ] Level = %d Iteration = %d ---------------' %(datetime.now(), level, it))
+                for level in range( config.starting_level, n_levels ):
 
-                    # inpaint bad reconstruction pixels and NaN pixels with noise draws
-                    if config.inpaint_res:
-                        reconstruction.inpaint(mean = mean, sigma = sigma,
-                                               iptd_sigma = config.iptd_sigma, rng = rng)
+                    monitor.begin_level()
+                    while monitor.avnormeps > config.ceps :
 
-                    # Check if resume run
-                    pickle_dump = _dump_path(outpath, 'ol', it, 'pkl')
-                    hdf5_dump = _dump_path(outpath, 'ol', it, 'hdf5')
-                    resumed = True
+                        start_time_it = datetime.now()
+                        log.info('[ %s ] Level = %d Iteration = %d ---------------' %(datetime.now(), level, it))
 
-                    if config.resume and os.path.exists(pickle_dump):
+                        # inpaint bad reconstruction pixels and NaN pixels with noise draws
+                        if config.inpaint_res:
+                            reconstruction.inpaint(mean = mean, sigma = sigma,
+                                                   iptd_sigma = config.iptd_sigma, rng = rng)
 
-                        log.info('Found %s.\nResuming iteration' %(pickle_dump))
-                        ol = read_ol_from_pickle(pickle_dump)
+                        # Check if resume run
+                        pickle_dump = _dump_path(outpath, 'ol', it, 'pkl')
+                        hdf5_dump = _dump_path(outpath, 'ol', it, 'hdf5')
+                        resumed = True
 
-                    elif config.resume and os.path.exists(hdf5_dump):
+                        if config.resume and os.path.exists(pickle_dump):
 
-                        log.info('Found %s --> resuming iteration' %(hdf5_dump))
-                        ol = read_ol_from_hdf5(hdf5_dump)
+                            log.info('Found %s.\nResuming iteration' %(pickle_dump))
+                            ol = read_ol_from_pickle(pickle_dump)
 
-                    else:
+                        elif config.resume and os.path.exists(hdf5_dump):
 
-                        resumed = False
+                            log.info('Found %s --> resuming iteration' %(hdf5_dump))
+                            ol = read_ol_from_hdf5(hdf5_dump)
 
-                        # Anscombe transform & thresholding
-                        log.info('[ %s ] Start wavelet transform and detection'%datetime.now())
-                        aim = stabilisation.transform(reconstruction.residuals, rng = rng)
-                        awdc = bspl_atrous(aim, level, header, config.conditions)
+                        else:
 
-                        # Labels & true wavelet coefficients
-                        ldc, dea = ms_detect_and_deblend(awdc, n_sigmas = config.n_sigmas, lvl_deblend = config.lvl_deblend, deblend_contrast = config.deblend_contrast, verbose = True)
-                        wdc = bspl_atrous(reconstruction.residuals, level, header, config.conditions)
+                            resumed = False
 
-                        # Regions of significance
-                        rl = make_regions_full_props(wdc, ldc, verbose = True)
-                        if not rl:
+                            # Anscombe transform & thresholding
+                            log.info('[ %s ] Start wavelet transform and detection'%datetime.now())
+                            aim = stabilisation.transform(reconstruction.residuals, rng = rng)
+                            awdc = bspl_atrous(aim, level, header, config.conditions)
+
+                            # Labels & true wavelet coefficients
+                            ldc, dea = ms_detect_and_deblend(awdc, n_sigmas = config.n_sigmas, lvl_deblend = config.lvl_deblend, deblend_contrast = config.deblend_contrast, verbose = True)
+                            wdc = bspl_atrous(reconstruction.residuals, level, header, config.conditions)
+
+                            # Regions of significance
+                            rl = make_regions_full_props(wdc, ldc, verbose = True)
+                            if not rl:
+                                break
+
+                            # Interscale trees
+                            log.info('[ %s ] Start interscale trees'%datetime.now())
+                            itl = make_interscale_trees(rl, wdc, ldc, dea, tau = config.tau, \
+                                                                min_span = config.min_span, \
+                                                                max_span = config.max_span, \
+                                                                lvl_sep_big = config.lvl_sep_big, \
+                                                                n_workers = config.n_workers, \
+                                                                size_patch = config.size_patch, \
+                                                                verbose = True)
+                            if not itl:
+                                break
+
+                            # Restoration of detected objects
+                            log.info('[ %s ] Start object restoration'%datetime.now())
+                            ol = restore_objects_default(itl, reconstruction.residuals, 0.01, 15, wdc, ldc, size_patch_small = 1, \
+                                                               gamma = config.gamma, \
+                                                               extent_sep = config.extent_sep, \
+                                                               ecc_sep = config.ecc_sep, \
+                                                               lvl_sep_lin = config.lvl_sep_lin, \
+                                                               lvl_sep_big = config.lvl_sep_big, \
+                                                               lvl_sep_op = config.lvl_sep_op, \
+                                                               rm_gamma_for_big = config.rm_gamma_for_big, \
+                                                               size_patch_big = 1, \
+                                                               size_big_objects = 512, \
+                                                               deconv = config.deconv, \
+                                                               cg_max_iter = config.cg_max_iter, \
+                                                               n_workers = config.n_workers, \
+                                                               verbose = True ) # objects in original image pixel value range
+
+                        # Atom
+                        log.info('[ %s ] Add atoms to restored images.'%datetime.now())
+                        atom = reconstruction.add(ol)
+                        n_atoms += len(ol)
+
+                        # Convergence
+                        step = monitor.update(level, it, atom, reconstruction.residuals,
+                                              reconstruction.restored, len(ol),
+                                              datetime.now() - start_time_it)
+                        log.info('Convergence : res = %f rec = %f' %(step.flux_res, step.flux_rec ))
+                        log.info('Number Objects = %d, Normalized Epsilon = %f, Window Normalized Epsilon = %f' \
+                                                    %( step.n_atoms, step.normeps, step.avnormeps ))
+
+                        # The row the monitor just appended, and only that one.
+                        conv.write('%s\n' %(' '.join(monitor.rows[-1])))
+                        conv.flush()
+
+                        # The atoms and the trees of this iteration. An iteration
+                        # that was read back off disk is already dumped, by the run
+                        # that computed it.
+                        if not resumed:
+
+                            if config.outfile_format == 'hdf5':
+                                write_itl_to_hdf5( itl, _dump_path(outpath, 'itl', it, 'hdf5') )
+                                write_ol_to_hdf5( ol, hdf5_dump )
+                            elif config.outfile_format == 'pickle':
+                                write_itl_to_pickle( itl, _dump_path(outpath, 'itl', it, 'pkl') )
+                                write_ol_to_pickle( ol, pickle_dump )
+
+                        log.info('[ %s ]End of iteration (time: %s)\n\n'%(datetime.now(), datetime.now() - start_time_it ))
+                        it += 1
+                        # The cap applies to a resumed iteration too. It did not
+                        # before: the resume branch had its own `continue`, which
+                        # jumped over this check, so `max_iter` was not a cap on a
+                        # resumed run at all.
+                        if it > config.max_iter:
                             break
 
-                        # Interscale trees
-                        log.info('[ %s ] Start interscale trees'%datetime.now())
-                        itl = make_interscale_trees(rl, wdc, ldc, dea, tau = config.tau, \
-                                                            min_span = config.min_span, \
-                                                            max_span = config.max_span, \
-                                                            lvl_sep_big = config.lvl_sep_big, \
-                                                            n_workers = config.n_workers, \
-                                                            size_patch = config.size_patch, \
-                                                            verbose = True)
-                        if not itl:
-                            break
-
-                        # Restoration of detected objects
-                        log.info('[ %s ] Start object restoration'%datetime.now())
-                        ol = restore_objects_default(itl, reconstruction.residuals, 0.01, 15, wdc, ldc, size_patch_small = 1, \
-                                                           gamma = config.gamma, \
-                                                           extent_sep = config.extent_sep, \
-                                                           ecc_sep = config.ecc_sep, \
-                                                           lvl_sep_lin = config.lvl_sep_lin, \
-                                                           lvl_sep_big = config.lvl_sep_big, \
-                                                           lvl_sep_op = config.lvl_sep_op, \
-                                                           rm_gamma_for_big = config.rm_gamma_for_big, \
-                                                           size_patch_big = 1, \
-                                                           size_big_objects = 512, \
-                                                           deconv = config.deconv, \
-                                                           cg_max_iter = config.cg_max_iter, \
-                                                           n_workers = config.n_workers, \
-                                                           verbose = True ) # objects in original image pixel value range
-
-                    # Atom
-                    log.info('[ %s ] Add atoms to restored images.'%datetime.now())
-                    atom = reconstruction.add(ol)
-                    n_atoms += len(ol)
-
-                    # Convergence
-                    step = monitor.update(level, it, atom, reconstruction.residuals,
-                                          reconstruction.restored, len(ol),
-                                          datetime.now() - start_time_it)
-                    log.info('Convergence : res = %f rec = %f' %(step.flux_res, step.flux_rec ))
-                    log.info('Number Objects = %d, Normalized Epsilon = %f, Window Normalized Epsilon = %f' \
-                                                %( step.n_atoms, step.normeps, step.avnormeps ))
-
-                    # The atoms and the trees of this iteration. An iteration
-                    # that was read back off disk is already dumped, by the run
-                    # that computed it.
-                    if not resumed:
-
-                        if config.outfile_format == 'hdf5':
-                            write_itl_to_hdf5( itl, _dump_path(outpath, 'itl', it, 'hdf5') )
-                            write_ol_to_hdf5( ol, hdf5_dump )
-                        elif config.outfile_format == 'pickle':
-                            write_itl_to_pickle( itl, _dump_path(outpath, 'itl', it, 'pkl') )
-                            write_ol_to_pickle( ol, pickle_dump )
-
-                    log.info('[ %s ]End of iteration (time: %s)\n\n'%(datetime.now(), datetime.now() - start_time_it ))
-                    it += 1
-                    # The cap applies to a resumed iteration too. It did not
-                    # before: the resume branch had its own `continue`, which
-                    # jumped over this check, so `max_iter` was not a cap on a
-                    # resumed run at all.
                     if it > config.max_iter:
                         break
-
-                if it > config.max_iter:
-                    break
 
         #===========================================================================
         # Write results to disk
@@ -523,11 +553,6 @@ def run(image, config: Config | None = None, *, outdir: str = '.',
         # code built the right HDU and then wrote the wrong one (#49).
         _write_fits( ''.join(( outpath, '.deterror.fits' )), reconstruction.det_err, header )
         _write_fits( ''.join(( outpath, '.scl.restored.fits' )), reconstruction.restored_per_level, header )
-
-        with open( ''.join(( outpath, '.cpar.txt' )), 'w+') as conv:
-            conv.write('%s\n' %(CONVERGENCE_HEADER))
-            for row in monitor.rows:
-                conv.write('%s\n' %(' '.join(row)))
 
         # The convergence plot and the animation are drawn from these files by
         # `dawis.viz`, after the run rather than during it (#46).

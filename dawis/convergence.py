@@ -26,7 +26,10 @@ The trace is the second half. Every :meth:`ConvergenceMonitor.update` appends
 one row to :attr:`ConvergenceMonitor.rows`, which the pipeline writes to
 ``<outpath>.cpar.txt`` and :func:`dawis.viz.rebuild_convergence_plot` draws.
 The rows are built here rather than in the pipeline so the column order and the
-header cannot drift apart from each other.
+header cannot drift apart from each other. The pipeline writes each row as the
+iteration that made it ends, so an interrupted run leaves a trace of what it
+did get through (#66); the monitor is still where every row comes from, which
+is what keeps a resumed run from writing one twice.
 
 This module sits at the top level, beside :mod:`dawis.cubes` and
 :mod:`dawis.parallel`, for the reason those do: it is vocabulary the pipeline
@@ -40,7 +43,8 @@ from datetime import timedelta
 
 import numpy as np
 
-__all__ = ['CONVERGENCE_HEADER', 'ConvergenceMonitor', 'ConvergenceStep']
+__all__ = ['CONVERGENCE_FIELDS', 'CONVERGENCE_HEADER', 'ConvergenceMonitor',
+           'ConvergenceStep']
 
 #: Comment line the pipeline writes at the top of ``<outpath>.cpar.txt``.
 #:
@@ -49,6 +53,18 @@ __all__ = ['CONVERGENCE_HEADER', 'ConvergenceMonitor', 'ConvergenceStep']
 #: does not change what a run puts on disk; the authoritative column list is
 #: the order :meth:`ConvergenceMonitor.update` builds a row in.
 CONVERGENCE_HEADER = '# level, it, window_normeps, normeps, eps, n_obj, time_it'
+
+#: Fields in one row of ``<outpath>.cpar.txt``.
+#:
+#: Nine: level, iteration, window-normalised epsilon, normalised epsilon,
+#: epsilon, the two flux fractions, the atom count and the wall time — the
+#: order :meth:`ConvergenceMonitor.update` builds a row in.
+#: :data:`CONVERGENCE_HEADER` names only seven of them, which is why the count
+#: is stated here rather than read off the header.
+#:
+#: A reader needs it to tell a row truncated by a kill mid-write from a row
+#: that is corrupt; see :func:`dawis.viz.read_convergence_table`.
+CONVERGENCE_FIELDS = 9
 
 #: How many iterations the window average covers.
 WINDOW_SIZE = 5
