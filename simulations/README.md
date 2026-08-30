@@ -4,7 +4,8 @@ Synthetic FITS images with exact ground truth, for the restoration test
 battery of #25. Hand-run, not a pytest tier, not CI. Spec: #67. This directory
 was built by #68; #69 added the generator's full command line; #70 added the
 `point` and `sersic_n1_halo` classes; #71 added `blend` and with it the last
-of the four.
+of the four; #72 added the other two noise regimes and the other two
+realisations, and with them the whole 72-entry grid.
 
 DAWIS has one image it can run on today, and nobody knows the right answer for
 it. Every claim about over-subtraction, flux conservation or shape recovery is
@@ -125,19 +126,62 @@ standard deviation; subtracting would keep the second and throw away the
 first, and would leave the manifest's `sky_level` describing a level no longer
 in the pixels — which is the comparison it is recorded for.
 
+### The three noise regimes
+
+| regime | sky level (ADU) | read noise (e⁻) | gain (e⁻/ADU) | read share of variance |
+|---|---|---|---|---|
+| `read_noise` | 0.00216 | 1.735 | 155 | 90% |
+| `balanced` | 0.0108 | 1.293 | 155 | 50% |
+| `photon` | 0.0194 | 0.578 | 155 | 10% |
+
+`balanced` is the anchored one: its sky level is the packaged gallery image's
+median and its σ is that image's standard deviation, so the numbers correspond
+to a real observation. The other two are **displacements of it**, computed
+from it rather than written down beside it, so a correction to the anchor
+carries the whole axis with it.
+
+All three hold the background σ and the gain fixed at the balanced regime's
+values and move only the *split* of the variance between the photon and read
+terms. That is deliberate, and it is #72's reading of #67 rather than a number
+#67 states.
+
+A source's flux is set from a peak SNR, and an SNR is measured against σ. The
+grid geometry survives a change of depth — the wing radius is a ratio of
+profile to background, and the spacing follows the profile — but every flux
+and every magnitude scales with it, and #67 asks for residuals binned by
+brightness. A magnitude bin holding a different source in each regime would
+not be one bin.
+
+Depth is not lost by holding it. The ladder already spans peak SNR 3 to 1000
+*within* every image, which is a wider range of depth than three regimes could
+carry between them: depth is the grid's column axis, not this one. What the
+regime axis adds, and all it adds, is which noise source that depth is made of
+— which is what DAWIS's own noise estimator has to cope with, and #67 puts
+that estimator inside the measurement on purpose.
+
+Nine parts to one, rather than a term switched off entirely: a regime with no
+photon noise at all would be a different noise model, not a regime DAWIS
+claims to handle. The two flanking regimes are points in camera-parameter
+space rather than two particular cameras, and their read noise is not to be
+read off against a detector datasheet — the gain is 155 because the anchored
+image is in calibrated units rather than raw counts, so an "electron" here is
+a unit of that calibration and not a photoelectron.
+
 ## What is built
 
-#68 was the tracer bullet: one narrow path through all three layers, for
-`sersic_n4` / `balanced` / `r0`. #70 added the other two **isolated** classes,
-`point` and `sersic_n1_halo`, and #71 added `blend`. Both tiers of all four
-classes build, so `--all` sweeps **eight** of the 72 entries #67 specifies,
-and the class axis is complete.
+**All 72 entries.** #68 was the tracer bullet: one narrow path through all
+three layers, for `sersic_n4` / `balanced` / `r0`. #70 added the other two
+**isolated** classes, `point` and `sersic_n1_halo`, #71 added `blend`, and #72
+added the two remaining noise regimes and the two remaining realisations.
+`--all` now sweeps the whole grid #67 specifies: 2 tiers × 4 classes × 3
+regimes × 3 realisations.
 
-Every other combination of the four axes is **refused**, not guessed. Asking
-for the `photon` regime or for `r1` raises `AxisNotBuiltError` with a message
-saying the numbers belong to the ticket that decides them. A recipe that
-invented them would put an entry on disk that looks exactly as authoritative
-as a decided one.
+A value that is not on an axis at all is still **refused**, not guessed.
+Asking for `r3`, or for a fifth class, raises `AxisNotBuiltError` with a
+sentence saying so rather than a `KeyError` from the middle of a layout. #25
+already names two classes beyond #67's four, and #67 wants the realisation
+count raisable, so the next undecided value is a matter of when rather than
+whether.
 
 ### The three isolated classes
 
@@ -251,28 +295,18 @@ and `bright_peak_snr`. Those two shared keys therefore change subject with the
 class, so the manifest says so outright in `ladders_describe` rather than
 leaving a consumer to infer it from the keys beside them.
 
-The parts that #67 decides outright are already general: seed derivation over
-all four classes and three regimes, both tiers' geometry, the entry and file
-naming, the manifest schema.
-
-**The tier axis is not refused**, unlike the other three. #67 decides both
-tiers completely — an image size and a grid side each, and nothing else — so
-there is no undecided number to guess at, and `small` generates. The other
-three axes each need parameters no ticket has written down.
-
 `manifest.json` carries more than the keys #68 lists. That list is a minimum,
 not a schema: the extra keys are provenance a later reader is better off
 having, and nothing reads the manifest by position.
 
-`--all` is the complement of those refusals rather than a second list beside
+`--all` is the complement of the refusals rather than a second list beside
 them: it walks all 72 axis combinations and keeps the ones the recipe does not
-refuse. A ticket that decides a regime lifts one refusal and the sweep grows
-by itself, with no list here to forget to update — #70 and #71 each lifted
-class refusals and the sweep went from two entries to six to eight without a
-line of sweep logic changing. `--realisation`
-carries no `choices` list for the same reason: `r3` is refused by the recipe,
-with a message naming the ticket that owns it, rather than by argparse with
-"invalid choice".
+refuse. That is why each ticket grew the sweep with no list here to forget to
+update — #70 and #71 lifted class refusals and took it from two entries to six
+to eight, and #72 lifted the last two and took it to all 72, without a line of
+sweep logic changing. `--realisation` carries no `choices` list for the same
+reason: `r3` is refused by the recipe, with a sentence saying the gallery has
+three realisations, rather than by argparse with "invalid choice".
 
 A *geometry* failure is not filtered out of the sweep. If a decided entry
 trips the wing-radius, truncation or edge-margin refusal, `--all` stops on it:
@@ -406,4 +440,6 @@ GalSim appears in no DAWIS dependency group, including the optional extras.
 The reference measurement in #67 is about 262.5 s for a 900x900 DAWIS run, so
 the `small` tier is roughly 85 s per run and `full` roughly 340 s. Running the
 whole 72-entry gallery through DAWIS once is about 4.2 hours. *Generating* an
-entry is cheap by comparison — about 25 s for the `full` tier.
+entry is cheap by comparison — about 25 s for the `full` tier — so `--all`,
+which since #72 really does build all 72, is well under an hour and is meant
+to be run in one go. It resumes if it is not.

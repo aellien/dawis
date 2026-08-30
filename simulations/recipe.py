@@ -15,19 +15,25 @@ decisions be unit-tested in the ordinary test environment in seconds. See
 What is decided, and what is refused
 ------------------------------------
 #68 was a tracer bullet: one narrow path through every layer, with the other
-axes hard-coded. #70 added the ``point`` and ``sersic_n1_halo`` classes and
-#71 the ``blend`` class, which completes the class axis. Two things follow.
+axes hard-coded. #70 added the ``point`` and ``sersic_n1_halo`` classes, #71
+the ``blend`` class, and #72 the two remaining regimes and the two remaining
+realisations. **All 72 entries of #67 now build**, and no axis value the spec
+names is refused any longer.
 
-The parts that are *general* are general here — seed derivation, entry and
-file naming, tier geometry, the noise regime table, and the grid the three
-isolated classes share. Those are decided outright by #67 and cost nothing to
-state completely.
+What survives that is the refusal itself. A value that is not on an axis at
+all — a fifth class, a fourth realisation — still raises
+``AxisNotBuiltError`` rather than reaching a layout. #25 already names two
+more classes than #67 builds, and #67 wants the realisation count raisable, so
+the next undecided value is a matter of when rather than whether.
 
-The parts #67 leaves to a later ticket are **refused**, not guessed. Asking
-for a regime or a realisation whose numbers no ticket has decided raises
-``AxisNotBuiltError``. A recipe that invented them would put an entry on disk
-that looks exactly as authoritative as a decided one, and no later reader
-could tell the two apart.
+The three regimes
+-----------------
+``balanced`` is anchored to the packaged gallery image's own statistics, and
+``read_noise`` and ``photon`` are displacements of it that hold the background
+depth and the gain fixed and move only the *split* of the variance between the
+photon and read terms. See :func:`_regime_at_read_share` for why the depth is
+held rather than varied. DAWIS is told none of these numbers: they are written
+to ``manifest.json`` for a human reading a result, and to nothing a run opens.
 
 The three isolated classes
 --------------------------
@@ -80,7 +86,6 @@ __all__ = [
     'BLEND_SEPARATION_MIN_FWHM',
     'BUILT_CLASSES',
     'ENTRY_FILE_NAMES',
-    'KNOWN_REGIME_NAMES',
     'MANIFEST_FILE_NAME',
     'PIXEL_SCALE',
     'PROVENANCE_KEYS',
@@ -89,6 +94,8 @@ __all__ = [
     'PSF_TYPE',
     'REALISATIONS',
     'REGIMES',
+    'REGIME_DOMINANCE',
+    'REGIME_NAMES',
     'SOURCE_CLASSES',
     'SOURCE_PROFILES',
     'TIERS',
@@ -194,13 +201,13 @@ def derive_seed(source_class: str, regime: str, realisation: int) -> int:
 
 
 class AxisNotBuiltError(NotImplementedError):
-    """An axis value whose numbers no ticket has decided yet.
+    """An axis value the gallery does not have.
 
-    Both tiers build, and since #71 so does every class of #67 — the three
-    isolated ones of :data:`SOURCE_PROFILES` and the ``blend`` layout beside
-    them. The two regimes beside ``balanced`` and the realisations beyond
-    ``r0`` are refused rather than guessed, each until the ticket that decides
-    its numbers lands.
+    Since #72 every one of #67's 72 entries builds: both tiers, all four
+    classes, all three regimes and all three realisations. What is left for
+    this to refuse is a value off the axis entirely — a fifth class, a fourth
+    realisation, a misspelled regime — which is a mistake worth a sentence
+    rather than a ``KeyError``.
     """
 
 
@@ -407,13 +414,71 @@ class NoiseParameters:
 #: a round number chosen for looks.
 _BALANCED_NOISE = NoiseParameters(sky_level=0.0108, read_noise=1.293, gain=155.0)
 
-#: Only ``balanced`` is decided. The other two regimes are points in the same
-#: three-parameter space, but which points is a decision #68 does not make.
-REGIMES = {'balanced': _BALANCED_NOISE}
+#: The share of the background variance the dominant term carries in the two
+#: regimes either side of ``balanced`` (#72). Nine parts to one: far enough
+#: from the balanced regime's half-and-half that a result which turns on which
+#: noise source dominates has somewhere to show itself, and near enough that
+#: neither term is switched off — a regime with no photon noise at all would
+#: be a different noise model rather than a regime DAWIS claims to handle.
+#:
+#: The two flanking regimes are points in camera-parameter space, not two
+#: particular cameras, and their read noise should not be read off against a
+#: detector datasheet. The gain here is 155 because the anchored image is in
+#: calibrated units rather than raw counts, so an "electron" in these three
+#: regimes is a unit of that calibration and not a photoelectron.
+REGIME_DOMINANCE = 0.9
 
-#: Named so that an unbuilt regime is refused with a message that says "not
-#: yet" rather than "no such thing".
-KNOWN_REGIME_NAMES = ('read_noise', 'balanced', 'photon')
+
+def _regime_at_read_share(read_share: float) -> NoiseParameters:
+    """A regime with the balanced one's depth and gain, split differently (#72).
+
+    The three regimes hold :attr:`NoiseParameters.sigma` and the gain fixed at
+    the balanced regime's values and move only the *split* of the background
+    variance between the photon and read terms. That is a deliberate choice
+    and it is what makes the regime axis readable.
+
+    The reason is the brightness ladder. A source's flux is set from its peak
+    SNR, and an SNR is measured against ``sigma``. The grid geometry survives a
+    change of depth — the wing radius is a ratio of profile to background, and
+    the spacing follows the profile — but every flux and every magnitude scales
+    with it. #67 asks for residuals binned by brightness, and a magnitude bin
+    that held a different source in each regime would not be one bin.
+
+    Nothing is lost by holding it. The ladder already spans peak SNR 3 to 1000
+    *within* each image, a wider range of depth than three regimes could carry
+    between them, so depth is the grid's column axis and not this one. What the
+    regime axis adds, and all it adds, is which noise source that depth is made
+    of — which is the thing DAWIS's noise estimator actually has to cope with.
+
+    Holding the gain fixed too is what leaves ``sky_level`` and ``read_noise``
+    as the two numbers that move, which is how an observer would describe the
+    difference: a deeper sky drowns the read noise, a shallower one does not.
+    """
+    variance = _BALANCED_NOISE.sigma**2
+    gain = _BALANCED_NOISE.gain
+    return NoiseParameters(
+        sky_level=(1.0 - read_share) * variance * gain,
+        read_noise=gain * float(np.sqrt(read_share * variance)),
+        gain=gain,
+    )
+
+
+#: The three regimes of #67, in camera terms. ``balanced`` is the anchored one
+#: and the other two are displacements of it, so the anchor is stated once and
+#: the axis cannot drift away from the image it is anchored to.
+REGIMES = {
+    'read_noise': _regime_at_read_share(REGIME_DOMINANCE),
+    'balanced': _BALANCED_NOISE,
+    'photon': _regime_at_read_share(1.0 - REGIME_DOMINANCE),
+}
+
+#: The regime axis in order, read-noise-dominated to photon-dominated. It is
+#: what the command line offers as ``--regime`` choices, what a refusal lists,
+#: and what a sweep iterates, so the order those three present is the axis's
+#: own: a reader scanning it sees the sky level rise and the read noise fall.
+#: Derived from :data:`REGIMES` rather than restated beside it, so the two
+#: cannot disagree about which regimes exist.
+REGIME_NAMES = tuple(REGIMES)
 
 #: The three noise realisations of #67. Raising the count later adds ``r3``
 #: onward without disturbing these, which is the point of deriving the seed
@@ -1154,17 +1219,19 @@ def _draw_ellipticity(
 
 
 def _refuse_unbuilt_axes(axes: EntryAxes) -> None:
-    """Every axis value no ticket has decided, refused with the reason why."""
+    """Every axis value the gallery does not have, refused with the reason why."""
     tier, source_class, regime, realisation = (
         axes.tier,
         axes.source_class,
         axes.regime,
         axes.realisation,
     )
-    # The tier is checked but never deferred. #67 decides both tiers outright —
-    # an image size and a grid side each, and nothing else — so there is no
-    # undecided number here to guess at. Since #71 the class axis is complete
-    # too, and only the regime and the realisation are still narrowed.
+    # Since #72 every axis of #67 is decided, so nothing below defers: each
+    # check now refuses a value that is not on the axis at all rather than one
+    # whose numbers a later ticket owns. The function is kept, and kept in the
+    # path of every build, because #25 already names two further classes and
+    # #67 leaves the realisation count open — the next value nobody has decided
+    # should meet a sentence, not a ``KeyError`` from the middle of a layout.
     if tier not in TIERS:
         raise AxisNotBuiltError(
             'unknown tier %r: the gallery has %s'
@@ -1181,23 +1248,18 @@ def _refuse_unbuilt_axes(axes: EntryAxes) -> None:
             'entry in SOURCE_PROFILES nor a layout of its own, so its '
             'parameters belong to the ticket that decides them.' % source_class
         )
-    if regime not in KNOWN_REGIME_NAMES:
-        raise AxisNotBuiltError(
-            'unknown regime %r: the gallery has %s'
-            % (regime, ', '.join(KNOWN_REGIME_NAMES))
-        )
     if regime not in REGIMES:
         raise AxisNotBuiltError(
-            'the %r regime is specified in #67 but not built: #68 anchors the '
-            'balanced regime to the gallery image and leaves the other two '
-            'points in camera-parameter space to the ticket that decides them.'
-            % regime
+            'unknown regime %r: the gallery has %s'
+            % (regime, ', '.join(REGIME_NAMES))
         )
-    if realisation != 0:
+    if realisation not in REALISATIONS:
         raise AxisNotBuiltError(
-            'realisation r%d is specified in #67 but not built: #68 builds r0. '
-            'Later realisations are additive and need no change here beyond '
-            'lifting this refusal.' % realisation
+            'realisation r%d is outside the gallery: #67 asks for %d of them, '
+            'r0 to r%d. Adding another is a one-line change to REALISATIONS '
+            'and regenerates nothing, because the seed is derived from the '
+            'realisation index rather than from a position in this list.'
+            % (realisation, len(REALISATIONS), max(REALISATIONS))
         )
 
 
@@ -1572,7 +1634,7 @@ def build_recipe(
     over separation and flux ratio. Everything before the branch — the tier's
     geometry, the noise regime and the derived seed — is common to both.
 
-    Raises :class:`AxisNotBuiltError` for an axis value no ticket has decided,
+    Raises :class:`AxisNotBuiltError` for an axis value the gallery does not have,
     and one of :class:`GridTooTightError`, :class:`PairsTooCloseError`,
     :class:`TruncationTooTightError` or :class:`SourceClippedError` if the
     layout the decided numbers produce is not the layout the class is for.
@@ -1599,7 +1661,7 @@ def all_entries() -> tuple[EntryAxes, ...]:
     return tuple(
         EntryAxes(tier, source_class, regime, realisation)
         for tier, source_class, regime, realisation in itertools.product(
-            TIERS, SOURCE_CLASSES, KNOWN_REGIME_NAMES, REALISATIONS
+            TIERS, SOURCE_CLASSES, REGIME_NAMES, REALISATIONS
         )
     )
 
@@ -1612,13 +1674,13 @@ def built_entries(
 ) -> tuple[EntryAxes, ...]:
     """The entries this recipe can actually build, narrowed by any axis given.
 
-    #67 specifies 72 entries and each ticket decides the numbers for some of
-    them; the rest are refused rather than guessed. So "every entry" means
-    every entry whose parameters a ticket has written down, and this asks the
-    refusal itself rather than keeping a second list beside it. #70 lifted the
-    refusals on ``point`` and ``sersic_n1_halo`` and the sweep grew from two
-    entries to six by itself, with no list here to forget to update. The
-    ticket that decides ``blend`` will do the same.
+    #67 specifies 72 entries and each ticket decided the numbers for some of
+    them; since #72 that is all of them, so this now returns the whole grid.
+    It is still written as the refusal's complement rather than as a list of
+    its own, which is how it reached that without ever being edited: #70
+    lifted two class refusals and it grew from two entries to six, #71 lifted
+    the last class and it grew to eight, #72 lifted the regimes and the
+    realisations and it grew to 72. The next class #25 names will do the same.
 
     Only :class:`AxisNotBuiltError` is treated as "not built". A decided entry
     that fails a *geometry* check — :class:`GridTooTightError`,

@@ -48,12 +48,14 @@ Without ``--all``, all four axes are required and name exactly one entry.
 With ``--all``, any axis given is held fixed and the rest are swept, so
 ``--all --tier small`` builds every known entry of the cheap tier.
 
-``--all`` builds every entry the *recipe* knows about, which today is fewer
-than the 72 #67 specifies: the rest need axis values no ticket has decided,
-and the recipe refuses them rather than guessing. Each ticket that decides an
-axis lifts a refusal, and ``--all`` grows with it — #70 lifted two class
-refusals and the sweep went from two entries to six on its own, and #71 lifted
-the last one and took it to eight.
+``--all`` builds every entry the *recipe* knows about, which since #72 is all
+72 #67 specifies. It is still the complement of the recipe's refusals rather
+than a list of its own, which is how it grew to that with no logic here
+changing: #70 lifted two class refusals and took the sweep from two entries to
+six, #71 lifted the last class and took it to eight, and #72 lifted the two
+regimes and the two realisations and took it to the whole gallery. A value the
+gallery does not have — ``r3``, a fifth class — is still refused, and still by
+the recipe rather than by argparse, so the message says what is wrong with it.
 """
 
 from __future__ import annotations
@@ -152,9 +154,9 @@ def select_entries(
 
     With ``--all`` the given axes are filters over what the recipe can build.
     Without it the four axes name one entry, which is returned whether the
-    recipe can build it or not — so that an undecided axis is refused by
-    :func:`~simulations.recipe.build_recipe` with the message that says which
-    ticket owns it, rather than silently selecting nothing.
+    recipe can build it or not — so that a value the gallery does not have is
+    refused by :func:`~simulations.recipe.build_recipe`, with a message saying
+    what is wrong with it, rather than silently selecting nothing.
     """
     if build_all:
         return recipe_module.built_entries(
@@ -196,7 +198,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         '--regime',
-        choices=recipe_module.KNOWN_REGIME_NAMES,
+        choices=recipe_module.REGIME_NAMES,
         help='noise regime',
     )
     parser.add_argument(
@@ -239,9 +241,9 @@ def main(argv: list[str] | None = None) -> int:
     if not entries:
         parser.exit(
             2,
-            'generate.py: nothing to build for that selection. The recipe '
-            'refuses the axis values no ticket has decided, and --all sweeps '
-            'only what it can build; the ticket that decides them adds them.\n',
+            'generate.py: nothing to build for that selection. --all sweeps '
+            'only what the recipe can build, so a filter naming a value the '
+            'gallery does not have selects nothing at all.\n',
         )
 
     # #68's report, unchanged for the one-entry command it was written for.

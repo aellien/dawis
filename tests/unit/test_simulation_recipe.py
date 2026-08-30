@@ -129,6 +129,30 @@ def test_changing_any_of_the_three_inputs_changes_the_seed(left, right):
     assert recipe_module.derive_seed(*left) != recipe_module.derive_seed(*right)
 
 
+def test_no_two_entries_of_the_gallery_share_a_seed():
+    """72 entries, 72 seeds (#72).
+
+    A collision would hand two entries the same noise draw. The pairing #67
+    builds the gallery around would still hold — every variant would read the
+    same bytes — but the two entries would stop being independent samples, and
+    nothing downstream would say so. ``blake2b`` over a namespaced key rather
+    than ``crc32`` is the choice that makes this hold; this is where the
+    choice is checked rather than assumed.
+    """
+    seeds = {
+        recipe_module.derive_seed(axes.source_class, axes.regime, axes.realisation)
+        for axes in recipe_module.all_entries()
+    }
+
+    # One per class, regime and realisation: the tier is deliberately not an
+    # input, so the two tiers of one entry share a seed and share their bytes.
+    assert len(seeds) == (
+        len(recipe_module.SOURCE_CLASSES)
+        * len(recipe_module.REGIMES)
+        * len(recipe_module.REALISATIONS)
+    )
+
+
 def test_the_seed_fits_the_range_a_generator_can_use():
     """A non-negative 63-bit integer, which numpy and GalSim both accept."""
     seed = recipe_module.derive_seed('sersic_n4', 'balanced', 0)
@@ -491,29 +515,58 @@ def test_a_source_cut_by_the_image_edge_is_refused(tracer_recipe):
 
 
 # --------------------------------------------------------------------------
-# The axes that are not built yet
+# The axes the gallery does not have
 # --------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
     'axes',
     [
-        dict(TRACER, regime='read_noise'),
-        dict(TRACER, regime='photon'),
-        dict(TRACER, realisation=1),
+        dict(TRACER, tier='enormous'),
+        dict(TRACER, source_class='cirrus'),
+        dict(TRACER, regime='shot'),
+        dict(TRACER, realisation=3),
+        dict(TRACER, realisation=-1),
     ],
 )
-def test_an_axis_value_no_ticket_has_decided_is_refused(axes):
-    """Each axis value arrives with the ticket that decides its numbers.
+def test_an_axis_value_the_gallery_does_not_have_is_refused(axes):
+    """Every axis value of #67 now builds, so what is left to refuse is a typo.
 
-    A recipe that guessed at the undecided ones would put an entry on disk
-    that looks as authoritative as a decided one. Refusing is the honest
-    behaviour until that ticket lands. #70 lifted the refusal on ``point`` and
-    ``sersic_n1_halo`` and #71 the last one, on ``blend``, so only the regime
-    and the realisation are still narrowed.
+    #68 refused two regimes and two realisations because no ticket had decided
+    their numbers; #72 decided them and the whole 72-entry grid builds. The
+    refusal stays in the path of every build because #25 already names two
+    classes beyond #67's four, and #67 wants the realisation count raisable —
+    so the next value nobody has decided should meet a sentence rather than a
+    ``KeyError`` from the middle of a layout.
     """
     with pytest.raises(recipe_module.AxisNotBuiltError):
         recipe_module.build_recipe(**axes)
+
+
+def test_every_entry_sixty_seven_specifies_now_builds():
+    """The whole four-axis grid, built rather than tallied (#72).
+
+    #67 states 72 entries. Asserting the count alone would pass on 72 entries
+    that raise, so every one of them is described here — it is the same
+    property ``--all`` depends on, asserted at the seam that owns it.
+    """
+    entries = recipe_module.all_entries()
+
+    assert len(entries) == 72
+    for axes in entries:
+        recipe = recipe_module.build_recipe(
+            tier=axes.tier,
+            source_class=axes.source_class,
+            regime=axes.regime,
+            realisation=axes.realisation,
+        )
+
+        assert (
+            recipe.tier,
+            recipe.source_class,
+            recipe.regime,
+            recipe.realisation,
+        ) == (axes.tier, axes.source_class, axes.regime, axes.realisation)
 
 
 def test_every_class_sixty_seven_specifies_now_builds():
@@ -541,22 +594,70 @@ def test_a_class_with_neither_a_profile_nor_a_layout_is_refused(monkeypatch):
         recipe_module.build_recipe(**dict(TRACER, source_class='cirrus'))
 
 
-def test_an_unknown_axis_value_is_refused():
-    with pytest.raises(recipe_module.AxisNotBuiltError):
-        recipe_module.build_recipe(
-            tier='enormous', source_class='sersic_n4', regime='balanced', realisation=0
-        )
+# --------------------------------------------------------------------------
+# The two tiers (#72)
+# --------------------------------------------------------------------------
+
+#: The two sizes #67 states outright: a cheap one for wide sweeps and a larger
+#: one for confirmation. Written here as literals rather than read off
+#: :data:`recipe_module.TIERS`, because a test that asks the module what it
+#: decided cannot catch the module deciding something else.
+TIER_GEOMETRY = {'small': (512, 3), 'full': (1024, 5)}
 
 
-def test_the_small_tier_is_available_because_it_only_changes_geometry():
-    """Both tiers are decided by #67 outright — size and grid shape, nothing else."""
-    small = recipe_module.build_recipe(
-        tier='small', source_class='sersic_n4', regime='balanced', realisation=0
+@pytest.mark.parametrize('tier', sorted(TIER_GEOMETRY))
+@pytest.mark.parametrize('source_class', recipe_module.SOURCE_CLASSES)
+def test_both_tiers_build_at_the_dimensions_and_grid_shape_sixty_seven_states(
+    tier, source_class
+):
+    """Every class at both sizes, on the grid the tier is defined by.
+
+    The tier changes the image and the grid and nothing else — no class gets a
+    grid of its own — so the assertion is the same one for all four.
+    """
+    image_size, grid_side = TIER_GEOMETRY[tier]
+    recipe = recipe_module.build_recipe(
+        **dict(TRACER, tier=tier, source_class=source_class)
     )
 
-    assert small.image_shape == (512, 512)
-    assert small.grid_shape == (3, 3)
-    assert len(small.sources) == 9
+    assert recipe.image_shape == (image_size, image_size)
+    assert recipe.grid_shape == (grid_side, grid_side)
+    assert len({(source.row, source.column) for source in recipe.sources}) == (
+        grid_side**2
+    )
+
+
+@pytest.mark.parametrize('tier', sorted(TIER_GEOMETRY))
+def test_the_spacing_refusal_fires_on_both_tiers(monkeypatch, tier):
+    """A grid narrowed past the brightest wings is refused at either size.
+
+    #67 puts this check in the generator so that widening the magnitude range
+    cannot silently turn the isolated field into a blend field, and #72 owes it
+    on *both* tiers rather than on the one the earlier tickets happened to
+    build. Neither real tier trips it — that is what the tiers are chosen for —
+    so each is rebuilt at its own image size with just enough grid steps to
+    close its cells past the wings, and the step count is computed from the
+    entry itself rather than pinned, so a later change to the profile moves it
+    rather than breaking it.
+    """
+    entry = dict(TRACER, tier=tier)
+    roomy = recipe_module.build_recipe(**entry)
+    image_size, grid_side = TIER_GEOMETRY[tier]
+    # ``Tier.grid_spacing`` insets the grid by an edge margin on each side, so
+    # recovering the margin is what lets the span be narrowed while the layout
+    # keeps the room it needs at the border.
+    span = roomy.grid_spacing * (grid_side - 1)
+    cramped_side = int(np.ceil(span / roomy.wing_radius)) + 1
+    assert cramped_side > grid_side
+
+    monkeypatch.setitem(
+        recipe_module.TIERS,
+        tier,
+        recipe_module.Tier(image_size=image_size, grid_side=cramped_side),
+    )
+
+    with pytest.raises(recipe_module.GridTooTightError):
+        recipe_module.build_recipe(**entry)
 
 
 # --------------------------------------------------------------------------
@@ -564,17 +665,52 @@ def test_the_small_tier_is_available_because_it_only_changes_geometry():
 # --------------------------------------------------------------------------
 
 
-def test_the_balanced_regime_matches_the_gallery_image_statistics(tracer_recipe):
-    """Anchored to the packaged HST ACS F814W image, per #67.
+#: The image the balanced regime is anchored to: the HST ACS F814W cutout
+#: packaged with DAWIS, and the only image DAWIS could be run on before this
+#: gallery existed.
+GALLERY_IMAGE = REPOSITORY_ROOT / 'dawis' / 'gallery' / 'tidal_group_f814w_sci.fits'
 
-    Median ~0.0108 and standard deviation ~0.0118 are the numbers measured on
-    ``dawis/gallery/tidal_group_f814w_sci.fits``, so the camera parameters here
-    correspond to a real observation rather than to a round number.
+#: The stated tolerance of the anchoring, as a relative difference. One per
+#: cent: loose enough for the float32 pixels and for #67 having quoted the two
+#: statistics to three figures, tight enough that a drift which would change
+#: what "balanced" means fires it. The measured agreement is 0.3% on the sky
+#: level and 0.5% on sigma, so there is real room between passing and failing.
+ANCHOR_TOLERANCE = 0.01
+
+
+@pytest.fixture(scope='module')
+def gallery_image_statistics():
+    """The median and standard deviation of the packaged gallery image.
+
+    Measured here rather than transcribed. #67 quotes ~0.0108 and ~0.0118, and
+    a test against those literals would still pass if the packaged image were
+    replaced — which is the one thing the anchoring is supposed to survive.
+
+    Plain median and plain standard deviation over the whole frame, which is
+    what #67's two numbers are: no sigma clipping and no source masking, so a
+    reader can reproduce them in two lines.
     """
+    from astropy.io import fits
+
+    pixels = fits.getdata(GALLERY_IMAGE).astype(float)
+    return float(np.median(pixels)), float(pixels.std())
+
+
+def test_the_balanced_regime_matches_the_gallery_image_statistics(
+    tracer_recipe, gallery_image_statistics
+):
+    """Anchored to the packaged HST ACS F814W image itself, per #67.
+
+    The sky level is that image's median and sigma is its standard deviation,
+    so the balanced regime's camera parameters correspond to a real
+    observation rather than to a round number — and the other two regimes,
+    which are displacements of this one, inherit that.
+    """
+    median, standard_deviation = gallery_image_statistics
     noise = tracer_recipe.noise
 
-    assert noise.sky_level == pytest.approx(0.0108, rel=0.02)
-    assert noise.sigma == pytest.approx(0.0118, rel=0.02)
+    assert noise.sky_level == pytest.approx(median, rel=ANCHOR_TOLERANCE)
+    assert noise.sigma == pytest.approx(standard_deviation, rel=ANCHOR_TOLERANCE)
 
 
 def test_the_balanced_regime_splits_its_variance_between_the_two_sources(
@@ -593,6 +729,270 @@ def test_the_noise_is_poisson_gaussian_not_pure_gaussian(tracer_recipe):
     assert noise.gain > 0.0
     assert noise.photon_variance > 0.0
     assert noise.read_noise > 0.0
+
+
+# --------------------------------------------------------------------------
+# The other two regimes (#72)
+# --------------------------------------------------------------------------
+
+
+def regime_recipe(regime: str):
+    """One regime's entry, on :data:`TRACER`'s other three axes.
+
+    Every assertion below is about the regime, so the tier, the class and the
+    realisation are held at the tracer's values rather than restated.
+    """
+    return recipe_module.build_recipe(**dict(TRACER, regime=regime))
+
+
+def regime_noise(regime: str):
+    """One regime's camera parameters, as a built entry carries them.
+
+    Read off a recipe rather than out of :data:`recipe_module.REGIMES`, so
+    what is asserted is what an entry on disk would actually be drawn with.
+    """
+    return regime_recipe(regime).noise
+
+
+@pytest.mark.parametrize('regime', recipe_module.REGIME_NAMES)
+def test_every_regime_sixty_seven_names_now_builds(regime):
+    """Three points in camera-parameter space, all three reachable (#72)."""
+    recipe = regime_recipe(regime)
+
+    assert recipe.regime == regime
+    assert recipe.noise is recipe_module.REGIMES[regime]
+
+
+def test_the_three_regimes_are_genuinely_distinct():
+    """Not three labels on one camera (#72).
+
+    Two of the three parameters move — the sky level and the read noise — and
+    they move in opposite directions, which is what "which term dominates"
+    means when the total is held fixed. The pairwise comparison is what says
+    it: three regimes that agreed on either number would be two regimes and a
+    duplicate.
+    """
+    noises = [regime_noise(regime) for regime in recipe_module.REGIME_NAMES]
+
+    assert len({noise.sky_level for noise in noises}) == 3
+    assert len({noise.read_noise for noise in noises}) == 3
+    for read_dominated, photon_dominated in zip(noises, noises[1:]):
+        assert read_dominated.sky_level < photon_dominated.sky_level
+        assert read_dominated.read_noise > photon_dominated.read_noise
+
+
+def test_each_regime_is_dominated_by_the_term_it_is_named_after():
+    """The axis is readable: the name says which term carries the variance (#72).
+
+    ``read_noise`` and ``photon`` sit at :data:`REGIME_DOMINANCE` — nine parts
+    to one — either side of the balanced regime's half-and-half. Asserting the
+    share rather than the raw numbers is what keeps this a statement about the
+    regime rather than about arithmetic.
+    """
+    dominance = recipe_module.REGIME_DOMINANCE
+
+    for regime, read_share in (
+        ('read_noise', dominance),
+        ('balanced', 0.5),
+        ('photon', 1.0 - dominance),
+    ):
+        noise = regime_noise(regime)
+        total = noise.read_variance + noise.photon_variance
+
+        assert noise.read_variance / total == pytest.approx(read_share, abs=0.01)
+
+
+def test_every_regime_stays_poisson_gaussian():
+    """No regime switches a term off — a dominated term is not an absent one.
+
+    #67 asks for Poisson-Gaussian noise "so that the test is representative of
+    real detector data", and #72 owes that of all three regimes rather than of
+    the anchored one alone.
+
+    A regime with no photon noise at all would be a different noise model, not
+    a noise regime DAWIS claims to handle, and the metrics of #25 would be
+    measuring something the algorithm never meets on real data.
+    """
+    for regime in recipe_module.REGIME_NAMES:
+        noise = regime_noise(regime)
+
+        assert noise.sky_level > 0.0
+        assert noise.read_noise > 0.0
+        assert noise.gain > 0.0
+        assert noise.photon_variance > 0.0
+        assert noise.read_variance > 0.0
+
+
+def test_the_three_regimes_are_the_same_depth_so_the_ladder_means_one_thing():
+    """The regimes move the noise's character, not how much of it there is (#72).
+
+    A source's flux is set from a peak SNR, and an SNR is measured against
+    ``sigma``. The *geometry* survives a change of depth — the wing radius is
+    a ratio of profile to background and the spacing follows the profile, so
+    both are sigma-invariant — but every flux and every magnitude scales with
+    it. #67 asks for residuals binned by brightness, and a magnitude bin that
+    meant a different source in each regime would not be one bin.
+
+    Depth is not lost by holding it here: the ladder already spans peak SNR 3
+    to 1000 *inside* every image, which is a wider range of depth than three
+    regimes could carry between them. What the regime axis adds, and the only
+    thing it adds, is which noise source that depth is made of.
+
+    Exact equality rather than a tolerance, because the two flanking regimes
+    are computed from the anchored one. If they were independent literals a
+    correction to the anchor would leave them behind, and the axis would
+    quietly stop being about the image it claims to be anchored to.
+    """
+    recipes = [regime_recipe(regime) for regime in recipe_module.REGIME_NAMES]
+    balanced = regime_recipe('balanced')
+
+    for other in recipes:
+        assert other.noise.sigma == balanced.noise.sigma
+        assert other.noise.gain == balanced.noise.gain
+        assert other.peak_snr_ladder == balanced.peak_snr_ladder
+        assert other.magnitude_ladder == balanced.magnitude_ladder
+
+
+def test_no_regime_reaches_anything_but_the_noise():
+    """The regime is not allowed to move the layout or the sources (#72).
+
+    Same positions, same fluxes, same shapes — the seed is a function of the
+    regime, so the *draws* differ, but nothing the regime touches is a
+    decision about geometry. This is the assertion that would catch a future
+    regime that changed the depth by accident.
+    """
+    balanced = regime_recipe('balanced')
+    photon = regime_recipe('photon')
+
+    assert photon.image_shape == balanced.image_shape
+    assert photon.grid_shape == balanced.grid_shape
+    assert len(photon.sources) == len(balanced.sources)
+    assert photon.wing_radius == pytest.approx(balanced.wing_radius)
+    for left, right in zip(photon.sources, balanced.sources):
+        assert left.flux == pytest.approx(right.flux)
+        assert left.peak_snr == pytest.approx(right.peak_snr)
+
+
+# --------------------------------------------------------------------------
+# The three realisations (#72)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize('realisation', recipe_module.REALISATIONS)
+@pytest.mark.parametrize('source_class', recipe_module.SOURCE_CLASSES)
+@pytest.mark.parametrize('regime', recipe_module.REGIME_NAMES)
+def test_three_realisations_build_for_every_class_and_regime(
+    regime, source_class, realisation
+):
+    """#67 asks for three per entry, so the count is asserted per entry."""
+    recipe = recipe_module.build_recipe(
+        **dict(
+            TRACER,
+            source_class=source_class,
+            regime=regime,
+            realisation=realisation,
+        )
+    )
+
+    assert recipe.realisation == realisation
+    assert recipe.seed == recipe_module.derive_seed(source_class, regime, realisation)
+
+
+def test_the_realisations_of_one_entry_are_different_draws_of_one_layout():
+    """Different noise, same field: that is what a realisation is.
+
+    The positions and the ellipticities are drawn from the seed too, so they
+    move with it — but the ladder they are laid on does not, or the three
+    realisations would not be three samples of one measurement.
+    """
+    recipes = [
+        recipe_module.build_recipe(**dict(TRACER, realisation=realisation))
+        for realisation in recipe_module.REALISATIONS
+    ]
+
+    assert len({recipe.seed for recipe in recipes}) == len(recipe_module.REALISATIONS)
+    for other in recipes[1:]:
+        assert other.magnitude_ladder == recipes[0].magnitude_ladder
+        assert other.peak_snr_ladder == recipes[0].peak_snr_ladder
+        assert other.grid_spacing == pytest.approx(recipes[0].grid_spacing)
+        assert [source.x for source in other.sources] != [
+            source.x for source in recipes[0].sources
+        ]
+
+
+#: Every entry a fourth realisation could disturb: all four classes on all
+#: three regimes. The tier is left out because it does not reach the seed, and
+#: the recipes it produces differ from each other for that reason alone.
+EVERY_CLASS_AND_REGIME = [
+    (source_class, regime)
+    for source_class in recipe_module.SOURCE_CLASSES
+    for regime in recipe_module.REGIME_NAMES
+]
+
+
+def serialised(recipe) -> str:
+    """One recipe as the bytes the write layer would put on disk.
+
+    ``manifest.json`` is written from exactly this, so comparing the string is
+    comparing the file. Provenance is passed as fixed values rather than left
+    to the generator, so a numpy upgrade between two calls cannot show up as a
+    difference in the entry.
+    """
+    return json.dumps(
+        recipe.manifest(galsim_version='pinned', source_commit='pinned'),
+        indent=2,
+        sort_keys=True,
+    )
+
+
+@pytest.mark.parametrize(('source_class', 'regime'), EVERY_CLASS_AND_REGIME)
+def test_a_fourth_realisation_leaves_the_first_three_byte_identical(
+    monkeypatch, source_class, regime
+):
+    """#67's whole reason for deriving the seed from the index (#72).
+
+    Raising the realisation count must be **additive**: every image already
+    generated stays valid and every number already recorded against it stays
+    comparable. A seed taken from a position in a list would renumber nothing
+    and change everything; a seed taken from the index changes nothing at all.
+
+    What this actually compares is ``manifest.json``'s bytes and the derived
+    seed. Together those fix the entry: the manifest holds every decision the
+    recipe made, and the seed is the sole input to the draw the render layer
+    performs, so two entries agreeing on both agree on their pixels.
+
+    It is a *regression* test rather than a proof — nothing in the recipe reads
+    :data:`REALISATIONS` today except the refusal, so today it cannot fail. It
+    is here because the implementation it guards against is the natural one: a
+    seed derived from ``REALISATIONS.index(realisation)``, or from an
+    enumeration over the tuple, would pass every other test in this module and
+    silently invalidate the gallery on the day a fourth realisation was added.
+    """
+    axes = dict(TRACER, source_class=source_class, regime=regime)
+    before = {
+        realisation: serialised(
+            recipe_module.build_recipe(**dict(axes, realisation=realisation))
+        )
+        for realisation in recipe_module.REALISATIONS
+    }
+    seeds_before = {
+        realisation: recipe_module.derive_seed(source_class, regime, realisation)
+        for realisation in recipe_module.REALISATIONS
+    }
+
+    monkeypatch.setattr(
+        recipe_module, 'REALISATIONS', recipe_module.REALISATIONS + (3,)
+    )
+    fourth = recipe_module.build_recipe(**dict(axes, realisation=3))
+
+    for realisation, manifest in before.items():
+        after = recipe_module.build_recipe(**dict(axes, realisation=realisation))
+
+        assert serialised(after) == manifest
+        assert after.seed == seeds_before[realisation]
+
+    assert fourth.seed not in seeds_before.values()
+    assert serialised(fourth) not in before.values()
 
 
 # --------------------------------------------------------------------------

@@ -32,6 +32,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from astropy.io import fits
 
 # ``simulations`` is deliberately not part of the distributed package (see
 # ``test_package_surface.py``), so it is not importable off the install. It is
@@ -138,28 +139,22 @@ def test_the_sweep_holds_the_entry_the_tracer_ticket_built():
     assert TRACER in recipe_module.built_entries()
 
 
-def test_an_axis_no_ticket_has_decided_is_not_swept():
-    """The sweep holds exactly the axis values a ticket has written down.
+def test_the_sweep_is_now_the_whole_gallery():
+    """Every axis value #67 names is swept (#72).
 
-    #68 decided ``sersic_n4`` / ``balanced`` / ``r0``, #70 added the other two
-    isolated classes and #71 the ``blend`` layout, so the class axis is now
-    complete. The other two regimes and the later realisations still need
-    numbers, so those two axes stay narrowed until the tickets that own them
-    land.
+    #68 decided ``sersic_n4`` / ``balanced`` / ``r0`` and narrowed the rest;
+    #70 added the other two isolated classes, #71 the ``blend`` layout, and #72
+    the two remaining regimes and the two remaining realisations. There is
+    nothing left for ``--all`` to leave out, and this is where that is stated
+    once rather than inferred from a count.
     """
     swept = recipe_module.built_entries()
-    assert set(recipe_module.SOURCE_CLASSES) == {
-        axes.source_class for axes in swept
-    }
-    assert {axes.regime for axes in swept} == {'balanced'}
-    assert {axes.realisation for axes in swept} == {0}
 
-
-def test_both_tiers_are_swept_because_neither_is_refused():
-    """#67 decides both tiers completely, so both build (#68's README)."""
-    assert {axes.tier for axes in recipe_module.built_entries()} == set(
-        recipe_module.TIERS
-    )
+    assert set(swept) == set(recipe_module.all_entries())
+    assert {axes.tier for axes in swept} == set(recipe_module.TIERS)
+    assert {axes.source_class for axes in swept} == set(recipe_module.SOURCE_CLASSES)
+    assert {axes.regime for axes in swept} == set(recipe_module.REGIMES)
+    assert {axes.realisation for axes in swept} == set(recipe_module.REALISATIONS)
 
 
 @pytest.mark.parametrize(
@@ -179,12 +174,14 @@ def test_an_axis_given_alongside_all_holds_that_axis_fixed(axis, value):
 
 
 def test_a_filter_matching_no_built_entry_selects_nothing():
-    """Asking for an undecided axis with ``--all`` sweeps nothing, quietly.
+    """Asking for a value off an axis with ``--all`` sweeps nothing, quietly.
 
-    The generator turns that into an error message of its own; the recipe's
-    job is only to report that there is nothing to build.
+    Since #72 every value #67 names is built, so the filter that matches
+    nothing is one that names a value the gallery does not have. The generator
+    turns that into an error message of its own; the recipe's job is only to
+    report that there is nothing to build.
     """
-    assert recipe_module.built_entries(regime='photon') == ()
+    assert recipe_module.built_entries(realisation=3) == ()
 
 
 # --------------------------------------------------------------------------
@@ -353,23 +350,25 @@ def test_without_all_the_four_axes_name_one_entry():
     )
 
 
-def test_without_all_an_undecided_entry_is_still_selected():
-    """So the refusal, not the sweep, is what reports which ticket owns it.
+def test_without_all_an_entry_off_the_axes_is_still_selected():
+    """So the refusal, not the sweep, is what says what is wrong with it.
 
-    Dropping it here instead would answer "build the photon regime" with
-    "nothing matched", which reads as a typo rather than as work not yet done.
+    Naming four axes asks for one entry, and one named entry is passed through
+    to the recipe even when the recipe will refuse it. Dropping it here instead
+    would answer "build r3" with "nothing matched", which reads as a typo
+    rather than as a realisation the gallery does not have.
     """
     selected = generate_module.select_entries(
         build_all=False,
         tier='full',
         source_class='blend',
         regime='photon',
-        realisation=2,
+        realisation=3,
     )
     assert len(selected) == 1
     with pytest.raises(recipe_module.AxisNotBuiltError):
         recipe_module.build_recipe(
-            tier='full', source_class='blend', regime='photon', realisation=2
+            tier='full', source_class='blend', regime='photon', realisation=3
         )
 
 
@@ -409,10 +408,10 @@ def test_naming_fewer_than_four_axes_without_all_is_an_error(capsys):
     assert '--class' in capsys.readouterr().err
 
 
-def test_all_with_a_filter_matching_nothing_says_it_is_undecided_work(capsys):
-    """Not "no such thing" — the regime exists, its numbers are not decided."""
+def test_all_with_a_filter_matching_nothing_is_an_error_not_a_silent_success(capsys):
+    """``--all`` narrowed to nothing exits 2 rather than reporting 0 built."""
     with pytest.raises(SystemExit) as raised:
-        generate_module.main(['--all', '--regime', 'photon'])
+        generate_module.main(['--all', '--realisation', '3'])
     assert raised.value.code == 2
     assert 'nothing to build' in capsys.readouterr().err
 
@@ -448,20 +447,29 @@ def test_a_full_sweep_of_an_already_built_gallery_draws_nothing(tmp_path, capsys
 
     If the skip were keyed on anything the renderer produces, this would fail
     to import GalSim rather than print a skip line.
+
+    Narrowed to the cheap tier's ``point`` entries — nine of them, one per
+    regime per realisation. Since #72 the unnarrowed sweep is the whole
+    72-entry gallery, and writing it to ``tmp_path`` would put about 700 MB of
+    blank FITS on disk to assert a property that nine entries assert exactly as
+    well. Which entries a sweep *holds* is asserted against the full grid
+    above, where it costs nothing.
     """
+    sweep = ['--all', '--tier', 'small', '--class', 'point']
+    entries = recipe_module.built_entries(tier='small', source_class='point')
+    assert len(entries) == 9
+
     renderer = StubRenderer()
-    for axes in recipe_module.built_entries():
+    for axes in entries:
         generate_module.build_entry(axes, root=tmp_path, render=renderer)
     drawn = renderer.calls
 
-    assert generate_module.main(['--all', '--out', str(tmp_path)]) == 0
+    assert generate_module.main(sweep + ['--out', str(tmp_path)]) == 0
     assert renderer.calls == drawn
 
     output = capsys.readouterr().out
-    assert output.count('already built, skipping') == len(
-        recipe_module.built_entries()
-    )
-    assert '0 built, %d already present' % len(recipe_module.built_entries()) in output
+    assert output.count('already built, skipping') == len(entries)
+    assert '0 built, %d already present' % len(entries) in output
 
 
 def test_the_output_root_defaults_to_the_data_directory():
@@ -520,3 +528,99 @@ def test_an_isolated_table_carries_no_blend_columns(tmp_path):
     assert list(rows[0]) == list(SOURCE_COLUMNS)
     for column in BLEND_SOURCE_COLUMNS:
         assert column not in rows[0]
+
+
+# --------------------------------------------------------------------------
+# Where the true noise parameters are allowed to appear (#72)
+# --------------------------------------------------------------------------
+
+#: The three numbers that parameterise a regime. #67 records them for a human
+#: reading a result and hands them to no run: DAWIS estimates the noise itself,
+#: as it would on real data, and a run that could read them off an input would
+#: be testing a weaker claim than the one the algorithm makes.
+NOISE_FIELDS = ('sky_level', 'read_noise', 'gain')
+
+
+def written_entry(tmp_path, axes):
+    """One entry's six files on disk, keyed by their contract names."""
+    recipe = describe(axes)
+    write_entry(recipe, StubRenderer()(recipe), tmp_path, commit='x')
+    return recipe, recipe.output_paths(tmp_path)
+
+
+@pytest.mark.parametrize('regime', recipe_module.REGIME_NAMES)
+def test_the_manifest_is_where_the_true_noise_parameters_are(tmp_path, regime):
+    """All three, written down, for every regime the gallery now has (#72)."""
+    recipe, paths = written_entry(tmp_path, replace(TRACER, regime=regime))
+    manifest = json.loads(paths['manifest.json'].read_text())
+
+    assert set(manifest['noise']) == set(NOISE_FIELDS)
+    for field in NOISE_FIELDS:
+        assert manifest['noise'][field] == pytest.approx(
+            getattr(recipe.noise, field)
+        )
+
+
+@pytest.mark.parametrize('regime', recipe_module.REGIME_NAMES)
+def test_no_file_a_run_opens_carries_a_noise_parameter(tmp_path, regime):
+    """The image DAWIS reads says nothing about the noise in it (#67).
+
+    A run opens ``image.fits``. The other three FITS files and ``sources.csv``
+    are read by the metric half of #25, which is not the algorithm under test
+    but is written by the same hands — so the rule is asserted across all five
+    rather than on the one file a run happens to open today.
+
+    The check is on the *values*, not on the key names, because the leak that
+    would matter is a number reaching a run under a header keyword nobody
+    thought to look at.
+    """
+    recipe, paths = written_entry(tmp_path, replace(TRACER, regime=regime))
+    secrets = [getattr(recipe.noise, field) for field in NOISE_FIELDS]
+
+    for name in ('image.fits', 'truth_preconv.fits', 'truth_conv.fits', 'psf.fits'):
+        with fits.open(paths[name]) as hdus:
+            written = [
+                value
+                for hdu in hdus
+                for value in hdu.header.values()
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+            ]
+        for secret in secrets:
+            assert not any(
+                value == pytest.approx(secret, rel=1e-6) for value in written
+            ), '%s leaks a noise parameter' % name
+
+    table = paths['sources.csv'].read_text()
+    for secret in secrets:
+        assert repr(secret) not in table
+
+
+#: Every keyword the entry's FITS headers are allowed to carry: the seven the
+#: write layer sets, plus the structural ones astropy writes for any image.
+#: Asserted as a closed set rather than as an absence of particular names,
+#: because the leak that would matter is a noise parameter arriving under a
+#: keyword nobody thought to forbid (#72).
+ALLOWED_HEADER_KEYWORDS = {
+    'SIMPLE', 'BITPIX', 'NAXIS', 'NAXIS1', 'NAXIS2', 'EXTEND',
+    'CONTENT', 'SIMTIER', 'SIMCLASS', 'SIMREGIM', 'SIMREAL', 'PIXSCALE',
+    'ORIGIN',
+}
+
+
+def test_the_regime_reaches_the_files_by_name_only(tmp_path):
+    """Its *name* is on every file; its numbers are on none of them.
+
+    The distinction is the point. A human comparing DAWIS's noise estimate
+    against the truth needs to know which entry they are looking at, and the
+    entry directory and the FITS headers say so. What they must not be able to
+    do is read the answer off the input.
+    """
+    recipe, paths = written_entry(tmp_path, replace(TRACER, regime='photon'))
+
+    assert recipe.entry_directory(tmp_path).name.startswith('sersic_n4_photon_r')
+    for name in ('image.fits', 'truth_preconv.fits', 'truth_conv.fits', 'psf.fits'):
+        with fits.open(paths[name]) as hdus:
+            header = hdus[0].header
+
+        assert set(header) <= ALLOWED_HEADER_KEYWORDS
+        assert header['SIMREGIM'] == 'photon' 
