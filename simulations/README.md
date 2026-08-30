@@ -3,7 +3,8 @@
 Synthetic FITS images with exact ground truth, for the restoration test
 battery of #25. Hand-run, not a pytest tier, not CI. Spec: #67. This directory
 was built by #68; #69 added the generator's full command line; #70 added the
-`point` and `sersic_n1_halo` classes.
+`point` and `sersic_n1_halo` classes; #71 added `blend` and with it the last
+of the four.
 
 DAWIS has one image it can run on today, and nobody knows the right answer for
 it. Every claim about over-subtraction, flux conservation or shape recovery is
@@ -104,6 +105,15 @@ the entry it was in the middle of.
 This is a stated contract. The metric half of #25 is written against these
 names.
 
+`sources.csv` carries nine columns for the isolated classes and twelve for
+`blend`, which adds the companion id, the separation and the flux ratio #67
+lists for it. Those three describe a *pair*, and a class of isolated sources
+has none: carrying them everywhere would put three columns of zeros in every
+other entry and invite a reader to take "separation 0" for a measured
+separation rather than for an absence. `manifest.json` is conditional the same
+way and for the same reason — the blend keys appear on blend entries only, so
+adding the class made no entry already on disk stale.
+
 `image.fits` says nothing about the noise, in its header or anywhere else.
 DAWIS estimates the noise itself, as it would on real data. The true sky
 level, read noise and gain are in `manifest.json`, for a human reading a
@@ -119,14 +129,15 @@ in the pixels — which is the comparison it is recorded for.
 
 #68 was the tracer bullet: one narrow path through all three layers, for
 `sersic_n4` / `balanced` / `r0`. #70 added the other two **isolated** classes,
-`point` and `sersic_n1_halo`. Both tiers of all three build, so `--all` sweeps
-**six** of the 72 entries #67 specifies.
+`point` and `sersic_n1_halo`, and #71 added `blend`. Both tiers of all four
+classes build, so `--all` sweeps **eight** of the 72 entries #67 specifies,
+and the class axis is complete.
 
 Every other combination of the four axes is **refused**, not guessed. Asking
-for the `blend` class or the `photon` regime raises `AxisNotBuiltError` with a
-message saying the numbers belong to the ticket that decides them. A recipe
-that invented them would put an entry on disk that looks exactly as
-authoritative as a decided one.
+for the `photon` regime or for `r1` raises `AxisNotBuiltError` with a message
+saying the numbers belong to the ticket that decides them. A recipe that
+invented them would put an entry on disk that looks exactly as authoritative
+as a decided one.
 
 ### The three isolated classes
 
@@ -172,6 +183,74 @@ one pixel that contains it, and nothing anywhere else. The **convolved** truth
 beside it is still GalSim's own work, and is what the flux check runs on. That
 hand-written path gets a check of its own; see below.
 
+### The blend class
+
+`blend` is the one class that is a **layout** rather than a profile, and #71
+built it as one. Every grid cell holds a **pair**:
+
+| | profile | brightness | varies |
+|---|---|---|---|
+| bright component | `sersic_n4`, at the cell centre | fixed, peak SNR 1000 | nothing |
+| faint companion | `point`, offset from it | peak SNR 100 down to 3 | flux ratio, across the columns |
+
+and the separation between the two steps **down the rows**, from one PSF FWHM
+out to the bright component's own wing radius. The result is the
+two-dimensional map #67 asks for: where over-subtraction around the bright
+source starts consuming its neighbour. Brightness binning is already covered
+by the three isolated classes, which is exactly why this grid spends its axes
+on something else.
+
+Both components come straight out of `SOURCE_PROFILES`, so the class costs no
+new shape numbers, and three of its four numbers are reused rather than
+chosen:
+
+- The bright component is the **brightest rung of the isolated ladder**. The
+  hole it makes is therefore literally the hole the isolated `sersic_n4` entry
+  measures, and a blend result at the widest separation reads straight against
+  that entry's first column — what changed is the companion and nothing else.
+- The companion's ladder ends on `PEAK_SNR_FAINTEST`, the same marginally
+  detectable rung every isolated ladder ends on. Its bright end is an order of
+  magnitude below the bright component, which is what makes the pair a
+  bright-plus-faint one rather than two comparable sources.
+- Both ends of the separation ladder are **measured, not chosen**: one PSF
+  FWHM at the tight end, where the pair is a single blob and no deblender can
+  win, and the bright component's wing radius at the wide end — the radius at
+  which it finally drops under the background, and so exactly the boundary the
+  class exists to locate. The widest row lands *on* that boundary rather than
+  passing it; what lies outside it is the isolated `sersic_n4` entry, which is
+  the same bright source with no companion at all.
+
+The axis is recorded as a flux ratio, per #67, but decided in peak SNR so that
+both ends are anchored to the detectability the rest of the gallery is laid
+out by. The two are not the same number: a point source concentrates its light
+about eight times more than the bright Sérsic, so a companion at a tenth of
+the bright component's peak carries about a **hundredth** of its flux. The
+ratios on the grid run from about 1:82 to 1:2700.
+
+**The companion is a point source, and that is a measurement decision rather
+than an astrophysical one.** Its whole true flux sits inside one PSF
+footprint, so "how much of the companion survived" stays a statement about the
+hole even at the tightest separation, where the companion is inside the bright
+source's core. An extended companion's own wings would overlap the bright
+source at every separation on the ladder, and no measurement could then
+separate light lost to over-subtraction from light that was never separable.
+It buys grid room too: a point source has no truncation to clear, so the pair
+fits the isolated classes' own margins and the separation ladder reaches as
+far as the refusals allow.
+
+Neither grid axis is free to buy independent samples the way the isolated
+classes' jitter row does. The **pair centre** is jittered instead, and the
+companion is placed at a random position angle, so no two cells repeat a
+sub-pixel phase or an orientation while both axes stay spent on what the class
+is for.
+
+`magnitude_ladder` and `peak_snr_ladder` describe the **companion** for this
+class, because the column axis is the flux ratio. The bright component does
+not step across the grid at all, so it is recorded once, as `bright_magnitude`
+and `bright_peak_snr`. Those two shared keys therefore change subject with the
+class, so the manifest says so outright in `ladders_describe` rather than
+leaving a consumer to infer it from the keys beside them.
+
 The parts that #67 decides outright are already general: seed derivation over
 all four classes and three regimes, both tiers' geometry, the entry and file
 naming, the manifest schema.
@@ -187,8 +266,10 @@ having, and nothing reads the manifest by position.
 
 `--all` is the complement of those refusals rather than a second list beside
 them: it walks all 72 axis combinations and keeps the ones the recipe does not
-refuse. A ticket that decides the `point` class lifts one refusal and the
-sweep grows by itself, with no list here to forget to update. `--realisation`
+refuse. A ticket that decides a regime lifts one refusal and the sweep grows
+by itself, with no list here to forget to update — #70 and #71 each lifted
+class refusals and the sweep went from two entries to six to eight without a
+line of sweep logic changing. `--realisation`
 carries no `choices` list for the same reason: `r3` is refused by the recipe,
 with a message naming the ticket that owns it, rather than by argparse with
 "invalid choice".
@@ -234,12 +315,25 @@ to surface later in a suite nobody was running.
 
 **Flux.** After rendering, the convolved truth image's total is compared
 against the recipe's analytic sum, and the entry is refused outside a 1%
-tolerance. Measured deviation on the built entry is about 5e-7; the tolerance
-is set by GalSim's own drawing accuracy, not by the physics. This catches a
-shear applied to the wrong object, a flux normalisation dropped, a source
-drawn twice.
+tolerance. Measured deviation on the built entries is under 1e-5; the
+tolerance is set by GalSim's own drawing accuracy, not by the physics. This
+catches a shear applied to the wrong object, a flux normalisation dropped, a
+source drawn twice.
 
-**Geometry.** Three refusals, all on the recipe, all before a pixel is drawn.
+That total is checked **one brightness bin at a time** as well as as a whole,
+which is #71's doing. The gallery is built out of sources three orders of
+magnitude apart, so a single number for a whole entry is a statement about its
+brightest sources and almost nothing else: an isolated class's faintest column
+is about three parts in a thousand of its total, and a blend entry's
+twenty-five companions about five parts in a thousand between them. Every one
+of them could fail to draw and the 1% tolerance on the total would still be
+met — which for `blend` would mean the check could not tell a companion the
+hole ate from a companion that was never rendered, and the companion is the
+entry's whole point. So the convolved truth is drawn a bin at a time, each bin
+is weighed against its own analytic sum, and the bins are then added up and
+the total checked as before.
+
+**Geometry.** Four refusals, all on the recipe, all before a pixel is drawn.
 
 The brightest source's wing radius — the radius at which it falls below the
 background — must be smaller than the grid spacing, or the isolated-galaxy
@@ -254,16 +348,49 @@ class is exempt from this one and only this one: a delta function has no cut,
 so there is no cut that could show.
 
 Every source must clear the image edge by its own truncation radius plus the
-PSF's reach, or the flux check above could not pass.
+PSF's reach, or the flux check above could not pass. For `blend` that covers
+the companion, which the grid layout does not know about: it is displaced from
+the cell centre by up to a whole separation.
 
-All three are live: brightening the ladder a hundredfold trips the first two.
+The fourth is the `blend` class's own, and it is deliberately distinct from
+the first. That one asks whether a *source* reaches its neighbour's cell; this
+one asks whether a whole **pair** does, wings and separation together, because
+the within-pair separation is the thing this class exists to vary. Four grid
+steps on a 512-pixel image would leave 96 pixels between cells — roomy enough
+for the bright component's 52 pixels of wings, and not for the 103 a pair at
+the widest separation reaches. Without a refusal of its own that entry would
+build, and every separation on the map would have been measured across a
+boundary another pair was already sitting on.
 
-**Point placement.** The pre-convolution truth of a `point` entry is the only
+It also parts company with the first on the jitter. #67 states the isolated
+refusal against the *nominal* grid spacing and that wording is left alone, but
+the pair refusal compares against the closest two cells can actually come —
+the spacing less twice the jitter amplitude. A pair reaches half as far again
+as its bright component does, so the 24 pixels the jitter can take are a real
+part of that margin rather than slack around it.
+
+All four are live: brightening the ladder a hundredfold trips the first two,
+and the cramped grid above trips the fourth.
+
+**Point placement.** The pre-convolution truth of a point source is the only
 thing in the gallery GalSim does not draw, so it is the only place a
 coordinate-convention mistake would survive the flux check — moving all the
-flux one pixel sideways changes no total. The two truth images are therefore
-compared against each other: each point source's truth pixel must be where
-GalSim's own convolved image peaks.
+flux one pixel sideways changes no total. Each point source's hand-placed
+truth pixel is therefore compared against where GalSim's own convolved draw of
+that same source peaks.
+
+Each source is drawn **alone** for that comparison, on a small stamp. #71 is
+why: a blend pair puts a faint companion beside a source up to three thousand
+times brighter, at separations that start well inside the comparison window,
+so in the summed truth images neither peak near the companion is the
+companion's. Isolating the source is the only way to keep the check live for
+the class that most needs it.
+
+Two questions need two pictures, though, so the delivered array is read too:
+the whole of each point source's flux must be present in the truth pixel of
+`truth_preconv` itself. The stamps say the *convention* is right; that says the
+array that reaches disk actually got the flux, which a check on private draws
+alone would no longer notice.
 
 ## Packaging
 

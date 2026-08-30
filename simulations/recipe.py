@@ -1,4 +1,4 @@
-"""The recipe layer — one entry of the simulation gallery, described (#68, #70).
+"""The recipe layer — one entry of the simulation gallery, described (#68-#71).
 
 This module is the pure half of the generator. It takes the four axes of the
 gallery — tier, class, regime, realisation — and returns a complete
@@ -15,8 +15,8 @@ decisions be unit-tested in the ordinary test environment in seconds. See
 What is decided, and what is refused
 ------------------------------------
 #68 was a tracer bullet: one narrow path through every layer, with the other
-axes hard-coded. #70 added the ``point`` and ``sersic_n1_halo`` classes. Two
-things follow.
+axes hard-coded. #70 added the ``point`` and ``sersic_n1_halo`` classes and
+#71 the ``blend`` class, which completes the class axis. Two things follow.
 
 The parts that are *general* are general here — seed derivation, entry and
 file naming, tier geometry, the noise regime table, and the grid the three
@@ -24,19 +24,28 @@ isolated classes share. Those are decided outright by #67 and cost nothing to
 state completely.
 
 The parts #67 leaves to a later ticket are **refused**, not guessed. Asking
-for a class, a regime or a realisation whose numbers no ticket has decided
-raises ``AxisNotBuiltError``. A recipe that invented them would put an entry
-on disk that looks exactly as authoritative as a decided one, and no later
-reader could tell the two apart.
+for a regime or a realisation whose numbers no ticket has decided raises
+``AxisNotBuiltError``. A recipe that invented them would put an entry on disk
+that looks exactly as authoritative as a decided one, and no later reader
+could tell the two apart.
 
 The three isolated classes
 --------------------------
 ``sersic_n4``, ``point`` and ``sersic_n1_halo`` share their whole layout —
 magnitude across the grid, position jitter down it, the same peak-SNR range
 on the same tiers — and differ only in :data:`SOURCE_PROFILES`. That is why
-#70 added source construction and not a line of grid logic. ``blend`` is the
-odd one out: it spends its grid on separation and flux ratio instead, so it
-is a different layout rather than a different profile, and it stays refused.
+#70 added source construction and not a line of grid logic.
+
+The blend class
+---------------
+``blend`` is the odd one out, and #71 built it as a *layout* rather than as a
+profile. Every cell of its grid holds a **pair**: a bright ``sersic_n4``
+component held at one fixed brightness, and a faint ``point`` companion offset
+from it. Separation steps down the rows and the pair's flux ratio across the
+columns, so the grid is the two-dimensional map #67 asks for — where the hole
+around the bright source starts consuming its neighbour. Brightness binning is
+already covered by the three isolated classes, which is exactly why the blend
+grid spends its axes on something else.
 
 Units
 -----
@@ -56,13 +65,20 @@ from __future__ import annotations
 
 import hashlib
 import itertools
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
 
 __all__ = [
+    'BLEND_BRIGHT_PEAK_SNR',
+    'BLEND_BRIGHT_PROFILE',
+    'BLEND_CLASS',
+    'BLEND_COMPANION_PEAK_SNR_BRIGHTEST',
+    'BLEND_COMPANION_PROFILE',
+    'BLEND_SEPARATION_MIN_FWHM',
+    'BUILT_CLASSES',
     'ENTRY_FILE_NAMES',
     'KNOWN_REGIME_NAMES',
     'MANIFEST_FILE_NAME',
@@ -81,6 +97,7 @@ __all__ = [
     'EntryAxes',
     'GridTooTightError',
     'NoiseParameters',
+    'PairsTooCloseError',
     'Recipe',
     'Source',
     'SourceClippedError',
@@ -91,6 +108,7 @@ __all__ = [
     'build_recipe',
     'built_entries',
     'check_grid_spacing',
+    'check_pair_spacing',
     'check_truncation',
     'check_image_margin',
     'convolved_unit_profile',
@@ -178,10 +196,11 @@ def derive_seed(source_class: str, regime: str, realisation: int) -> int:
 class AxisNotBuiltError(NotImplementedError):
     """An axis value whose numbers no ticket has decided yet.
 
-    Both tiers build, and so do the three isolated classes of
-    :data:`SOURCE_PROFILES`. The ``blend`` class, the two regimes beside
-    ``balanced`` and the realisations beyond ``r0`` are refused rather than
-    guessed, each until the ticket that decides its numbers lands.
+    Both tiers build, and since #71 so does every class of #67 — the three
+    isolated ones of :data:`SOURCE_PROFILES` and the ``blend`` layout beside
+    them. The two regimes beside ``balanced`` and the realisations beyond
+    ``r0`` are refused rather than guessed, each until the ticket that decides
+    its numbers lands.
     """
 
 
@@ -203,6 +222,58 @@ def check_grid_spacing(wing_radius: float, grid_spacing: float) -> None:
             'not fit inside the grid spacing of %.1f pixels: this field would '
             'be a blend field, not an isolated-source field'
             % (wing_radius, grid_spacing)
+        )
+
+
+class PairsTooCloseError(ValueError):
+    """One pair's companion reaches into the neighbouring pair's cell.
+
+    Distinct from :class:`GridTooTightError`, and deliberately so. The
+    within-pair separation is the thing the ``blend`` class exists to vary, so
+    the refusal that has to stay live for it is the one about *neighbouring*
+    pairs. A grid that let one pair's companion sit inside the next pair's
+    bright source's wings would be measuring two blends at once, and no row of
+    the map would mean what it says.
+    """
+
+
+def check_pair_spacing(
+    wing_radius: float,
+    separation: float,
+    grid_spacing: float,
+    jitter_amplitude: float,
+) -> None:
+    """Refuse a grid whose pairs reach each other once a pair is laid out.
+
+    The reach that matters is the **bright** component's. The companion is
+    fainter than it by construction — the flux-ratio axis never rises above
+    :data:`BLEND_COMPANION_PEAK_SNR_BRIGHTEST`, an order of magnitude below
+    the bright component's fixed peak SNR — so it is the bright source's wings
+    that decide whether a neighbouring pair is blended with this one. A
+    companion offset towards its neighbour closes that gap by the whole
+    separation, which is why the two are added rather than compared one at a
+    time.
+
+    Unlike :func:`check_grid_spacing` this compares against the **closest**
+    two cells can come, not the nominal spacing: the jitter moves two pair
+    centres towards each other by up to twice its amplitude. #67 states the
+    isolated refusal against the nominal spacing and that wording is left
+    alone, but #71's is a refusal of its own, and here the difference is not a
+    rounding — a pair already reaches half as far again as its bright
+    component does, so the twenty-four pixels the jitter can take are a real
+    part of the margin rather than slack around it.
+    """
+    reach = wing_radius + separation
+    closest = grid_spacing - 2.0 * jitter_amplitude
+    if reach >= closest:
+        raise PairsTooCloseError(
+            'a pair reaches %.1f pixels — %.1f of wings around the bright '
+            'component plus a separation of %.1f — which does not fit inside '
+            'the %.1f pixels two neighbouring cells can close to, from a grid '
+            'spacing of %.1f and a jitter of %.1f either way: neighbouring '
+            'pairs would blend into one another, and the separation axis would '
+            'stop meaning the distance within a pair'
+            % (reach, wing_radius, separation, closest, grid_spacing, jitter_amplitude)
         )
 
 
@@ -350,6 +421,23 @@ KNOWN_REGIME_NAMES = ('read_noise', 'balanced', 'photon')
 REALISATIONS = (0, 1, 2)
 
 
+@dataclass(frozen=True)
+class EntryAxes:
+    """One point on the four axes — the address of a single gallery entry.
+
+    The four travel together everywhere: they name an entry to #69's sweep,
+    they are what the refusals are stated about, and since #71 they are what
+    each of the two layouts is handed. Passing them as one address rather than
+    as four parallel arguments is what keeps those signatures short enough to
+    read.
+    """
+
+    tier: str
+    source_class: str
+    regime: str
+    realisation: int
+
+
 # --------------------------------------------------------------------------
 # Optics and the brightness ladder (#67)
 # --------------------------------------------------------------------------
@@ -439,6 +527,17 @@ PSF_MARGIN_FWHM = 6.0
 #: cannot come out exactly equal and turn on a floating-point rounding.
 EDGE_PAD_PIXELS = 2.0
 
+
+def psf_margin_pixels() -> float:
+    """Room to reserve for the PSF's own reach, in pixels.
+
+    The same number for every class, because #67's PSF is: a single synthetic
+    Moffat at a fixed FWHM, and not a swept axis. Stated as a function rather
+    than carried on a per-class object, so that no caller can read a choice of
+    class into it.
+    """
+    return PSF_MARGIN_FWHM * PSF_FWHM / PIXEL_SCALE
+
 #: Ellipticity is drawn uniformly in magnitude below this, at a uniform angle.
 #: Round sources would make the shape-bias metric of #25 a test of nothing.
 MAX_ELLIPTICITY = 0.3
@@ -513,9 +612,9 @@ class SourceProfile:
         return WING_PROBE_TRUNCATION_FACTOR * self.half_light_radius
 
 
-#: The three isolated classes of #67, keyed by class name. ``blend`` is absent:
-#: it varies separation and flux ratio rather than brightness, so it is a
-#: different grid and not a different profile, and #71 owns it.
+#: The three isolated classes of #67, keyed by class name. ``blend`` is absent
+#: because it is not a profile: it draws two of these and varies separation and
+#: flux ratio between them, so it is a layout, and it is built below.
 SOURCE_PROFILES = {
     'sersic_n4': SourceProfile(
         sersic_index=4.0,
@@ -536,6 +635,73 @@ SOURCE_PROFILES = {
         max_ellipticity=MAX_ELLIPTICITY,
     ),
 }
+
+
+# --------------------------------------------------------------------------
+# The blend class (#67, #71)
+# --------------------------------------------------------------------------
+
+#: The one class of #67 that is a layout rather than a profile, named here
+#: because it is the only value :func:`build_recipe` branches on.
+BLEND_CLASS = 'blend'
+
+#: The classes the recipe can lay out. Since #71 that is every class #67
+#: specifies, so no class is refused today; the tuple stays because a name
+#: added to :data:`SOURCE_CLASSES` without a layout should be refused with the
+#: message that says so rather than crash on a missing key.
+BUILT_CLASSES = tuple(SOURCE_PROFILES) + (BLEND_CLASS,)
+
+#: The profile the bright half of a pair draws — the class whose
+#: over-subtraction bowl #25 names as the primary known failure mode. The hole
+#: this class maps is then literally the same hole the isolated ``sersic_n4``
+#: entry measures, so a blend result and an isolated one are read against each
+#: other rather than against two different bright sources.
+BLEND_BRIGHT_PROFILE = 'sersic_n4'
+
+#: The profile the faint half draws. This is a *measurement* decision rather
+#: than an astrophysical one: a point source's whole true flux sits inside one
+#: PSF footprint, so "how much of the companion survived" stays a statement
+#: about the hole even at the tightest separation, where the companion is
+#: buried in the bright source's core. An extended companion's own wings would
+#: overlap the bright source at every separation on the ladder, and no
+#: measurement could then separate light lost to over-subtraction from light
+#: that was never separable in the first place.
+#:
+#: It also costs the class no new shape numbers, and no new grid room: a point
+#: source has no truncation to clear, so the pair fits the isolated classes'
+#: own margins and the separation ladder can reach as far as the refusals
+#: allow.
+BLEND_COMPANION_PROFILE = 'point'
+
+#: The bright component's peak SNR, held fixed over the whole grid per #67 —
+#: the brightest rung of the ladder the isolated classes climb, and not a
+#: number of its own. Brightness binning is the isolated classes' job, and
+#: reusing their top rung is what lets a blend result at the widest separation
+#: be read straight against the isolated ``sersic_n4`` entry's first column.
+BLEND_BRIGHT_PEAK_SNR = PEAK_SNR_BRIGHTEST
+
+#: The companion's peak SNR at the bright end of the flux-ratio axis: an order
+#: of magnitude below the bright component, which is what makes the pair a
+#: bright-plus-faint one rather than two comparable sources. The faint end of
+#: the axis is :data:`PEAK_SNR_FAINTEST`, the same marginally-detectable rung
+#: the isolated ladders end on.
+#:
+#: The axis is *recorded* as a flux ratio, which is what #67 names it, but it
+#: is decided in peak SNR so that both of its ends are anchored to the
+#: detectability the whole gallery is laid out by. The two are not the same
+#: number: the companion is a point source and concentrates its light some
+#: eight times more than the bright Sérsic, so a companion at a tenth of the
+#: bright component's peak carries about a hundredth of its flux.
+BLEND_COMPANION_PEAK_SNR_BRIGHTEST = 100.0
+
+#: The tightest separation on the ladder, in PSF FWHM. One resolution element
+#: is the case no deblender can win — the pair is a single blob and the
+#: companion sits inside the bright source's core — and the map needs that
+#: corner as much as it needs the clean one. The widest separation is not a
+#: constant: it is the bright component's own wing radius, measured rather
+#: than chosen, so the ladder ends exactly at the boundary the class exists to
+#: locate.
+BLEND_SEPARATION_MIN_FWHM = 1.0
 
 
 # --------------------------------------------------------------------------
@@ -569,6 +735,23 @@ class Source:
     truncation_radius: float
     peak_snr: float
 
+    #: The three columns #67 adds for the ``blend`` class: the other member of
+    #: this source's pair, and the two numbers that describe the pair. All
+    #: three are ``None`` for a source that has no companion — an absence, not
+    #: a measurement of zero, which is the same distinction that keeps the
+    #: write layer from putting the columns in an isolated class's table at
+    #: all.
+    companion_id: int | None = None
+    #: The distance between the two members of the pair, in **pixels** — the
+    #: unit ``x`` and ``y`` are in, since this is the distance between two of
+    #: them.
+    separation: float | None = None
+    #: The pair's faint-to-bright *total flux* ratio. Recorded identically on
+    #: both rows because it is a property of the pair and not of one member:
+    #: reading it off the bright row and off the faint row has to give the same
+    #: number.
+    flux_ratio: float | None = None
+
     @property
     def is_point(self) -> bool:
         """Whether this source is a delta function rather than a profile.
@@ -600,6 +783,13 @@ class Recipe:
     Everything the render and write layers need is here, and nothing they
     produce is. Handing this object to GalSim is the only thing the render
     layer does.
+
+    ``magnitude_ladder`` and ``peak_snr_ladder`` hold one step per grid
+    *column*, whatever the class. For the isolated classes that is the source's
+    own brightness; for ``blend`` it is the **companion's**, because the
+    column axis there is the flux ratio and the bright component does not move
+    across the grid at all. The bright component is recorded once, in
+    ``bright_magnitude`` and ``bright_peak_snr``.
     """
 
     tier: str
@@ -621,6 +811,21 @@ class Recipe:
     magnitude_ladder: tuple[float, ...]
     peak_snr_ladder: tuple[float, ...]
     wing_radius: float
+    #: The ``blend`` class's two grid axes, and empty for every other class.
+    #: ``separation_ladder`` is in pixels, one step per grid row;
+    #: ``flux_ratio_ladder`` is faint-to-bright total flux, one step per
+    #: column.
+    separation_ladder: tuple[float, ...] = ()
+    flux_ratio_ladder: tuple[float, ...] = ()
+    #: The ``blend`` class's fixed bright component, and ``None`` elsewhere.
+    #: Not a ladder, because the grid deliberately does not step it (#67).
+    bright_magnitude: float | None = None
+    bright_peak_snr: float | None = None
+
+    @property
+    def is_blend(self) -> bool:
+        """Whether this entry lays out pairs rather than isolated sources."""
+        return self.source_class == BLEND_CLASS
 
     @property
     def total_flux(self) -> float:
@@ -632,6 +837,29 @@ class Recipe:
         about the intended image and not an approximation of one.
         """
         return float(sum(source.flux for source in self.sources))
+
+    @property
+    def flux_groups(self) -> tuple[tuple[Source, ...], ...]:
+        """The entry's sources binned by the flux each is supposed to carry.
+
+        The generator checks its drawn flux against the analytic sum **per
+        bin** rather than once for the whole image (#71). One number for a
+        whole entry is dominated by its brightest sources, and the gallery is
+        deliberately built out of sources that differ by three orders of
+        magnitude: the faintest column of an isolated class carries about three
+        parts in a thousand of the total, and a blend entry's twenty-five
+        companions about five parts in a thousand between them. Every one of
+        them could fail to draw and a one per cent tolerance on the total would
+        still be met, which would make the check pass without saying anything
+        about the faint end — the end the gallery exists to measure.
+
+        Every source is in exactly one bin, because the bins are built from
+        the sources. Ordered brightest bin first; inside a bin, table order.
+        """
+        groups: dict[float, list[Source]] = {}
+        for source in self.sources:
+            groups.setdefault(source.flux, []).append(source)
+        return tuple(tuple(groups[flux]) for flux in sorted(groups, reverse=True))
 
     def entry_directory(self, root: Path | str) -> Path:
         """``<root>/<tier>/<class>_<regime>_r<N>`` — one directory, one run."""
@@ -662,8 +890,15 @@ class Recipe:
         generator, which knows them; the recipe cannot, because it must not
         import GalSim. The keys are present either way, so a missing one is a
         failure in the test suite rather than a surprise on disk months later.
+
+        The ``blend`` keys are added for that class only, rather than carried
+        as empty values by every entry. They describe axes no other class has,
+        and writing them everywhere would make every entry already on disk
+        *stale* — a rebuild of six entries whose pixels #71 does not move,
+        which is the same waste :data:`PROVENANCE_KEYS` exists to prevent for
+        an upgrade.
         """
-        return {
+        manifest = {
             'tier': self.tier,
             'class': self.source_class,
             'regime': self.regime,
@@ -693,6 +928,28 @@ class Recipe:
             'numpy_version': np.__version__,
             'source_commit': source_commit,
         }
+
+        if self.is_blend:
+            manifest.update(
+                {
+                    # ``magnitude_ladder`` and ``peak_snr_ladder`` are shared
+                    # fields whose subject changes with the class, so the
+                    # subject is written down rather than left to be inferred
+                    # from the presence of the keys below it.
+                    'ladders_describe': 'companion',
+                    'n_pairs': len(self.sources) // 2,
+                    'bright_magnitude': float(self.bright_magnitude),
+                    'bright_peak_snr': float(self.bright_peak_snr),
+                    'separation_ladder': [
+                        float(value) for value in self.separation_ladder
+                    ],
+                    'flux_ratio_ladder': [
+                        float(value) for value in self.flux_ratio_ladder
+                    ],
+                }
+            )
+
+        return manifest
 
 
 # --------------------------------------------------------------------------
@@ -896,13 +1153,18 @@ def _draw_ellipticity(
     return float(magnitude * np.cos(2.0 * angle)), float(magnitude * np.sin(2.0 * angle))
 
 
-def _refuse_unbuilt_axes(
-    tier: str, source_class: str, regime: str, realisation: int
-) -> None:
+def _refuse_unbuilt_axes(axes: EntryAxes) -> None:
     """Every axis value no ticket has decided, refused with the reason why."""
+    tier, source_class, regime, realisation = (
+        axes.tier,
+        axes.source_class,
+        axes.regime,
+        axes.realisation,
+    )
     # The tier is checked but never deferred. #67 decides both tiers outright —
-    # an image size and a grid side each, and nothing else — so unlike the other
-    # three axes there is no undecided number here to guess at.
+    # an image size and a grid side each, and nothing else — so there is no
+    # undecided number here to guess at. Since #71 the class axis is complete
+    # too, and only the regime and the realisation are still narrowed.
     if tier not in TIERS:
         raise AxisNotBuiltError(
             'unknown tier %r: the gallery has %s'
@@ -913,13 +1175,11 @@ def _refuse_unbuilt_axes(
             'unknown class %r: the gallery has %s'
             % (source_class, ', '.join(SOURCE_CLASSES))
         )
-    if source_class not in SOURCE_PROFILES:
+    if source_class not in BUILT_CLASSES:
         raise AxisNotBuiltError(
-            'the %r class is specified in #67 but not built: it has no entry '
-            'in SOURCE_PROFILES, so its parameters belong to the ticket that '
-            'decides them. For blend that ticket also owns a grid of its own, '
-            'because it varies separation and flux ratio rather than '
-            'brightness.' % source_class
+            'the %r class is specified in #67 but not built: it has neither an '
+            'entry in SOURCE_PROFILES nor a layout of its own, so its '
+            'parameters belong to the ticket that decides them.' % source_class
         )
     if regime not in KNOWN_REGIME_NAMES:
         raise AxisNotBuiltError(
@@ -941,37 +1201,38 @@ def _refuse_unbuilt_axes(
         )
 
 
-def build_recipe(
-    tier: str, source_class: str, regime: str, realisation: int
-) -> Recipe:
-    """Describe one gallery entry completely, without drawing a single pixel.
+@dataclass(frozen=True)
+class _ProfileOptics:
+    """What one class's profile decides before any flux is chosen.
 
-    Raises :class:`AxisNotBuiltError` for an axis value #68 did not decide, and
-    :class:`GridTooTightError` if the brightest source's wings would reach its
-    neighbour's cell.
+    Split out of :func:`build_recipe` by #71, which needs it for *two*
+    profiles at once: the bright component's, which the blend grid's geometry
+    and the pair's wing radius come from, and the companion's, which turns a
+    peak SNR into a flux.
+
+    Every field is in pixels except ``peak_fraction``, which is a share of a
+    source's total flux, and ``probe_profile``, which is a per-pixel image of a
+    unit-flux source.
     """
-    _refuse_unbuilt_axes(tier, source_class, regime, realisation)
 
-    tier_geometry = TIERS[tier]
-    noise = REGIMES[regime]
-    seed = derive_seed(source_class, regime, realisation)
-    rng = np.random.default_rng(seed)
+    peak_fraction: float
+    probe_profile: np.ndarray
+    truncation_pixels: float
+    edge_margin: float
 
-    grid_side = tier_geometry.grid_side
-    jitter_amplitude = JITTER_PIXELS
-    profile = SOURCE_PROFILES[source_class]
 
+def _profile_optics(profile: SourceProfile) -> _ProfileOptics:
+    """Model one class's profile: its peak share, its wings and its margin.
+
+    ``edge_margin`` is the room a jittered source of this class needs so that
+    none of it is cut by the border and the analytic flux sum stays
+    recoverable. A point source contributes nothing to the truncation term and
+    lives entirely inside the PSF margin, which is why its grid is the
+    roomiest.
+    """
     half_light_radius_pixels = profile.half_light_radius / PIXEL_SCALE
     truncation_pixels = profile.truncation_radius / PIXEL_SCALE
     psf_fwhm_pixels = PSF_FWHM / PIXEL_SCALE
-
-    # Room for the whole of a jittered source, so that none of them is cut by
-    # the border and the analytic flux sum stays recoverable. A point source
-    # contributes nothing to the first term and lives entirely inside the PSF
-    # margin, which is why its grid is the roomiest of the three.
-    psf_margin = PSF_MARGIN_FWHM * psf_fwhm_pixels
-    edge_margin = truncation_pixels + psf_margin + jitter_amplitude + EDGE_PAD_PIXELS
-    spacing = tier_geometry.grid_spacing(edge_margin)
 
     unit_profile = convolved_unit_profile(
         sersic_index=profile.sersic_index,
@@ -980,7 +1241,6 @@ def build_recipe(
         psf_fwhm_pixels=psf_fwhm_pixels,
         psf_beta=PSF_BETA,
     )
-    peak_fraction = _peak_fraction(unit_profile)
 
     # Measured on a far wider probe, so the render's own cut does not bound it.
     probe_profile = convolved_unit_profile(
@@ -992,26 +1252,115 @@ def build_recipe(
         oversample=WING_PROBE_OVERSAMPLE,
     )
 
-    # Brightness varies along one grid axis, position jitter along the other,
-    # so the full tier gives five brightness steps with five samples each —
-    # the shape "bin residuals by SNR" wants (#67). The ladder is geometric in
-    # peak SNR, so a column index is a fixed factor in brightness.
+    return _ProfileOptics(
+        peak_fraction=_peak_fraction(unit_profile),
+        probe_profile=probe_profile,
+        truncation_pixels=truncation_pixels,
+        edge_margin=(
+            truncation_pixels
+            + psf_margin_pixels()
+            + JITTER_PIXELS
+            + EDGE_PAD_PIXELS
+        ),
+    )
+
+
+def _flux_ladder(
+    peak_snr_ladder: np.ndarray, peak_fraction: float, sigma: float
+) -> np.ndarray:
+    """The total fluxes that put the given peak SNRs in the brightest pixel.
+
+    One ladder for an isolated class's sources, and one for the blend class's
+    companions. Both are decided in peak SNR because that is the quantity #67
+    lays the gallery out by, and both become a flux the same way.
+    """
+    return peak_snr_ladder * sigma / peak_fraction
+
+
+def _jittered_position(
+    edge_margin: float, index: int, spacing: float, rng: np.random.Generator
+) -> float:
+    """One grid coordinate, offset from its nominal cell position.
+
+    The jitter buys independent samples rather than copies: sub-pixel phase
+    relative to the pixel grid is not the same for two sources, and neither is
+    the noise under them. Both layouts jitter — the isolated classes their
+    sources, the blend class its pair centres.
+    """
+    return (
+        edge_margin
+        + index * spacing
+        + float(rng.uniform(-JITTER_PIXELS, JITTER_PIXELS))
+    )
+
+
+def _entry_fields(
+    axes: EntryAxes,
+    seed: int,
+    tier_geometry: Tier,
+    noise: NoiseParameters,
+    grid_spacing: float,
+) -> dict:
+    """The fields every entry carries, whatever its class lays out.
+
+    Split out by #71 so that the two layouts — the isolated classes' brightness
+    ladder and the blend class's pairs — state their differences and nothing
+    else.
+    """
+    return {
+        'tier': axes.tier,
+        'source_class': axes.source_class,
+        'regime': axes.regime,
+        'realisation': axes.realisation,
+        'seed': seed,
+        'image_shape': (tier_geometry.image_size, tier_geometry.image_size),
+        'pixel_scale': PIXEL_SCALE,
+        'grid_shape': (tier_geometry.grid_side, tier_geometry.grid_side),
+        'grid_spacing': grid_spacing,
+        'jitter_amplitude': JITTER_PIXELS,
+        'psf_type': PSF_TYPE,
+        'psf_fwhm': PSF_FWHM,
+        'psf_beta': PSF_BETA,
+        'zero_point': ZERO_POINT,
+        'noise': noise,
+    }
+
+
+def _build_isolated_entry(
+    axes: EntryAxes, seed: int, tier_geometry: Tier, noise: NoiseParameters
+) -> Recipe:
+    """One entry of a class that lays isolated sources on a brightness ladder.
+
+    Brightness varies along one grid axis, position jitter along the other, so
+    the full tier gives five brightness steps with five samples each — the
+    shape "bin residuals by SNR" wants (#67). The ladder is geometric in peak
+    SNR, so a column index reads as a fixed factor in brightness.
+    """
+    rng = np.random.default_rng(seed)
+    grid_side = tier_geometry.grid_side
+    profile = SOURCE_PROFILES[axes.source_class]
+    optics = _profile_optics(profile)
+    edge_margin = optics.edge_margin
+    spacing = tier_geometry.grid_spacing(edge_margin)
+
     peak_snr_ladder = np.geomspace(
         PEAK_SNR_BRIGHTEST, PEAK_SNR_FAINTEST, grid_side
     )
-    flux_ladder = peak_snr_ladder * noise.sigma / peak_fraction
+    flux_ladder = _flux_ladder(peak_snr_ladder, optics.peak_fraction, noise.sigma)
     magnitude_ladder = tuple(
         _magnitude_from_flux(flux, ZERO_POINT) for flux in flux_ladder
     )
 
     wing_radius = _wing_radius(
-        probe_profile * float(flux_ladder[0]), brightness_floor=noise.sigma
+        optics.probe_profile * float(flux_ladder[0]), brightness_floor=noise.sigma
     )
     # A point source is not truncated, so there is no cut that could show as a
     # hard edge and nothing for this check to be about. Every profile class
     # answers to it.
     if not profile.is_point:
-        check_truncation(wing_radius=wing_radius, truncation_radius=truncation_pixels)
+        check_truncation(
+            wing_radius=wing_radius, truncation_radius=optics.truncation_pixels
+        )
     check_grid_spacing(wing_radius=wing_radius, grid_spacing=spacing)
 
     sources = []
@@ -1024,12 +1373,8 @@ def build_recipe(
                     source_id=source_id,
                     column=column,
                     row=row,
-                    x=edge_margin
-                    + column * spacing
-                    + float(rng.uniform(-jitter_amplitude, jitter_amplitude)),
-                    y=edge_margin
-                    + row * spacing
-                    + float(rng.uniform(-jitter_amplitude, jitter_amplitude)),
+                    x=_jittered_position(edge_margin, column, spacing, rng),
+                    y=_jittered_position(edge_margin, row, spacing, rng),
                     magnitude=magnitude_ladder[column],
                     flux=float(flux_ladder[column]),
                     sersic_index=profile.sersic_index,
@@ -1046,26 +1391,12 @@ def build_recipe(
     check_image_margin(
         sources,
         tier_geometry.image_size,
-        margin=psf_margin,
+        margin=psf_margin_pixels(),
         pixel_scale=PIXEL_SCALE,
     )
 
     return Recipe(
-        tier=tier,
-        source_class=source_class,
-        regime=regime,
-        realisation=realisation,
-        seed=seed,
-        image_shape=(tier_geometry.image_size, tier_geometry.image_size),
-        pixel_scale=PIXEL_SCALE,
-        grid_shape=(grid_side, grid_side),
-        grid_spacing=spacing,
-        jitter_amplitude=jitter_amplitude,
-        psf_type=PSF_TYPE,
-        psf_fwhm=PSF_FWHM,
-        psf_beta=PSF_BETA,
-        zero_point=ZERO_POINT,
-        noise=noise,
+        **_entry_fields(axes, seed, tier_geometry, noise, spacing),
         sources=sources,
         magnitude_ladder=magnitude_ladder,
         peak_snr_ladder=tuple(float(value) for value in peak_snr_ladder),
@@ -1073,19 +1404,194 @@ def build_recipe(
     )
 
 
+def _build_blend_entry(
+    axes: EntryAxes, seed: int, tier_geometry: Tier, noise: NoiseParameters
+) -> Recipe:
+    """One entry of the ``blend`` class — a pair of sources per grid cell (#71).
+
+    Separation steps down the rows and the pair's flux ratio across the
+    columns, with the bright component held at :data:`BLEND_BRIGHT_PEAK_SNR`
+    over the whole grid. That is the two-dimensional map #67 asks for: where
+    over-subtraction around the bright source starts consuming its neighbour.
+
+    Neither axis is brightness, so neither can buy the independent samples the
+    isolated classes get from their jitter row. The **pair centre** is jittered
+    instead, and the companion is placed at a random position angle, so no two
+    cells repeat a sub-pixel phase or an orientation while both grid axes stay
+    spent on what the class is for.
+
+    Both ends of the separation ladder are measured rather than chosen: one PSF
+    FWHM at the tight end, and the bright component's own wing radius at the
+    wide end — the radius at which it finally drops under the background, and
+    so exactly the boundary this class exists to locate. The widest row
+    therefore *lands on* that boundary rather than passing it: what lies
+    outside it is the isolated ``sersic_n4`` entry, which is the same bright
+    source with no companion at all.
+    """
+    rng = np.random.default_rng(seed)
+    grid_side = tier_geometry.grid_side
+    bright_profile = SOURCE_PROFILES[BLEND_BRIGHT_PROFILE]
+    companion_profile = SOURCE_PROFILES[BLEND_COMPANION_PROFILE]
+    bright_optics = _profile_optics(bright_profile)
+    companion_optics = _profile_optics(companion_profile)
+
+    # The bright component sits at the cell centre and is much the wider of
+    # the two, so the grid is laid out on its margin — which is the isolated
+    # ``sersic_n4`` entry's margin, and so its spacing. The companion is
+    # displaced outward from there by up to the whole separation, and
+    # ``check_image_margin`` below is what says that displacement still clears
+    # the border.
+    edge_margin = bright_optics.edge_margin
+    spacing = tier_geometry.grid_spacing(edge_margin)
+
+    bright_flux = float(
+        _flux_ladder(
+            np.array([BLEND_BRIGHT_PEAK_SNR]),
+            bright_optics.peak_fraction,
+            noise.sigma,
+        )[0]
+    )
+    bright_magnitude = _magnitude_from_flux(bright_flux, ZERO_POINT)
+
+    wing_radius = _wing_radius(
+        bright_optics.probe_profile * bright_flux, brightness_floor=noise.sigma
+    )
+    check_truncation(
+        wing_radius=wing_radius, truncation_radius=bright_optics.truncation_pixels
+    )
+    check_grid_spacing(wing_radius=wing_radius, grid_spacing=spacing)
+
+    separation_ladder = np.geomspace(
+        BLEND_SEPARATION_MIN_FWHM * PSF_FWHM / PIXEL_SCALE, wing_radius, grid_side
+    )
+    # The refusal the class needs of its own: the isolated one above asks
+    # whether a *source* reaches its neighbour's cell, and this asks whether a
+    # whole pair does. The widest separation is the binding one.
+    check_pair_spacing(
+        wing_radius=wing_radius,
+        separation=float(separation_ladder[-1]),
+        grid_spacing=spacing,
+        jitter_amplitude=JITTER_PIXELS,
+    )
+
+    companion_peak_snr_ladder = np.geomspace(
+        BLEND_COMPANION_PEAK_SNR_BRIGHTEST, PEAK_SNR_FAINTEST, grid_side
+    )
+    companion_flux_ladder = _flux_ladder(
+        companion_peak_snr_ladder, companion_optics.peak_fraction, noise.sigma
+    )
+    flux_ratio_ladder = companion_flux_ladder / bright_flux
+    companion_magnitude_ladder = tuple(
+        _magnitude_from_flux(flux, ZERO_POINT) for flux in companion_flux_ladder
+    )
+
+    sources = []
+    for row in range(grid_side):
+        separation = float(separation_ladder[row])
+        for column in range(grid_side):
+            flux_ratio = float(flux_ratio_ladder[column])
+            e1, e2 = _draw_ellipticity(rng, bright_profile.max_ellipticity)
+            x = _jittered_position(edge_margin, column, spacing, rng)
+            y = _jittered_position(edge_margin, row, spacing, rng)
+            angle = float(rng.uniform(0.0, 2.0 * np.pi))
+            companion_e1, companion_e2 = _draw_ellipticity(
+                rng, companion_profile.max_ellipticity
+            )
+
+            bright_id = len(sources)
+            companion_id = bright_id + 1
+            sources.append(
+                Source(
+                    source_id=bright_id,
+                    column=column,
+                    row=row,
+                    x=x,
+                    y=y,
+                    magnitude=bright_magnitude,
+                    flux=bright_flux,
+                    sersic_index=bright_profile.sersic_index,
+                    half_light_radius=bright_profile.half_light_radius,
+                    e1=e1,
+                    e2=e2,
+                    truncation_radius=bright_profile.truncation_radius,
+                    peak_snr=float(BLEND_BRIGHT_PEAK_SNR),
+                    companion_id=companion_id,
+                    separation=separation,
+                    flux_ratio=flux_ratio,
+                )
+            )
+            sources.append(
+                Source(
+                    source_id=companion_id,
+                    column=column,
+                    row=row,
+                    x=x + separation * float(np.cos(angle)),
+                    y=y + separation * float(np.sin(angle)),
+                    magnitude=companion_magnitude_ladder[column],
+                    flux=float(companion_flux_ladder[column]),
+                    sersic_index=companion_profile.sersic_index,
+                    half_light_radius=companion_profile.half_light_radius,
+                    e1=companion_e1,
+                    e2=companion_e2,
+                    truncation_radius=companion_profile.truncation_radius,
+                    peak_snr=float(companion_peak_snr_ladder[column]),
+                    companion_id=bright_id,
+                    separation=separation,
+                    flux_ratio=flux_ratio,
+                )
+            )
+
+    sources = tuple(sources)
+    check_image_margin(
+        sources,
+        tier_geometry.image_size,
+        margin=psf_margin_pixels(),
+        pixel_scale=PIXEL_SCALE,
+    )
+
+    return Recipe(
+        **_entry_fields(axes, seed, tier_geometry, noise, spacing),
+        sources=sources,
+        magnitude_ladder=companion_magnitude_ladder,
+        peak_snr_ladder=tuple(float(value) for value in companion_peak_snr_ladder),
+        wing_radius=wing_radius,
+        separation_ladder=tuple(float(value) for value in separation_ladder),
+        flux_ratio_ladder=tuple(float(value) for value in flux_ratio_ladder),
+        bright_magnitude=bright_magnitude,
+        bright_peak_snr=float(BLEND_BRIGHT_PEAK_SNR),
+    )
+
+
+def build_recipe(
+    tier: str, source_class: str, regime: str, realisation: int
+) -> Recipe:
+    """Describe one gallery entry completely, without drawing a single pixel.
+
+    Two layouts, and the class picks between them: the isolated classes lay one
+    source per cell on a brightness ladder, and ``blend`` lays a pair per cell
+    over separation and flux ratio. Everything before the branch — the tier's
+    geometry, the noise regime and the derived seed — is common to both.
+
+    Raises :class:`AxisNotBuiltError` for an axis value no ticket has decided,
+    and one of :class:`GridTooTightError`, :class:`PairsTooCloseError`,
+    :class:`TruncationTooTightError` or :class:`SourceClippedError` if the
+    layout the decided numbers produce is not the layout the class is for.
+    """
+    axes = EntryAxes(tier, source_class, regime, realisation)
+    _refuse_unbuilt_axes(axes)
+
+    build = _build_blend_entry if source_class == BLEND_CLASS else _build_isolated_entry
+    return build(
+        axes=axes,
+        seed=derive_seed(source_class, regime, realisation),
+        tier_geometry=TIERS[tier],
+        noise=REGIMES[regime],
+    )
+
+
 # --------------------------------------------------------------------------
 # The gallery as a whole (#69)
 # --------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class EntryAxes:
-    """One point on the four axes — the address of a single gallery entry."""
-
-    tier: str
-    source_class: str
-    regime: str
-    realisation: int
 
 
 def all_entries() -> tuple[EntryAxes, ...]:
@@ -1132,14 +1638,13 @@ def built_entries(
     }
     selected = []
     for axes in all_entries():
-        axis_values = asdict(axes)
         if any(
-            value is not None and axis_values[name] != value
+            value is not None and getattr(axes, name) != value
             for name, value in wanted.items()
         ):
             continue
         try:
-            _refuse_unbuilt_axes(**axis_values)
+            _refuse_unbuilt_axes(axes)
         except AxisNotBuiltError:
             continue
         selected.append(axes)

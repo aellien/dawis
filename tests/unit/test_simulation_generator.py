@@ -24,6 +24,7 @@ touches*, which is exactly what a resumable generation gets wrong.
 
 from __future__ import annotations
 
+import csv
 import json
 import sys
 from dataclasses import asdict, dataclass, replace
@@ -41,7 +42,13 @@ if str(REPOSITORY_ROOT) not in sys.path:
 
 from simulations import generate as generate_module  # noqa: E402
 from simulations import recipe as recipe_module  # noqa: E402
-from simulations.write import EntryState, entry_state, write_entry  # noqa: E402
+from simulations.write import (  # noqa: E402
+    BLEND_SOURCE_COLUMNS,
+    SOURCE_COLUMNS,
+    EntryState,
+    entry_state,
+    write_entry,
+)
 
 #: The cheap tier, so a test that writes real FITS files writes 512x512 ones.
 TRACER = recipe_module.EntryAxes(
@@ -134,16 +141,15 @@ def test_the_sweep_holds_the_entry_the_tracer_ticket_built():
 def test_an_axis_no_ticket_has_decided_is_not_swept():
     """The sweep holds exactly the axis values a ticket has written down.
 
-    #68 decided ``sersic_n4`` / ``balanced`` / ``r0``, and #70 added the other
-    two isolated classes. ``blend`` needs a grid of its own, and the other two
-    regimes and realisations need numbers, so all three axes stay narrowed
-    until the ticket that owns them lands.
+    #68 decided ``sersic_n4`` / ``balanced`` / ``r0``, #70 added the other two
+    isolated classes and #71 the ``blend`` layout, so the class axis is now
+    complete. The other two regimes and the later realisations still need
+    numbers, so those two axes stay narrowed until the tickets that own them
+    land.
     """
     swept = recipe_module.built_entries()
-    assert {axes.source_class for axes in swept} == {
-        'sersic_n4',
-        'point',
-        'sersic_n1_halo',
+    assert set(recipe_module.SOURCE_CLASSES) == {
+        axes.source_class for axes in swept
     }
     assert {axes.regime for axes in swept} == {'balanced'}
     assert {axes.realisation for axes in swept} == {0}
@@ -178,7 +184,7 @@ def test_a_filter_matching_no_built_entry_selects_nothing():
     The generator turns that into an error message of its own; the recipe's
     job is only to report that there is nothing to build.
     """
-    assert recipe_module.built_entries(source_class='blend') == ()
+    assert recipe_module.built_entries(regime='photon') == ()
 
 
 # --------------------------------------------------------------------------
@@ -350,7 +356,7 @@ def test_without_all_the_four_axes_name_one_entry():
 def test_without_all_an_undecided_entry_is_still_selected():
     """So the refusal, not the sweep, is what reports which ticket owns it.
 
-    Dropping it here instead would answer "build the blend class" with
+    Dropping it here instead would answer "build the photon regime" with
     "nothing matched", which reads as a typo rather than as work not yet done.
     """
     selected = generate_module.select_entries(
@@ -404,9 +410,9 @@ def test_naming_fewer_than_four_axes_without_all_is_an_error(capsys):
 
 
 def test_all_with_a_filter_matching_nothing_says_it_is_undecided_work(capsys):
-    """Not "no such thing" — the class exists, its numbers are not decided."""
+    """Not "no such thing" — the regime exists, its numbers are not decided."""
     with pytest.raises(SystemExit) as raised:
-        generate_module.main(['--all', '--class', 'blend'])
+        generate_module.main(['--all', '--regime', 'photon'])
     assert raised.value.code == 2
     assert 'nothing to build' in capsys.readouterr().err
 
@@ -467,3 +473,50 @@ def test_the_output_root_defaults_to_the_data_directory():
 def test_the_output_root_stays_overridable():
     arguments = generate_module.build_parser().parse_args(['--all', '--out', '/tmp/g'])
     assert arguments.out == Path('/tmp/g')
+
+
+# --------------------------------------------------------------------------
+# What ``sources.csv`` carries (#71)
+# --------------------------------------------------------------------------
+
+#: The blend entry of the cheap tier, so the table under test is eighteen rows
+#: rather than fifty.
+BLEND = recipe_module.EntryAxes(
+    tier='small', source_class='blend', regime='balanced', realisation=0
+)
+
+
+def written_table(tmp_path, axes):
+    """One entry's ``sources.csv``, written and read back as rows of strings."""
+    recipe = describe(axes)
+    write_entry(recipe, StubRenderer()(recipe), tmp_path, commit='x')
+    path = recipe.output_paths(tmp_path)['sources.csv']
+    with path.open(newline='') as handle:
+        return recipe, list(csv.DictReader(handle))
+
+
+def test_the_blend_table_records_the_companion_the_separation_and_the_ratio(
+    tmp_path,
+):
+    """The three columns #67 adds for this class, and every row carries them."""
+    recipe, rows = written_table(tmp_path, BLEND)
+
+    assert list(rows[0]) == list(SOURCE_COLUMNS + BLEND_SOURCE_COLUMNS)
+    assert len(rows) == len(recipe.sources)
+    for row, source in zip(rows, recipe.sources):
+        assert int(row['companion_id']) == source.companion_id
+        assert float(row['separation']) == pytest.approx(source.separation)
+        assert float(row['flux_ratio']) == pytest.approx(source.flux_ratio)
+
+
+def test_an_isolated_table_carries_no_blend_columns(tmp_path):
+    """A class with no pairs has no pair to describe (#71).
+
+    Three columns of zeros in every other entry would read as a measured
+    separation of nothing rather than as the absence of a companion.
+    """
+    _, rows = written_table(tmp_path, TRACER)
+
+    assert list(rows[0]) == list(SOURCE_COLUMNS)
+    for column in BLEND_SOURCE_COLUMNS:
+        assert column not in rows[0]

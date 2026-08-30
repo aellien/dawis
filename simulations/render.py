@@ -1,4 +1,4 @@
-"""The render layer — a recipe handed to GalSim (#68).
+"""The render layer — a recipe handed to GalSim (#68, #71).
 
 Thin by design. Every decision of #67 was made in :mod:`simulations.recipe`;
 this module translates that description into GalSim objects, draws them, and
@@ -59,10 +59,14 @@ PSF_STAMP_HALF_WIDTH_FWHM = 8.0
 FLUX_TOLERANCE = 1e-2
 
 #: Half-width, in pixels, of the window :func:`check_point_placement` compares
-#: the two truth images in. Wide enough that a wrong convention lands inside
-#: it and is reported rather than silently missed, narrow enough that it never
-#: reaches a neighbouring source — the recipe's tightest grid spacing for the
-#: point class is over twenty times this.
+#: one point source's two pictures of itself in. Wide enough that a wrong
+#: convention lands inside it and is reported rather than silently missed,
+#: narrow enough to stay a small stamp.
+#:
+#: It does **not** have to clear a neighbouring source, and since #71 it could
+#: not: a blend pair's tightest separation is well inside this window. The
+#: check draws the source on its own instead, so nothing else can be in the
+#: window to begin with.
 POINT_PLACEMENT_WINDOW = 5
 
 
@@ -152,12 +156,19 @@ def _add_delta(canvas: galsim.Image, source: Source) -> None:
     canvas.addValue(round(centre.x), round(centre.y), source.flux)
 
 
-def _draw_sources(recipe: Recipe, convolve_with_psf: bool) -> np.ndarray:
-    """Every source added to one blank image, with or without the PSF."""
+def _draw_sources(
+    recipe: Recipe, sources: tuple[Source, ...], convolve_with_psf: bool
+) -> np.ndarray:
+    """The given sources added to one blank image, with or without the PSF.
+
+    Takes the sources rather than reading them off the recipe so that one
+    brightness bin can be drawn on its own and weighed — see
+    :attr:`~simulations.recipe.Recipe.flux_groups` and :func:`render`.
+    """
     canvas = _blank(recipe)
     psf = _psf(recipe)
 
-    for source in recipe.sources:
+    for source in sources:
         if source.is_point and not convolve_with_psf:
             _add_delta(canvas, source)
             continue
@@ -215,23 +226,28 @@ def _add_noise(recipe: Recipe, truth_conv: np.ndarray) -> np.ndarray:
 
 
 def check_rendered_flux(
-    recipe: Recipe, truth_conv: np.ndarray, tolerance: float = FLUX_TOLERANCE
+    drawn_image: np.ndarray,
+    intended: float,
+    what: str,
+    tolerance: float = FLUX_TOLERANCE,
 ) -> None:
-    """Compare the drawn truth against the flux the recipe intended.
+    """Compare a drawn image against the flux the recipe intended for it.
+
+    ``what`` names the thing being weighed, because since #71 this is asked
+    once of the whole convolved truth and once of each brightness bin inside
+    it, and a refusal has to say which.
 
     Raises :class:`FluxCheckError` outside ``tolerance``, relative.
     """
-    drawn = float(truth_conv.sum())
-    intended = recipe.total_flux
+    drawn = float(drawn_image.sum())
     deviation = abs(drawn - intended) / intended
 
     if deviation > tolerance:
         raise FluxCheckError(
-            'the convolved truth image carries %.6g ADU but the recipe '
-            'specifies %.6g ADU, a relative deviation of %.3g which is outside '
-            'the %.3g tolerance: the render does not reproduce the analytic '
-            'sum, so this entry is not ground truth'
-            % (drawn, intended, deviation, tolerance)
+            '%s carries %.6g ADU but the recipe specifies %.6g ADU, a relative '
+            'deviation of %.3g which is outside the %.3g tolerance: the render '
+            'does not reproduce the analytic sum, so this entry is not ground '
+            'truth' % (what, drawn, intended, deviation, tolerance)
         )
 
 
@@ -252,35 +268,89 @@ class PointPlacementError(ValueError):
     gallery that GalSim does not draw (see :func:`_add_delta`), so it is the
     only place where a coordinate-convention mistake would survive the flux
     check: moving all the flux one pixel sideways changes no total. Comparing
-    the two truth images against each other is what closes that gap, and it
-    belongs at generation time for the same reason the flux check does — #67
-    wants a rendering mistake to stop the generator while a human is present.
+    the hand-placed pixel against the peak GalSim draws for the same source is
+    what closes that gap, and it belongs at generation time for the same reason
+    the flux check does — #67 wants a rendering mistake to stop the generator
+    while a human is present.
     """
 
 
-def check_point_placement(
-    recipe: Recipe, truth_preconv: np.ndarray, truth_conv: np.ndarray
-) -> None:
-    """Check each point source against the peak GalSim drew for it.
+def _point_stamps(recipe: Recipe, source: Source) -> tuple[np.ndarray, np.ndarray]:
+    """One point source's two pictures of itself, on one shared window.
 
-    Does nothing for a class of profiles, whose pre-convolution truth GalSim
+    The first is where :func:`_add_delta` puts the source's whole flux; the
+    second is where GalSim's own convolved draw of that same source peaks. Both
+    are on the same small stamp of the entry's pixel grid, so their peak
+    indices are directly comparable.
+
+    Drawn **alone**, which is the whole point (#71). The blend class puts a
+    faint point companion beside a source up to three thousand times brighter,
+    at separations that start inside this window, so in the summed truth images
+    neither peak in a window around the companion is the companion's. Isolating
+    the source is the only way to keep the check live for the class that most
+    needs it, and it costs nothing: the summed image is the sum of exactly
+    these draws.
+    """
+    centre = _source_centre(source)
+    half = POINT_PLACEMENT_WINDOW
+    bounds = galsim.BoundsI(
+        round(centre.x) - half,
+        round(centre.x) + half,
+        round(centre.y) - half,
+        round(centre.y) + half,
+    )
+
+    placed = galsim.ImageD(bounds, scale=recipe.pixel_scale)
+    _add_delta(placed, source)
+
+    drawn = galsim.ImageD(bounds, scale=recipe.pixel_scale)
+    galsim.Convolve([_profile(source), _psf(recipe)]).drawImage(
+        image=drawn, center=centre, add_to_image=True
+    )
+
+    return placed.array, drawn.array
+
+
+def check_point_placement(recipe: Recipe, truth_preconv: np.ndarray) -> None:
+    """Check each point source against the peak GalSim draws for it.
+
+    Does nothing for an entry of profiles, whose pre-convolution truth GalSim
     draws itself and which therefore cannot disagree with anything.
 
-    The recipe's own position only picks the window to look in; what is
-    compared is the two images, so this does not re-derive the convention it
-    exists to check.
+    Two questions, and they need different pictures. Whether the *convention*
+    is right is asked of the source drawn alone, because in a blend field the
+    summed images cannot answer it. Whether the truth image that reaches disk
+    actually got that flux is asked of ``truth_preconv`` itself, so the check
+    stays about the delivered array and not only about the function that
+    fills it.
+
+    The recipe's own position only picks the stamp to look in; what is compared
+    for the convention is the two draws, so this does not re-derive the
+    convention it exists to check.
     """
-    half = POINT_PLACEMENT_WINDOW
     for source in recipe.sources:
         if not source.is_point:
             continue
 
-        window = (
-            slice(int(source.y) - half, int(source.y) + half + 1),
-            slice(int(source.x) - half, int(source.x) + half + 1),
+        placed_stamp, drawn_stamp = _point_stamps(recipe, source)
+        placed = _peak_pixel(placed_stamp)
+        drawn = _peak_pixel(drawn_stamp)
+
+        centre = _source_centre(source)
+        # GalSim numbers pixels from one; numpy indexes from zero. Every
+        # contribution to the truth image is non-negative, so a neighbour can
+        # only add to this pixel — never make up for a flux that is missing.
+        delivered = float(
+            truth_preconv[round(centre.y) - 1, round(centre.x) - 1]
         )
-        placed = _peak_pixel(truth_preconv[window])
-        drawn = _peak_pixel(truth_conv[window])
+        if delivered < source.flux * (1.0 - 1e-9):
+            raise PointPlacementError(
+                'source %d carries %.6g ADU but the pre-convolution truth image '
+                'holds only %.6g ADU in the pixel that contains it: the flux '
+                'this class places by hand is not in the array that reaches '
+                'disk, so this entry is not ground truth'
+                % (source.source_id, source.flux, delivered)
+            )
 
         if placed != drawn:
             raise PointPlacementError(
@@ -299,12 +369,37 @@ def check_point_placement(
 
 
 def render(recipe: Recipe, tolerance: float = FLUX_TOLERANCE) -> RenderedEntry:
-    """Draw one entry, and refuse to return pixels that fail its own checks."""
-    truth_preconv = _draw_sources(recipe, convolve_with_psf=False)
-    truth_conv = _draw_sources(recipe, convolve_with_psf=True)
+    """Draw one entry, and refuse to return pixels that fail its own checks.
 
-    check_rendered_flux(recipe, truth_conv, tolerance=tolerance)
-    check_point_placement(recipe, truth_preconv, truth_conv)
+    The convolved truth is drawn one brightness bin at a time so that each bin
+    can be weighed on its own before they are added up. #67 asks for the whole
+    image to be checked and that check is still made last; the per-bin ones are
+    what stop it from being a statement about the brightest sources alone. See
+    :attr:`~simulations.recipe.Recipe.flux_groups`.
+    """
+    truth_preconv = _draw_sources(recipe, recipe.sources, convolve_with_psf=False)
+
+    truth_conv = np.zeros_like(truth_preconv)
+    for group in recipe.flux_groups:
+        drawn = _draw_sources(recipe, group, convolve_with_psf=True)
+        check_rendered_flux(
+            drawn,
+            intended=sum(source.flux for source in group),
+            what=(
+                'the %d source(s) the recipe gives a flux of %.6g ADU'
+                % (len(group), group[0].flux)
+            ),
+            tolerance=tolerance,
+        )
+        truth_conv += drawn
+
+    check_rendered_flux(
+        truth_conv,
+        intended=recipe.total_flux,
+        what='the convolved truth image',
+        tolerance=tolerance,
+    )
+    check_point_placement(recipe, truth_preconv)
 
     return RenderedEntry(
         image=_add_noise(recipe, truth_conv),

@@ -1,4 +1,4 @@
-"""The write layer — one entry's arrays to disk (#68).
+"""The write layer — one entry's arrays to disk (#68, #71).
 
 Thin by design, like the render layer. It puts the six files of #67's storage
 contract into the entry directory and owns the idempotent skip.
@@ -34,16 +34,17 @@ if TYPE_CHECKING:  # pragma: no cover - the annotation only, never at runtime
     from simulations.render import RenderedEntry
 
 __all__ = [
+    'BLEND_SOURCE_COLUMNS',
     'EntryState',
     'SOURCE_COLUMNS',
     'entry_state',
+    'source_columns',
     'source_commit',
     'write_entry',
 ]
 
-#: The columns of ``sources.csv``, in the order #67 lists them. The blend
-#: class adds companion id, separation and flux ratio; #68 does not build that
-#: class, so those columns arrive with the ticket that does.
+#: The columns every entry's ``sources.csv`` carries, in the order #67 lists
+#: them.
 SOURCE_COLUMNS = (
     'source_id',
     'x',
@@ -55,6 +56,22 @@ SOURCE_COLUMNS = (
     'e1',
     'e2',
 )
+
+#: The three columns #67 adds for the ``blend`` class, appended to
+#: :data:`SOURCE_COLUMNS` for that class alone (#71).
+#:
+#: They describe a *pair*, and a class of isolated sources has no pair to
+#: describe. Carrying them everywhere would put three columns of zeros in every
+#: other entry and invite a reader to take "separation 0" for a measured
+#: separation rather than for an absence.
+BLEND_SOURCE_COLUMNS = ('companion_id', 'separation', 'flux_ratio')
+
+
+def source_columns(recipe: Recipe) -> tuple[str, ...]:
+    """The columns this entry's ``sources.csv`` carries."""
+    if recipe.is_blend:
+        return SOURCE_COLUMNS + BLEND_SOURCE_COLUMNS
+    return SOURCE_COLUMNS
 
 
 def source_commit(repository_root: Path | None = None) -> str:
@@ -160,11 +177,12 @@ def _entry_header(recipe: Recipe, content: str) -> dict:
 
 def _write_sources(path: Path, recipe: Recipe) -> None:
     """One row per source — the ground truth #25's metrics read."""
+    columns = source_columns(recipe)
     with path.open('w', newline='') as handle:
         writer = csv.writer(handle)
-        writer.writerow(SOURCE_COLUMNS)
+        writer.writerow(columns)
         for source in recipe.sources:
-            writer.writerow([getattr(source, name) for name in SOURCE_COLUMNS])
+            writer.writerow([getattr(source, name) for name in columns])
 
 
 def write_entry(

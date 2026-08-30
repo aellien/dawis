@@ -52,7 +52,8 @@ With ``--all``, any axis given is held fixed and the rest are swept, so
 than the 72 #67 specifies: the rest need axis values no ticket has decided,
 and the recipe refuses them rather than guessing. Each ticket that decides an
 axis lifts a refusal, and ``--all`` grows with it — #70 lifted two class
-refusals and the sweep went from two entries to six on its own.
+refusals and the sweep went from two entries to six on its own, and #71 lifted
+the last one and took it to eight.
 """
 
 from __future__ import annotations
@@ -257,7 +258,9 @@ def main(argv: list[str] | None = None) -> int:
         except (
             recipe_module.AxisNotBuiltError,
             recipe_module.GridTooTightError,
+            recipe_module.PairsTooCloseError,
             recipe_module.SourceClippedError,
+            recipe_module.TruncationTooTightError,
             StaleEntryError,
         ) as error:
             parser.exit(2, 'generate.py: %s\n' % error)
