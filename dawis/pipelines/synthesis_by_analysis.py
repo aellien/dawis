@@ -66,8 +66,6 @@ Files a run writes, all hanging off ``<outdir>/<name>``:
 ``.log.txt``                the run log
 ``.ol.itNNN.pkl``/``.hdf5`` the atoms of one iteration
 ``.itl.itNNN.pkl``/``.hdf5`` the interscale trees they were restored from
-``.rl.itNNN.pkl``           the regions detected, under ``data_dump``
-``.res``/``.rec``/``.dei.itNNN.fits`` the running images, under ``data_dump``
 ``.residuals.fits``         what the loop could not explain
 ``.restored.fits``          the sum of every atom
 ``.deterror.fits``          the accumulated detection error
@@ -106,7 +104,6 @@ from dawis.io import (
     write_itl_to_pickle,
     write_ol_to_hdf5,
     write_ol_to_pickle,
-    write_regions_to_pickle,
 )
 from dawis.logs import run_logging
 from dawis.parallel import observed_threads, parallel_backend
@@ -493,8 +490,9 @@ def run(image, config: Config | None = None, *, outdir: str = '.',
                     log.info('Number Objects = %d, Normalized Epsilon = %f, Window Normalized Epsilon = %f' \
                                                 %( step.n_atoms, step.normeps, step.avnormeps ))
 
-                    # Data Dump. An iteration that was read back off disk is
-                    # already dumped, by the run that computed it.
+                    # The atoms and the trees of this iteration. An iteration
+                    # that was read back off disk is already dumped, by the run
+                    # that computed it.
                     if not resumed:
 
                         if config.outfile_format == 'hdf5':
@@ -503,13 +501,6 @@ def run(image, config: Config | None = None, *, outdir: str = '.',
                         elif config.outfile_format == 'pickle':
                             write_itl_to_pickle( itl, _dump_path(outpath, 'itl', it, 'pkl') )
                             write_ol_to_pickle( ol, pickle_dump )
-
-                        if config.data_dump:
-                            log.info('[ %s ] Dumping data in %s' %(datetime.now(), outdir) )
-                            write_regions_to_pickle( rl, _dump_path(outpath, 'rl', it, 'pkl'), overwrite = True)
-                            _write_fits( _dump_path(outpath, 'res', it, 'fits'), reconstruction.residuals )
-                            _write_fits( _dump_path(outpath, 'rec', it, 'fits'), reconstruction.restored )
-                            _write_fits( _dump_path(outpath, 'dei', it, 'fits'), reconstruction.det_err )
 
                     log.info('[ %s ]End of iteration (time: %s)\n\n'%(datetime.now(), datetime.now() - start_time_it ))
                     it += 1

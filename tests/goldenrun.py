@@ -63,11 +63,13 @@ GOLDEN_PARAMS = {
     "max_span": 3,
     "lvl_sep_big": 5,
     "max_iter": PIPELINE_MAX_ITER,
+    # Neither knob reaches a 1.0 run any more, and both are kept because
+    # `legacy-seeded` still takes them: `gif` went with #46, which took the
+    # animation off the loop, and a recording made there must not spend half
+    # its time drawing frames; `data_dump` went with #66, and a recording made
+    # there must not spend its time writing images nothing reads back. Both
+    # are filtered out against the signature by :func:`golden_kwargs`.
     "data_dump": False,
-    # Dropped from the entry point by #46, which took the animation off the
-    # loop: kept here because `legacy-seeded` still has it, and a recording
-    # made there must not spend half its time drawing frames. Filtered out
-    # against the signature by :func:`golden_kwargs`.
     "gif": False,
     "resume": False,
 }

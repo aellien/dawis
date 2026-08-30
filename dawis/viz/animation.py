@@ -241,8 +241,8 @@ def rebuild_animation(outpath: str, framerate: int = 3, show_progress: bool = Tr
     goes. The sum of what a run wrote is what it actually iterated on, and it
     needs no knowledge of where the input came from.
 
-    Frames are drawn from the atoms alone, so a run made with ``data_dump``
-    off can still be animated.
+    Frames are drawn from the atoms alone, which is all a run leaves per
+    iteration.
     """
 
 

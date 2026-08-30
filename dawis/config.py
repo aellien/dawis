@@ -261,9 +261,6 @@ class Config:
     iptd_sigma : float, optional
         Depth, in sigmas of the noise, below which a residual pixel is
         inpainted. Default 3.
-    data_dump : bool, optional
-        Also write the regions and the running images of every iteration.
-        Default True.
     resume : bool, optional
         Read an iteration back from disk when its atoms are already there.
         Default True.
@@ -329,7 +326,6 @@ class Config:
     size_patch: int = 100
     inpaint_res: bool = True
     iptd_sigma: float = 3
-    data_dump: bool = True
     resume: bool = True
     seed: int | None = None
     cg_max_iter: int = DEFAULT_CG_MAX_ITER

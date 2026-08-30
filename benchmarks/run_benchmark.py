@@ -439,7 +439,6 @@ def run(args):
         REFERENCE_PARAMS,
         n_workers=args.n_workers,
         max_iter=args.pipeline_max_iter,
-        data_dump=args.data_dump,
         resume=False,
     )
 
@@ -645,7 +644,6 @@ def main():
     ap.add_argument("--n-workers", type=int, default=1)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--label", default="")
-    ap.add_argument("--data-dump", action="store_true", help="write per-iteration dumps")
     ap.add_argument(
         "--gif",
         action="store_true",
@@ -664,8 +662,6 @@ def main():
         return report(args.report)
     if not args.outdir or args.cg_max_iter is None:
         ap.error("--outdir and --cg-max-iter are required for a run")
-    if args.gif and not args.data_dump:
-        ap.error("--gif needs --data-dump")
     return run(args)
 
 

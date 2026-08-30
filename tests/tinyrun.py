@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 #: Knobs that keep a run small. Everything else takes its default, which is
 #: the point: the defaults have to survive a small image.
-TINY_PARAMS = dict(max_iter = 2, data_dump = False, resume = False)
+TINY_PARAMS = dict(max_iter = 2, resume = False)
 
 #: What a tiny run calls the files it leaves behind.
 TINY_NAME = 'tiny'
