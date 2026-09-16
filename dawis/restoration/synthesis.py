@@ -127,10 +127,11 @@ class Atom(object):
         everything DAWIS reconstructs today. Default
         :data:`UNKNOWN_PROVENANCE`.
     synthesis_operator : str, optional
-        Which synthesis operator that reconstruction ran with, ``'SUM'`` or
-        ``'ADJOINT'`` — the same two words :meth:`InterscaleTree.CG_minimization
-        <dawis.trees.construction.InterscaleTree.CG_minimization>` branches on.
-        Default :data:`UNKNOWN_PROVENANCE`.
+        Which synthesis operator that reconstruction ran with — one of the
+        words :meth:`InterscaleTree.CG_minimization
+        <dawis.trees.construction.InterscaleTree.CG_minimization>` branches
+        on, ``'SUM'``, ``'ADJOINT'`` or ``'TRANSPOSE'``. Default
+        :data:`UNKNOWN_PROVENANCE`.
     blank : bool, optional
         If True, set no attributes at all and ignore every other argument.
         Default False.
@@ -145,9 +146,11 @@ class Atom(object):
     to the class and answers ``'UNKNOWN'`` instead of raising.
 
     The operator is worth having on disk for a second reason: the optional
-    deconvolution inside the solver runs on the adjoint branch only, so an
-    atom that records ``'ADJOINT'`` is an atom that was deconvolved if the run
-    asked for deconvolution at all — a fact nothing else records.
+    deconvolution inside the solver runs on the two adjoint-like branches
+    only, so an atom that records ``'ADJOINT'`` or ``'TRANSPOSE'`` is an atom
+    that was deconvolved if the run asked for deconvolution at all, and one
+    that records ``'SUM'`` never is — a fact nothing else records. Before #98
+    the first of those words identified the deconvolved set on its own.
     """
 
     # Read by an atom whose stored state predates these two fields. See Notes.

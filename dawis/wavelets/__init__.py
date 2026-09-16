@@ -32,8 +32,10 @@ from dawis.wavelets.anscombe import (
 )
 from dawis.wavelets.atrous import (
     atrous,
+    atrous_adjoint,
     boundary_conditions,
     ser_iuwt_decomposition,
+    smooth_adjoint,
 )
 from dawis.wavelets.transforms import bspl_atrous, haar_atrous, max_levels
 
@@ -41,6 +43,7 @@ __all__ = [
     'AnscombeStabilisation',
     'anscombe_transform',
     'atrous',
+    'atrous_adjoint',
     'boundary_conditions',
     'bspl_atrous',
     'haar_atrous',
@@ -48,4 +51,5 @@ __all__ = [
     'max_levels',
     'pg_noise_bissection',
     'ser_iuwt_decomposition',
+    'smooth_adjoint',
 ]

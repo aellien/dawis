@@ -26,7 +26,8 @@ choice of filter and synthesis operator that the solver then runs with.
 :mod:`dawis.restoration.deconvolution` holds the optional PSF step inside that
 solve: Richardson-Lucy against the à trous B3-spline kernel that
 :func:`twod_B2spline` builds, at one of two orders picked from the level of
-the interscale maximum. Only the ADJOINT branch of the solver reads it.
+the interscale maximum. Only the two adjoint-like branches of the solver
+read it, ADJOINT and TRANSPOSE.
 
 :mod:`dawis.restoration.inpainting` closes the loop. A slightly over-restored
 atom digs a hole in the residual, and the next iteration would detect that

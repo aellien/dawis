@@ -8,8 +8,9 @@ iterations against it. :func:`twod_B2spline` builds that kernel — at order 0
 for a tree whose interscale maximum sits at or below level 2, and at order 2
 above it — and :func:`richardson_lucy_np` does the deconvolution.
 
-Only the ADJOINT branch of the solver uses it. Under the SUM operator the
-kernel is still built and then never read.
+Only the two adjoint-like branches of the solver use it, ADJOINT and
+TRANSPOSE. Under the SUM operator the kernel is still built and then never
+read.
 
 :func:`richardson_lucy_np` is a general routine and not specific to dawis: it
 takes any image and any PSF, handles non-circulant edges by padding, and can

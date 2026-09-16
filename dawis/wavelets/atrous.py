@@ -248,6 +248,247 @@ def atrous(
 
     return coarse_array, wavelet_array
 
+
+def dilated_offsets(
+    filter: np.ndarray,
+    level: int,
+) -> np.ndarray:
+    """Where the à trous filter samples from, at one level.
+
+    Transcribed from :func:`atrous`, which builds its offsets by ``logspace``
+    rather than by ``arange`` — so a 5-tap filter reaches ``(-2, -1, 0, 1,
+    2)`` and a 3-tap one ``(-1, 0, 1)``, both then dilated by ``2 **
+    level``.
+
+    Parameters
+    ----------
+    filter : numpy.ndarray
+        The 1D scaling filter.
+    level : int
+        The à trous level, counting from zero.
+
+    Returns
+    -------
+    numpy.ndarray
+        Integer offsets, one per filter tap.
+
+    Raises
+    ------
+    DawisDimensionError
+        If the filter is not 1D. :func:`atrous` also takes a 2D separable
+        filter and meshes its offsets in both axes; the transpose is written
+        for the 1D path the published solve runs, and an unguarded 2D filter
+        would either broadcast its rows against the image and return a wrong
+        array, or fail far from here.
+    DawisValueError
+        If the filter has an even number of taps. The construction produces
+        ``2 * (size // 2) + 1`` offsets, so an even filter would come back
+        with one more offset than it has taps, and the ``zip`` in
+        :func:`smooth_adjoint` would silently drop the last one and transpose
+        a different operator. :func:`atrous` fails on the same filter,
+        loudly, at its ``matmul``; this fails at the same place for the same
+        reason.
+
+    See Also
+    --------
+    smooth_adjoint : The transposed smoothing these offsets scatter into.
+    """
+
+    if filter.ndim != 1:
+        raise DawisDimensionError('Not a 1D filter -->', filter.ndim, 1)
+
+    if filter.size % 2 == 0:
+        raise DawisValueError('The a trous filter has to have a centre -->',
+                              filter.size, 'odd number of taps')
+
+    filter_half_size = filter.size // 2
+    positive_positions = np.logspace(0, filter_half_size - 1,
+                                     num = filter_half_size, base = 2)
+    position_array = np.concatenate((- np.flip(positive_positions),
+                                     np.zeros(1), positive_positions))
+
+    return (position_array * 2 ** level).astype(int)
+
+
+def _clamped(offset: int, size: int) -> np.ndarray:
+    """The indices a gather at one offset reads, folded back inside.
+
+    :func:`boundary_conditions` with ``'prolongation'`` clamps rather than
+    mirrors or wraps, so a sample off the low edge reads index 0 and one off
+    the high edge reads ``size - 1``.
+
+    Parameters
+    ----------
+    offset : int
+        The dilated filter offset, from :func:`dilated_offsets`.
+    size : int
+        The image extent along the axis being folded.
+
+    Returns
+    -------
+    numpy.ndarray
+        Integer indices, of length ``size``.
+    """
+
+    return np.clip(np.arange(size) + offset, 0, size - 1)
+
+
+def smooth_adjoint(
+    image: np.ndarray,
+    filter: np.ndarray,
+    level: int,
+) -> np.ndarray:
+    """Apply the transpose of one à trous smoothing.
+
+    The forward smoothing is a gather — ``out[x] = sum_k f[k] * in[clamp(x +
+    d_k)]`` along each axis in turn — so its transpose is the scatter that
+    accumulates ``f[k] * out[x]`` back into ``clamp(x + d_k)``. The two axis
+    passes compose in the opposite order to the forward, which applies rows
+    then columns.
+
+    Clamping is what makes the smoothing operator **not** symmetric: it
+    duplicates the edge samples, so re-running the same smoothing is not the
+    transpose of it.
+
+    Parameters
+    ----------
+    image : numpy.ndarray
+        The 2D array to transpose-smooth.
+    filter : numpy.ndarray
+        The 1D scaling filter.
+    level : int
+        The à trous level, counting from zero.
+
+    Returns
+    -------
+    numpy.ndarray
+        2D, the shape of ``image``.
+
+    See Also
+    --------
+    atrous_adjoint : The recursion built from these.
+    """
+
+    offsets = dilated_offsets(filter, level)
+    rows, columns = image.shape
+
+    along_columns = np.zeros_like(image, dtype = float)
+    for tap, offset in zip(filter, offsets):
+        np.add.at(along_columns, (slice(None), _clamped(offset, columns)),
+                  tap * image)
+
+    along_rows = np.zeros_like(along_columns)
+    for tap, offset in zip(filter, offsets):
+        np.add.at(along_rows, _clamped(offset, rows), tap * along_columns)
+
+    return along_rows
+
+
+def atrous_adjoint(
+    wavelet_tube: np.ndarray,
+    filter: np.ndarray,
+    coarse: bool = False,
+) -> np.ndarray:
+    r"""Apply the transpose of the à trous transform to a tube.
+
+    The adjoint of ``atrous(x, n_levels, filter, 'prolongation')[1]``, the
+    wavelet planes alone — unless ``coarse`` says the tube carries the coarse
+    term as well, in which case it is the adjoint of the transform that
+    returns those planes *and* :math:`c_{L+1}`.
+
+    With :math:`H_{j}` the smoothing at level :math:`j`, the transform a tube
+    holds is
+
+    .. math::
+
+        w_{j} = (I - H_{j}) H_{j-1} \cdots H_{0} x .
+
+    Transposing term by term and factoring gives the backwards recursion run
+    here, which costs :math:`2n` smoothing transposes for :math:`n` levels
+    rather than the :math:`n(n+1)/2` the sum-of-products form would.
+
+    This is a third operator, not a renaming of either published one.
+    :meth:`~dawis.trees.InterscaleTree.synthesis_sum` adds the planes, which
+    is the starlet's *reconstruction* dual;
+    :meth:`~dawis.trees.InterscaleTree.synthesis_adjoint` cascades each plane
+    through the low-pass filters, which is the operator the published lineage
+    adopted *after* the true adjoint produced ring artefacts ([LU3CW9P8]
+    p.272, #76) — a rejection #85 measured on this instrument and did not
+    reproduce.
+
+    Parameters
+    ----------
+    wavelet_tube : numpy.ndarray
+        3D, of shape ``(rows, columns, n_levels)``, or of shape
+        ``(rows, columns, n_levels + 1)`` when ``coarse`` is True — the
+        wavelet planes, then the coarse channel.
+    filter : numpy.ndarray
+        The 1D scaling filter, normally the B3-spline kernel.
+    coarse : bool, optional
+        Whether the last channel of the tube is the coarse term (#89).
+        Default False, which is the transform every result in #74's Ledger
+        was taken on.
+
+    Returns
+    -------
+    numpy.ndarray
+        2D, of shape ``(rows, columns)``.
+
+    Raises
+    ------
+    DawisValueError
+        If the tube carries no wavelet plane at all. With ``coarse`` True a
+        one-channel tube leaves no plane behind the coarse channel, and the
+        recursion would read that channel twice — once as the coarse term and
+        once as a detail plane at level ``-1``, where the dilation ``2 ** -1``
+        collapses the stencil onto duplicated taps. It returns an array rather
+        than failing, so it is guarded here.
+
+    See Also
+    --------
+    atrous : The transform this is the transpose of.
+    smooth_adjoint : The per-level transpose this recursion is built from.
+
+    Notes
+    -----
+    The coarse term of the transform is :math:`c_{L+1} = H_{L} \cdots H_{0}
+    x`, so its column of :math:`W^{\mathsf{T}}` is :math:`H_{0}^{\mathsf{T}}
+    \cdots H_{L}^{\mathsf{T}}`. Applied right to left that is
+    :math:`H_{L}^{\mathsf{T}}` first and the rest after, which is exactly
+    what the backwards recursion already does to whatever it starts from. So
+    the channel costs one extra smoothing transpose rather than :math:`L + 1`
+    of them: it is seeded into the accumulator at the top level and rides the
+    recursion down.
+
+    The identity that pins this operator is :math:`\langle W x, y \rangle =
+    \langle x, W^{\mathsf{T}} y \rangle`, which holds for the adjoint and for
+    nothing else. It is asserted on both filters, several depths and
+    non-square boxes in ``tests/unit/test_synthesis_transpose.py``.
+    """
+
+    n_levels = wavelet_tube.shape[2] - int(coarse)
+
+    if n_levels < 1:
+        raise DawisValueError('Tube carries no wavelet plane -->',
+                              wavelet_tube.shape[2],
+                              'at least one plane, plus one channel when '
+                              'coarse is True')
+
+    def detail_adjoint(level):
+        plane = wavelet_tube[:, :, level].astype(float)
+        return plane - smooth_adjoint(plane, filter, level)
+
+    accumulated = detail_adjoint(n_levels - 1)
+    if coarse:
+        accumulated = accumulated + smooth_adjoint(
+            wavelet_tube[:, :, n_levels].astype(float), filter, n_levels - 1)
+
+    for level in range(n_levels - 2, -1, -1):
+        accumulated = (detail_adjoint(level)
+                       + smooth_adjoint(accumulated, filter, level))
+
+    return accumulated
+
 def ser_a_trous(C0, filter, scale):
     """
     The following is a serial implementation of the a trous algorithm. Accepts the following parameters:

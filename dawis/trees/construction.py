@@ -38,7 +38,7 @@ from dawis.config import DEFAULT_CG_MAX_ITER
 from dawis.cubes import LabelCube, WaveletCube
 from dawis.detection import region
 from dawis.restoration.deconvolution import richardson_lucy_np, twod_B2spline
-from dawis.wavelets import atrous
+from dawis.wavelets import atrous, atrous_adjoint
 
 log = logging.getLogger(__name__)
 
@@ -303,6 +303,7 @@ class InterscaleTree(object):
         See Also
         --------
         synthesis_sum : The cheaper alternative, a plain sum of the planes.
+        synthesis_transpose : The genuine transpose of the transform.
         """
 
         smooth_coeff = np.zeros(wavelet_tube.shape)
@@ -330,9 +331,51 @@ class InterscaleTree(object):
 
         See Also
         --------
-        synthesis_adjoint : The transposed-transform alternative.
+        synthesis_adjoint : The cascaded-smoothing alternative.
+        synthesis_transpose : The genuine transpose of the transform.
         """
         return np.sum( wavelet_tube, axis = 2 )
+
+    def synthesis_transpose(
+        self,
+        wavelet_tube: np.ndarray,
+        filter: np.ndarray,
+    ) -> np.ndarray:
+        r"""Reconstruct an image from a tube with the true adjoint operator.
+
+        The transpose :math:`W^{\mathsf{T}}` of the à trous transform the tube
+        holds, and a third operator rather than a renaming of either published
+        one. :meth:`synthesis_sum` adds the planes, which is the starlet's
+        *reconstruction* dual; :meth:`synthesis_adjoint` cascades each plane
+        through the low-pass filters, which is what the published lineage
+        adopted *after* the true adjoint produced ring artefacts ([LU3CW9P8]
+        p.272, #76) — a rejection #85 measured on this instrument and did not
+        reproduce.
+
+        The tree is read for nothing but the tube it is handed, so the
+        arithmetic lives with the transform it transposes, in
+        :func:`~dawis.wavelets.atrous_adjoint`.
+
+        Parameters
+        ----------
+        wavelet_tube : numpy.ndarray
+            Wavelet coefficients of a tree, as returned by :meth:`tubes`.
+        filter : numpy.ndarray
+            1D low-band filter, normally the B3-spline kernel.
+
+        Returns
+        -------
+        numpy.ndarray
+            2D image of the shape of one tube plane.
+
+        See Also
+        --------
+        dawis.wavelets.atrous_adjoint : The transpose itself, and the
+            inner-product identity that pins it.
+        synthesis_adjoint : The cascaded-smoothing alternative.
+        synthesis_sum : The cheaper alternative, a plain sum of the planes.
+        """
+        return atrous_adjoint( wavelet_tube, filter )
 
     def CG_minimization(
         self,
@@ -368,11 +411,16 @@ class InterscaleTree(object):
             1D low-band filter of the à trous transform, normally B3-spline.
         deconv : bool, optional
             Deconvolve each reconstruction with a B2-spline PSF by ten
-            Richardson-Lucy iterations. Default is False. Only meaningful
-            with ``synthesis_operator='ADJOINT'``.
-        synthesis_operator : {'ADJOINT', 'SUM'}, optional
+            Richardson-Lucy iterations. Default is False. Only meaningful on
+            the two adjoint-like operators, ``'ADJOINT'`` and
+            ``'TRANSPOSE'``: the Richardson-Lucy steps run on the synthesised
+            image, so what ``deconv`` needs is a synthesis to deconvolve
+            rather than one particular one (#84). Under ``'SUM'`` the kernel
+            is built and never read.
+        synthesis_operator : {'ADJOINT', 'SUM', 'TRANSPOSE'}, optional
             Which operator rebuilds an image from a tube. Default is
-            ``'ADJOINT'``.
+            ``'ADJOINT'``. ``'TRANSPOSE'`` is the genuine transpose of the
+            transform (#84, #98) — see :meth:`synthesis_transpose`.
         step_size : {'FR', 'PRP', 'HS', 'CD'}, optional
             Formula for the conjugate direction coefficient — Fletcher-Reeves,
             Polak-Ribière-Polyak, Hestenes-Stiefel or conjugate descent.
@@ -421,6 +469,10 @@ class InterscaleTree(object):
             reconstructed = self.synthesis_adjoint(wavelet_tube, filter = filter)
             if deconv == True:
                 reconstructed = richardson_lucy_np(reconstructed, im_psf, 10)
+        elif synthesis_operator == 'TRANSPOSE':
+            reconstructed = self.synthesis_transpose(wavelet_tube, filter = filter)
+            if deconv == True:
+                reconstructed = richardson_lucy_np(reconstructed, im_psf, 10)
         elif synthesis_operator == 'SUM':
             reconstructed = self.synthesis_sum(wavelet_tube)
 
@@ -432,7 +484,12 @@ class InterscaleTree(object):
             fr = self.synthesis_adjoint(wr, filter = filter )
             if deconv == True:
                 fr = richardson_lucy_np(fr, im_psf, 10)
-                
+
+        elif synthesis_operator == 'TRANSPOSE':
+            fr = self.synthesis_transpose(wr, filter = filter )
+            if deconv == True:
+                fr = richardson_lucy_np(fr, im_psf, 10)
+
         elif synthesis_operator == 'SUM':
             fr = self.synthesis_sum(wr)
 
@@ -477,7 +534,12 @@ class InterscaleTree(object):
                     fr = self.synthesis_adjoint(wr, filter = filter )
                     if deconv == True:
                         fr = richardson_lucy_np(fr, im_psf, 10)
-                        
+
+                elif synthesis_operator == 'TRANSPOSE':
+                    fr = self.synthesis_transpose(wr, filter = filter )
+                    if deconv == True:
+                        fr = richardson_lucy_np(fr, im_psf, 10)
+
                 elif synthesis_operator == 'SUM':
                     fr = self.synthesis_sum(wr)
 
