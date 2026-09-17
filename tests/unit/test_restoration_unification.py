@@ -32,9 +32,11 @@ import pytest
 from dawis import parallel
 from dawis.restoration.synthesis import restore_objects_default
 
-#: Restoration parameters shared by every run here. Chosen so the branch
-#: taken is the plain B3-spline one for every fake tree: no tree is small or
-#: eccentric enough for Haar, and none sits above ``lvl_sep_op``.
+#: Restoration parameters shared by every run here. The four ``*_sep``
+#: thresholds route nothing since #103 and are passed because the signature
+#: takes them; every fake tree is solved with the same arm whatever they say,
+#: which is ``tests/unit/test_routing_off.py``'s business rather than this
+#: module's.
 REST_PARAMS = dict(
     lvl_sep_big=6,
     rm_gamma_for_big=False,

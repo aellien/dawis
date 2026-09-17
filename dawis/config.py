@@ -122,12 +122,14 @@ CG_LINE_DIRECTIONS = ('as_written', 'textbook')
 #: **This tuple is an allow-list, not a default.** #82's chosen arm names
 #: ``'TRANSPOSE'``, but nothing here records that and nothing carries it: the
 #: method still defaults to the published ``'ADJOINT'``, and
-#: :func:`~dawis.restoration.synthesis.restore_object` still routes between
-#: ``'SUM'`` and ``'ADJOINT'`` by tree shape. Unlike :data:`CG_STEP_SIZES`
-#: and :data:`CG_LINE_DIRECTIONS` the axis is not a :class:`Config` field at
-#: all, which is why it is absent from :data:`UNWIRED_KNOBS` — there is no
-#: knob yet to be unwired. #104 is what makes one and wires it, and the
-#: default it sets is #82's business and not this module's.
+#: :func:`~dawis.restoration.synthesis.restore_object` — which stopped
+#: routing between ``'SUM'`` and ``'ADJOINT'`` by tree shape at #103 — takes
+#: the operator from its caller and defaults to ``'SUM'``, which nothing above
+#: it overrides yet. Unlike :data:`CG_STEP_SIZES` and
+#: :data:`CG_LINE_DIRECTIONS` the axis is not a :class:`Config` field at all,
+#: which is why it is absent from :data:`UNWIRED_KNOBS` — there is no knob yet
+#: to be unwired. #104 is what makes one and wires it, and the default it sets
+#: is #82's business and not this module's.
 #:
 #: Stated here beside the ``if`` chains in
 #: :meth:`~dawis.trees.construction.InterscaleTree.CG_minimization` for the
@@ -158,23 +160,37 @@ SYNTHESIS_OPERATORS = ('ADJOINT', 'SUM', 'TRANSPOSE')
 #: ``tests/unit/test_minimizers.py``.
 MINIMIZERS = ('bijaoui_rue', 'fista', 'condat_vu', 'projected_gradient')
 
-#: Knobs this class accepts and validates that **no run reads yet**.
+#: Knobs this class accepts and validates that **no run reads**.
 #:
-#: #96 lands the six arm axes one at a time and wires all of them at once
-#: (#104), because #3's goldens are re-recorded once, after that wiring
-#: (#105). In between, a knob can exist and be validated before anything
-#: carries it to the solver — :attr:`Config.step_size` and
+#: Two kinds, and they end differently.
+#:
+#: *Not read yet.* #96 lands the six arm axes one at a time and wires all of
+#: them at once (#104), because #3's goldens are re-recorded once, after that
+#: wiring (#105). In between, a knob can exist and be validated before
+#: anything carries it to the solver — :attr:`Config.step_size` and
 #: :attr:`Config.line_direction` are there now, and a run still solves the
-#: published ``'FR'`` and ``'as_written'``.
+#: published ``'FR'`` and ``'as_written'``. **#104 takes these two out.**
 #:
-#: That gap is recorded here rather than left implicit, because provenance
+#: *Read by nothing, by decision.* :attr:`Config.extent_sep`,
+#: :attr:`Config.ecc_sep`, :attr:`Config.lvl_sep_lin` and
+#: :attr:`Config.lvl_sep_op` were the per-tree routing rule until #103
+#: switched it off. They are **kept** rather than deleted because whether a
+#: routing rule should come back is a question #96 rules outside its
+#: destination, and the evidence that would answer it does not exist — level
+#: is perfectly confounded with source class on all 222 of #74's fixtures.
+#: Nothing is going to wire these; a later map either gives them a meaning
+#: again or deletes them.
+#:
+#: The gap is recorded here rather than left implicit, because provenance
 #: reads this class: ``tests/goldens/recording.py`` and
 #: ``benchmarks/run_benchmark.py`` write every field of a ``Config`` into a
 #: table documented as the values a run *used*, and a knob nothing honours
-#: would make that table false. They drop these names instead. **#104 empties
-#: this tuple**, and the provenance tables gain the knobs at the same moment
-#: the runs gain them.
-UNWIRED_KNOBS = ('step_size', 'line_direction')
+#: would make that table false. They drop these names instead. Without the
+#: four thresholds here, #105's re-recorded ``provenance.toml`` would list
+#: ``lvl_sep_op = 3`` in that table and a reader reproducing from it would
+#: conclude routing was applied.
+UNWIRED_KNOBS = ('step_size', 'line_direction', 'extent_sep', 'ecc_sep',
+                 'lvl_sep_lin', 'lvl_sep_op')
 
 #: Boundary conditions the à trous transform accepts. Stated here so an
 #: unusable value is refused at construction rather than an iteration into the
@@ -318,16 +334,20 @@ class Config:
         Format the per-iteration atoms and trees are written in. Default
         ``'pickle'``.
     extent_sep : float, optional
-        Extent below which a tree takes the Haar synthesis branch. A
-        fraction of the tree's bounding box. Default 0.1.
+        Routes nothing since #103; see :data:`UNWIRED_KNOBS`. Was: extent
+        below which a tree took the Haar synthesis branch, as a fraction of
+        its bounding box. Default 0.1.
     ecc_sep : float, optional
-        Eccentricity at or above which a tree takes the Haar branch. Default
+        Routes nothing since #103; see :data:`UNWIRED_KNOBS`. Was:
+        eccentricity at or above which a tree took the Haar branch. Default
         0.95.
     lvl_sep_lin : int, optional
-        Scale at or above which the Haar branch is never taken. Default 2.
+        Routes nothing since #103; see :data:`UNWIRED_KNOBS`. Was: scale at
+        or above which the Haar branch was never taken. Default 2.
     lvl_sep_op : int, optional
-        Scale above which the adjoint synthesis operator replaces the plain
-        sum of planes. Default 3.
+        Routes nothing since #103; see :data:`UNWIRED_KNOBS`. Was: scale
+        above which the adjoint synthesis operator replaced the plain sum of
+        planes. Default 3.
     ceps : float, optional
         Convergence threshold. A scale stops when its window-averaged
         normalised epsilon falls below this. Default 1e-3.

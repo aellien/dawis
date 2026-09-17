@@ -11,15 +11,36 @@ tree, as :meth:`~dawis.trees.construction.InterscaleTree.CG_minimization`,
 because it works on the tubes the tree cuts out of the cubes. What this module
 owns is the choice of how to call it.
 
-:func:`restore_object` makes that choice for one tree, on its shape and its
-scale: small or elongated structures below ``lvl_sep_lin`` are synthesised
-with the Haar filter, everything else with the B3-spline, starting from the
-plain sum of planes at or below ``lvl_sep_op`` and from the adjoint operator
-above it. It also builds the detection-error image and traps a diverged solve.
-And it *says what it chose*: the algorithm and the synthesis operator come
-back with the image and are recorded on the atom (#66), so a reader never has
-to re-derive them from the filter, the level and a configuration value the
-atom file does not hold.
+:func:`restore_object` no longer makes that choice (#103). It used to route:
+small or elongated structures below ``lvl_sep_lin`` took the Haar filter,
+everything else the B3-spline, from the plain sum of planes at or below
+``lvl_sep_op`` and from the adjoint operator above it. One arm now applies to
+every tree of every iteration — the one its caller names — and
+``extent_sep``, ``ecc_sep``, ``lvl_sep_lin`` and ``lvl_sep_op`` are accepted
+and read nowhere. It still builds the detection-error image and traps a
+diverged solve. And it *says what it ran*: the algorithm and the synthesis
+operator come back with the image and are recorded on the atom (#66), so a
+reader never has to re-derive them from the filter, the level and a
+configuration value the atom file does not hold.
+
+Routing off, thresholds kept (#103)
+-----------------------------------
+
+The thresholds stay in :class:`~dawis.config.Config` and route nothing. They
+are kept rather than deleted because whether routing should come back is a
+question #96 puts outside its destination, and the evidence that different
+arms win on different classes is where that question starts. Haar was a
+branch almost nothing took: ``lvl_sep_lin`` was never reached on any of #74's
+222 fixtures, and #3's Tier 1 golden has one Haar atom in 76 at the published
+defaults. It ships as a value of the filter axis, which a caller sets, rather
+than as a branch a small tree earns.
+
+The check that says routing is really off: two runs disagreeing about all
+four thresholds are bit-identical on the restored image, the residuals and
+the detection-error image. It is a whole run, so it cannot live in the suite
+— it is ``.research/103-routing-off/`` on the research branch. What the suite
+holds is ``tests/unit/test_routing_off.py``, which pins the same negative on
+the solver's arguments over fake trees.
 
 :func:`restore_objects_default` runs that over a list of trees. It cuts the
 list into patches, hands them to :func:`dawis.parallel.pmap`, and lays the
@@ -61,8 +82,9 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from dawis.config import DEFAULT_CG_MAX_ITER
+from dawis.config import DEFAULT_CG_MAX_ITER, SYNTHESIS_OPERATORS
 from dawis.cubes import LabelCube, WaveletCube
+from dawis.exceptions import DawisValueError
 from dawis.parallel import cut_into_patches, pmap
 
 log = logging.getLogger(__name__)
@@ -72,6 +94,20 @@ log = logging.getLogger(__name__)
 #: is the only value a run produces; the attribute exists so that a second one
 #: would be distinguishable, not because a second one is being added.
 CG_ALGORITHM = 'CG'
+
+#: The low-band à trous filters a solve can run with, by the name an atom
+#: records under :attr:`Atom.filter`.
+#:
+#: A mapping rather than a tuple of names beside
+#: :data:`~dawis.config.SYNTHESIS_OPERATORS`, because the filter axis is the
+#: one whose value the solver takes as an *array*: the name has to resolve to
+#: coefficients somewhere, and one place that both names and builds them is
+#: what stops a caller passing a filter no atom can be labelled with. #104
+#: takes the name onto :class:`~dawis.config.Config`; the arrays stay here.
+FILTERS = {
+    'BSPL': 1 / 16. * np.array([ 1, 4, 6, 4, 1 ]),
+    'HAAR': 1 / 2. * np.array([ 1, 0, 1 ]),
+}
 
 #: What :attr:`Atom.algorithm` and :attr:`Atom.synthesis_operator` read on an
 #: atom written before #66 gave them to the atom. Class attributes of
@@ -193,6 +229,12 @@ def restore_patch(
     rm_gamma_for_big: bool,
     cg_max_iter: int = DEFAULT_CG_MAX_ITER,
     verbose: bool = False,
+    # Appended rather than placed beside the thresholds they replace: the
+    # arguments of this function are what `restore_objects_default` passes
+    # through `pmap`'s `shared` tuple, positionally, so a new one goes on the
+    # end or every existing one moves.
+    filter_kw: str = 'BSPL',
+    synthesis_operator: str = 'SUM',
 ) -> list[Atom]:
     """Synthesise one patch of trees into atoms.
 
@@ -210,15 +252,16 @@ def restore_patch(
     label_cube : dawis.cubes.LabelCube
         Region labels matching ``wavelet_cube``.
     extent_sep : float
-        Extent below which a tree takes the Haar branch.
+        Passed through unread; see :func:`restore_object`.
     ecc_sep : float
-        Eccentricity at or above which a tree takes the Haar branch.
+        Passed through unread; see :func:`restore_object`.
     lvl_sep_lin : int
-        Scale at or above which the Haar branch is never taken.
+        Passed through unread; see :func:`restore_object`.
     lvl_sep_big : int
-        Scale at or above which an object counts as big, for ``gamma``.
+        Scale at or above which an object counts as big, for ``gamma``. Read
+        here, and the only one of the five that is read anywhere.
     lvl_sep_op : int
-        Scale above which the adjoint synthesis operator replaces the sum.
+        Passed through unread; see :func:`restore_object`.
     gamma : float
         Attenuation applied to the synthesised image.
     rm_gamma_for_big : bool
@@ -230,6 +273,11 @@ def restore_patch(
     verbose : bool, optional
         Passed through to the solver, which logs a line when its flux test
         fires. Default False.
+    filter_kw : {'BSPL', 'HAAR'}, optional
+        The arm's filter, the same for every tree. Default ``'BSPL'``.
+    synthesis_operator : {'SUM', 'ADJOINT', 'TRANSPOSE'}, optional
+        The arm's synthesis operator, the same for every tree. Default
+        ``'SUM'``.
 
     Returns
     -------
@@ -240,8 +288,16 @@ def restore_patch(
     object_patch = []
     for tree in interscale_tree_patch:
 
-        image, det_err_image, filter_kw, flag_convergence, sum_wr, norm_wr, \
-                              algorithm, synthesis_operator = restore_object( tree, \
+        # Unpacked into names of their own rather than back over this
+        # function's `filter_kw` and `synthesis_operator`. `restore_object`
+        # returns its inputs verbatim today, so rebinding them would be a
+        # fixed point -- but only today. The moment it normalises a name or
+        # substitutes one, the substituted arm would carry to every later
+        # tree of the patch, making a tree's atom depend on its position in a
+        # patch and so on `size_patch_small` and `n_workers`. That is the one
+        # invariant this module's docstring promises (#56, #57).
+        image, det_err_image, used_filter, flag_convergence, sum_wr, norm_wr, \
+                              algorithm, used_operator = restore_object( tree, \
                                                                               wavelet_cube, \
                                                                               label_cube, \
                                                                               extent_sep, \
@@ -249,6 +305,8 @@ def restore_patch(
                                                                               lvl_sep_lin, \
                                                                               lvl_sep_big, \
                                                                               lvl_sep_op, \
+                                                                              filter_kw = filter_kw, \
+                                                                              synthesis_operator = synthesis_operator, \
                                                                               cg_max_iter = cg_max_iter, \
                                                                               verbose = verbose )
 
@@ -260,12 +318,12 @@ def restore_patch(
         object_patch.append(Atom(image, det_err_image, tree.bbox, \
                                             tree.interscale_maximum.level, \
                                             tree.interscale_maximum.eccentricity, \
-                                            filter_kw, \
+                                            used_filter, \
                                             flag_convergence, \
                                             sum_wr, \
                                             norm_wr, \
                                             algorithm, \
-                                            synthesis_operator ))
+                                            used_operator ))
 
     return object_patch
 
@@ -281,21 +339,23 @@ def restore_object(
     # Keyword-only since #101. `deconv` used to sit here, so a caller written
     # against the old signature who passed it positionally would otherwise
     # bind `cg_max_iter = False` — zero, one CG iteration, and an
-    # under-converged atom returned with no error at all.
+    # under-converged atom returned with no error at all. The arm arrives
+    # here too (#103), for the same reason: a new argument of an exported
+    # function is a positional trap unless it cannot be passed positionally.
     *,
+    filter_kw: str = 'BSPL',
+    synthesis_operator: str = 'SUM',
     cg_max_iter: int = DEFAULT_CG_MAX_ITER,
     verbose: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, str, bool, float, float, str, str]:
     """Synthesise one interscale tree into an image.
 
-    Picks the filter and the starting operator from the shape and the scale of
-    the tree, then runs
-    :meth:`~dawis.trees.construction.InterscaleTree.CG_minimization` with
-    them. A tree that is small or elongated — extent below ``extent_sep`` or
-    eccentricity at or above ``ecc_sep`` — and sits below ``lvl_sep_lin``
-    takes the Haar filter; everything else takes the B3-spline, from the plain
-    sum of planes at or below ``lvl_sep_op`` and from the adjoint operator
-    above it.
+    Runs :meth:`~dawis.trees.construction.InterscaleTree.CG_minimization`
+    with the filter and the synthesis operator its caller names, whatever the
+    tree is. Since #103 this function chooses nothing: it used to route a
+    small or elongated tree below ``lvl_sep_lin`` onto Haar and to swap the
+    plain sum of planes for the adjoint above ``lvl_sep_op``, and one arm now
+    applies to every tree of every iteration.
 
     A solve that produces NaNs is not an error: the image is zeroed and
     ``flag_convergence`` comes back False.
@@ -309,16 +369,22 @@ def restore_object(
     label_cube : dawis.cubes.LabelCube
         Region labels matching ``wavelet_cube``.
     extent_sep : float
-        Extent below which the Haar branch is taken.
+        Not used; see Notes.
     ecc_sep : float
-        Eccentricity at or above which the Haar branch is taken.
+        Not used; see Notes.
     lvl_sep_lin : int
-        Scale at or above which the Haar branch is never taken.
+        Not used; see Notes.
     lvl_sep_big : int
         Not used; see Notes.
     lvl_sep_op : int, optional
-        Scale above which the adjoint synthesis operator replaces the plain
-        sum of planes. Default 2.
+        Not used; see Notes. Default 2.
+    filter_kw : {'BSPL', 'HAAR'}, optional
+        Which low-band filter every tree is synthesised with —
+        :data:`FILTERS`. Default ``'BSPL'``.
+    synthesis_operator : {'SUM', 'ADJOINT', 'TRANSPOSE'}, optional
+        Which operator every tree's first reconstruction is built with —
+        :data:`~dawis.config.SYNTHESIS_OPERATORS`, checked by
+        ``CG_minimization`` itself. Default ``'SUM'``.
     cg_max_iter : int, optional
         Iteration cap handed to the solver. Default
         :data:`~dawis.config.DEFAULT_CG_MAX_ITER`, the published 200 — see
@@ -333,7 +399,7 @@ def restore_object(
     det_err_image : numpy.ndarray
         Detection-error image over the same footprint, summed over scales.
     filter_kw : str
-        ``'HAAR'`` or ``'BSPL'``, whichever branch was taken.
+        The filter this call was given, back out so the atom can record it.
     flag_convergence : bool
         False if the solve produced NaNs.
     sum_wr : float
@@ -343,49 +409,62 @@ def restore_object(
     algorithm : str
         :data:`CG_ALGORITHM`, the one reconstruction this function calls.
     synthesis_operator : str
-        ``'SUM'`` or ``'ADJOINT'``, whichever this call handed the solver.
+        The operator this call was given, back out for the same reason.
 
     Notes
     -----
-    ``lvl_sep_big`` is accepted so the signature matches :func:`restore_patch`
-    and is not read here; the attenuation it governs is applied by the caller.
+    ``extent_sep``, ``ecc_sep``, ``lvl_sep_lin`` and ``lvl_sep_op`` are the
+    routing rule, and there is none (#103). They are accepted so that the
+    thresholds can stay in :class:`~dawis.config.Config` routing nothing, and
+    so that removing them from the middle of an exported signature does not
+    become the silent-wrong-answer hazard #101 met. ``lvl_sep_big`` is
+    accepted for the older reason: the signature matches :func:`restore_patch`,
+    and the attenuation it governs is applied by the caller.
+
+    Reading none of the five is what makes routing testable as *off*:
+    ``tests/unit/test_routing_off.py`` inverts each threshold and asserts the
+    solver was called identically. The run-level version of that check — two
+    whole runs, bit-identical on every image — is a comparison against #93's
+    seam and lives in ``.research/103-routing-off/``, not in the suite.
 
     The last two values are returned rather than left to be re-derived (#66).
     The derivation they replace — Haar, or B3-spline at or below
-    ``lvl_sep_op``, took the sum — is correct today and is folklore: it needs
-    ``lvl_sep_op``, which no atom file records, and it stops being correct the
-    moment a second reconstruction is tried. The return grew by two values
+    ``lvl_sep_op``, took the sum — was folklore even while it was correct: it
+    needed ``lvl_sep_op``, which no atom file records, and it stopped being
+    correct the moment routing went off. The return grew by two values
     rather than changing into an object, because the attenuation factor is
     applied between this call and the atom's construction; folding the atom
     into this function would drag the attenuation parameters down with it.
     That restructuring belongs with the minimizer interface work.
     """
 
-    bspl = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
-    haar = 1 / 2. * np.array([ 1, 0, 1 ])
+    # The routing rule, read here and nowhere else before #103 removed it.
+    # Deleted rather than left bound, so that a branch reintroduced by
+    # accident is a NameError rather than a quiet return to routing.
+    del extent_sep, ecc_sep, lvl_sep_lin, lvl_sep_big, lvl_sep_op
+
+    # Both axes are refused here, before `_schedule_patches` and `pmap`.
+    # `CG_minimization` checks the operator too (#108) and that check stays,
+    # but it fires from inside the first solve -- on a worker process under
+    # any backend but the serial one, where the traceback lands in the
+    # backend's log rather than the run's. The filter has no second checker
+    # at all: this is where the name becomes an array, so a name outside
+    # `FILTERS` would otherwise surface as a `KeyError` mid-solve.
+    if filter_kw not in FILTERS:
+        raise DawisValueError(
+            'filter_kw names the low-band filter every tree of the run is '
+            'synthesised with -->', filter_kw, list(FILTERS))
+
+    if synthesis_operator not in SYNTHESIS_OPERATORS:
+        raise DawisValueError(
+            'synthesis_operator names the operator that rebuilds an image '
+            'from a tube -->', synthesis_operator, list(SYNTHESIS_OPERATORS))
 
     flag_convergence = True
 
-    if (( interscale_tree.extent < extent_sep ) or (  interscale_tree.eccentricity >= ecc_sep )) & ( interscale_tree.interscale_maximum.level < lvl_sep_lin ) :
-        
-        synthesis_operator = 'SUM'
-        image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_cube, label_cube, filter = haar, \
-                                                        synthesis_operator = synthesis_operator, \
-                                                        max_iter = cg_max_iter, verbose = verbose )
-        filter_kw = 'HAAR'
-
-    else:
-        if interscale_tree.interscale_maximum.level <= lvl_sep_op:
-            synthesis_operator = 'SUM'
-            image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_cube, label_cube, filter = bspl, \
+    image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_cube, label_cube, filter = FILTERS[filter_kw], \
                                                     synthesis_operator = synthesis_operator, \
                                                     max_iter = cg_max_iter, verbose = verbose )
-        else:
-            synthesis_operator = 'ADJOINT'
-            image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_cube, label_cube, filter = bspl, \
-                                                    synthesis_operator = synthesis_operator, \
-                                                    max_iter = cg_max_iter, verbose = verbose )
-        filter_kw = 'BSPL'
 
     if interscale_tree.det_err_tube(wavelet_cube, label_cube).shape[2] > 1:
         det_err_image = np.sum(interscale_tree.det_err_tube(wavelet_cube, label_cube), axis = 2)
@@ -483,6 +562,8 @@ def restore_objects_default(
     n_workers: int = 1,
     cg_max_iter: int = DEFAULT_CG_MAX_ITER,
     verbose: bool = False,
+    filter_kw: str = 'BSPL',
+    synthesis_operator: str = 'SUM',
 ) -> list[Atom]:
     """Synthesise a list of interscale trees into atoms.
 
@@ -521,13 +602,13 @@ def restore_objects_default(
     rm_gamma_for_big : bool
         If True, do not attenuate objects at or above ``lvl_sep_big``.
     extent_sep : float
-        Extent below which a tree takes the Haar branch.
+        Passed through unread; see :func:`restore_object`.
     ecc_sep : float
-        Eccentricity at or above which a tree takes the Haar branch.
+        Passed through unread; see :func:`restore_object`.
     lvl_sep_lin : int
-        Scale at or above which the Haar branch is never taken.
+        Passed through unread; see :func:`restore_object`.
     lvl_sep_op : int
-        Scale above which the adjoint synthesis operator replaces the sum.
+        Passed through unread; see :func:`restore_object`.
     size_patch_small : int, optional
         Trees per patch for objects below ``size_big_objects``. Default 1.
     gamma : float, optional
@@ -550,6 +631,13 @@ def restore_objects_default(
         what the serial branch always did; the pre-#56 parallel branch could
         not, so a distributed run now writes those lines too — into the
         backend's own worker logs rather than the run directory's.
+    filter_kw : {'BSPL', 'HAAR'}, optional
+        The arm's filter, applied to every tree of the list. Default
+        ``'BSPL'``.
+    synthesis_operator : {'SUM', 'ADJOINT', 'TRANSPOSE'}, optional
+        The arm's synthesis operator, applied to every tree of the list.
+        Default ``'SUM'``. #104 is what carries a :class:`~dawis.config.Config`
+        value here; until then the pipeline takes this default.
 
     Returns
     -------
@@ -580,7 +668,8 @@ def restore_objects_default(
          for patch in patches],
         shared = (wavelet_cube, label_cube, extent_sep, ecc_sep,
                   lvl_sep_lin, lvl_sep_big, lvl_sep_op, gamma,
-                  rm_gamma_for_big, cg_max_iter, verbose),
+                  rm_gamma_for_big, cg_max_iter, verbose, filter_kw,
+                  synthesis_operator),
         n_workers = n_workers,
     )
 

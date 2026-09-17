@@ -25,15 +25,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from dawis.restoration.synthesis import FILTERS
 from dawis.wavelets import atrous, atrous_adjoint
 
-#: The two filters the arm axes ship, transcribed from
-#: :func:`dawis.restoration.synthesis.restore_object`, which writes them as
-#: locals.
-FILTERS = {
-    'BSPL': np.array([1.0, 4.0, 6.0, 4.0, 1.0]) / 16.0,
-    'HAAR': np.array([1.0, 0.0, 1.0]) / 2.0,
-}
+# ``FILTERS`` is imported rather than transcribed since #103 gave the package
+# one place that both names the shipped filters and builds them. A local copy
+# would let this identity keep passing on a kernel the solver had stopped
+# using.
 
 #: The filters the identity is asserted on. Both shipped kernels are
 #: **symmetric**, so on those two a gather and its transpose differ only at

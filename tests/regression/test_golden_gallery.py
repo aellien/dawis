@@ -34,6 +34,7 @@ from goldencompare import (
     assert_image_matches,
 )
 from goldenrun import GoldenRun, sha256_of
+from conftest import RATCHET_PENDING
 
 # Twenty minutes of pipeline. Marked at module scope so no test in this file
 # can be added without the marker, and so the session-scoped Tier 2 run
@@ -72,16 +73,19 @@ def test_gallery_image_matches_the_recorded_input(gallery_image_path: Path,
     assert sha256_of(gallery_image_path) == recorded["image_sha256"]
 
 
+@RATCHET_PENDING
 def test_iteration_count_is_exact(tier2_convergence, golden_gallery_convergence):
     """The greedy loop takes the same number of iterations. Exact, per #3."""
     assert len(tier2_convergence) == len(golden_gallery_convergence)
 
 
+@RATCHET_PENDING
 def test_atom_count_is_exact(tier2_atoms, golden_gallery_atoms):
     """The run produces the same number of atoms. Exact, per #3."""
     assert len(tier2_atoms) == len(golden_gallery_atoms)
 
 
+@RATCHET_PENDING
 def test_convergence_trace_matches(tier2_convergence, golden_gallery_convergence,
                                    tier2_provenance):
     """Every iteration ran at the same level and produced the same atoms."""
@@ -92,6 +96,7 @@ def test_convergence_trace_matches(tier2_convergence, golden_gallery_convergence
     )
 
 
+@RATCHET_PENDING
 def test_atom_catalogue_matches(tier2_atoms, golden_gallery_atoms,
                                 tier2_provenance):
     """Every atom is restored at the same place, scale and flux, in order.
@@ -105,6 +110,7 @@ def test_atom_catalogue_matches(tier2_atoms, golden_gallery_atoms,
     )
 
 
+@RATCHET_PENDING
 def test_restored_image_matches(tier2_run: GoldenRun, tier2_goldens: Path,
                                 tier2_provenance):
     """The sum of every atom, pixel for pixel within tolerance."""
@@ -116,6 +122,7 @@ def test_restored_image_matches(tier2_run: GoldenRun, tier2_goldens: Path,
     )
 
 
+@RATCHET_PENDING
 def test_residual_image_matches(tier2_run: GoldenRun, tier2_goldens: Path,
                                 tier2_provenance):
     """What the loop left behind, pixel for pixel within tolerance."""

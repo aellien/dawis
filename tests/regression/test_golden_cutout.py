@@ -29,6 +29,7 @@ from goldencompare import (
     assert_image_matches,
 )
 from goldenrun import GoldenRun
+from conftest import RATCHET_PENDING
 
 
 def test_cutout_matches_the_recorded_input(cutout, tier1_goldens: Path):
@@ -57,16 +58,19 @@ def test_the_loop_draws_nothing(tier1_run: GoldenRun):
     assert drawn == []
 
 
+@RATCHET_PENDING
 def test_iteration_count_is_exact(tier1_convergence, golden_convergence):
     """The greedy loop takes the same number of iterations. Exact, per #3."""
     assert len(tier1_convergence) == len(golden_convergence)
 
 
+@RATCHET_PENDING
 def test_atom_count_is_exact(tier1_atoms, golden_atoms):
     """The run produces the same number of atoms. Exact, per #3."""
     assert len(tier1_atoms) == len(golden_atoms)
 
 
+@RATCHET_PENDING
 def test_convergence_trace_matches(tier1_convergence, golden_convergence,
                                    tier1_provenance):
     """Every iteration ran at the same level and produced the same atoms."""
@@ -75,11 +79,13 @@ def test_convergence_trace_matches(tier1_convergence, golden_convergence,
     )
 
 
+@RATCHET_PENDING
 def test_atom_catalogue_matches(tier1_atoms, golden_atoms, tier1_provenance):
     """Every atom is restored at the same place, scale and flux, in order."""
     assert_atoms_match(tier1_atoms, golden_atoms, tier1_provenance["tolerances"])
 
 
+@RATCHET_PENDING
 def test_restored_image_matches(tier1_run: GoldenRun, tier1_goldens: Path,
                                 tier1_provenance):
     """The sum of every atom, pixel for pixel within tolerance."""
@@ -91,6 +97,7 @@ def test_restored_image_matches(tier1_run: GoldenRun, tier1_goldens: Path,
     )
 
 
+@RATCHET_PENDING
 def test_residual_image_matches(tier1_run: GoldenRun, tier1_goldens: Path,
                                 tier1_provenance):
     """What the loop left behind, pixel for pixel within tolerance."""

@@ -424,11 +424,19 @@ def run_golden(dawis, image: np.ndarray, work_dir: Path, infile: str,
 #: from the atom image; everything else is stored on the atom itself.
 #:
 #: ``algorithm`` and ``synthesis_operator``, which #66 added to the atom, are
-#: deliberately *not* here. Today they are a deterministic function of columns
-#: this table already records — the filter and the level — against the run's
-#: ``lvl_sep_op``, so recording them would buy no coverage and cost two
-#: re-recordings. The day a second reconstruction algorithm makes that mapping
-#: non-derivable, they become golden columns and both tiers are re-recorded.
+#: not here yet. They used to be a deterministic function of columns this
+#: table already records — the filter and the level — against the run's
+#: ``lvl_sep_op``, so recording them bought no coverage and cost two
+#: re-recordings.
+#:
+#: **That stopped being true at #103**, which switched the routing off: the
+#: operator is now whatever the run was configured onto, and no recorded
+#: column implies it. So the trigger stated below has arrived, and the
+#: re-recording it was waiting for is #105's. **#105 adds both columns**, at
+#: the same moment it ratchets the goldens to the shipping arm — it is the one
+#: chance to add them without a third re-recording. Until then a run
+#: misconfigured onto the wrong operator would differ from the golden on no
+#: recorded column but ``flux`` and ``peak``, inside tolerance.
 ATOM_COLUMNS = (
     "iteration",
     "index",

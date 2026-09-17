@@ -629,14 +629,17 @@ def test_every_unwired_knob_is_a_knob():
     assert set(UNWIRED_KNOBS) <= knobs
 
 
-def test_the_unwired_knobs_are_the_two_arm_axes_that_landed_early():
-    """#100's two, and #104 empties the tuple when it wires all six axes.
+def test_the_unwired_knobs_are_the_early_arm_axes_and_the_dead_thresholds():
+    """#100's two, which #104 removes, and #103's four, which nothing wires.
 
     Pinned so that widening it is a decision: a knob listed here is one the
-    package accepts, validates and ignores, which is worth exactly as long as
-    the ticket that empties the list.
+    package accepts, validates and ignores, and both provenance writers drop
+    it. The two arm axes are worth listing exactly as long as the ticket that
+    wires them; the four thresholds are listed because #96 keeps them
+    deliberately inert and a later map, not #104, decides their fate.
     """
-    assert UNWIRED_KNOBS == ('step_size', 'line_direction')
+    assert UNWIRED_KNOBS == ('step_size', 'line_direction', 'extent_sep',
+                             'ecc_sep', 'lvl_sep_lin', 'lvl_sep_op')
 
 
 @pytest.mark.parametrize('writer', [

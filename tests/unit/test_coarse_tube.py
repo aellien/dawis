@@ -432,10 +432,12 @@ def test_a_coarse_cube_from_another_basis_is_refused(a_tree):
     """The channel is data the solve's forward model is compared against, so
     it has to be built by the basis the solve smooths with.
 
-    ``dawis.restoration.synthesis.restore_object`` runs the low-extent branch
-    on Haar. A Haar solve against a B3-built channel compares a Haar-smoothed
-    model with a B3-smoothed datum, and the two disagree by about 10% — an
-    error that lands on the smooth term's amplitude rather than a detail's.
+    Haar is a value of the filter axis a run can be configured onto — it was
+    the low-extent branch of ``restore_object`` until #103 switched routing
+    off, and it ships as a user-settable value rather than a routed one. A
+    Haar solve against a B3-built channel compares a Haar-smoothed model with
+    a B3-smoothed datum, and the two disagree by about 10% — an error that
+    lands on the smooth term's amplitude rather than a detail's.
     """
 
     from dawis.exceptions import DawisValueError
