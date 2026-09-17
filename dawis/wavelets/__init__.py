@@ -34,6 +34,7 @@ from dawis.wavelets.atrous import (
     atrous,
     atrous_adjoint,
     boundary_conditions,
+    ser_iuwt_cascade,
     ser_iuwt_decomposition,
     smooth_adjoint,
 )
@@ -50,6 +51,7 @@ __all__ = [
     'inverse_anscombe',
     'max_levels',
     'pg_noise_bissection',
+    'ser_iuwt_cascade',
     'ser_iuwt_decomposition',
     'smooth_adjoint',
 ]

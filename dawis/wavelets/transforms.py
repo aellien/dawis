@@ -13,7 +13,11 @@ from __future__ import annotations
 import numpy as np
 
 from dawis.cubes import CoarseCube, WaveletCube
-from dawis.wavelets.atrous import atrous, ser_iuwt_decomposition
+from dawis.wavelets.atrous import (
+    atrous,
+    ser_iuwt_cascade,
+    ser_iuwt_decomposition,
+)
 
 
 def bspl_atrous(
@@ -22,12 +26,13 @@ def bspl_atrous(
     fheader=None,
     conditions: str = 'loop',
     verbose: bool = False,
-) -> WaveletCube:
+    coarse: bool = False,
+) -> WaveletCube | tuple[CoarseCube, WaveletCube]:
     """Decompose an image on the B3-spline à trous basis.
 
-    The decomposition the pipeline runs at every iteration. The coarse plane
-    is computed but not returned: the caller works on the wavelet planes
-    alone.
+    The decomposition the pipeline runs at every iteration. The coarse planes
+    are computed either way; ``coarse`` decides whether they are returned or
+    dropped.
 
     Parameters
     ----------
@@ -44,18 +49,47 @@ def bspl_atrous(
         boundary condition through to every transform. Default is ``'loop'``.
     verbose : bool, optional
         Unused. Kept for call-site compatibility. Default is False.
+    coarse : bool, optional
+        Whether to return the smooth planes alongside the wavelet ones. A
+        tree of interscale-maximum level ``L`` takes :math:`c_{L+1}` as its
+        coarse term (#88, #89) and the trees of one iteration sit at many
+        levels, so the whole chain is returned rather than one plane.
+        Default False, which is the call every pre-#99 caller makes.
 
     Returns
     -------
     WaveletCube
         The wavelet planes, of shape ``(nx, ny, n_levels)``, tagged
-        ``'BSPL'``.
+        ``'BSPL'`` — when ``coarse`` is False.
+    coarse_dc, wavelet_dc : CoarseCube, WaveletCube
+        Both cubes, coarse first as :func:`haar_atrous` returns them — when
+        ``coarse`` is True. The coarse cube has ``n_levels + 1`` planes and
+        its plane ``j`` is the image smoothed ``j`` times, so a tree at level
+        ``L`` reads plane ``L + 1``.
+
+    Notes
+    -----
+    Asking for the cascade costs no extra smoothing: see
+    :func:`~dawis.wavelets.atrous.ser_iuwt_cascade`. The wavelet planes are
+    bit for bit the ones the plain call returns, so turning ``coarse`` on
+    cannot move detection.
+
+    The return *type* changes with ``coarse``, which is a wart this ticket
+    accepts rather than fixes: flipping every caller onto a tuple is #104's
+    job, when the arm axes become configuration and there is one place that
+    decides whether a run carries the term at all.
     """
 
     #filter = 1 / 16. * np.array([ 1, 4, 6, 4, 1 ])
     #coarse_array, wavelet_array = atrous(image = image, n_levels = n_levels, filter = filter, conditions = 'loop')
+    if coarse:
+        wavelet_array, coarse_array = ser_iuwt_cascade(image, n_levels, 0)
+        coarse_dc = CoarseCube(array = coarse_array, wavelet_type = 'BSPL', fheader = fheader)
+        wavelet_dc = WaveletCube(array = wavelet_array, wavelet_type = 'BSPL', fheader = fheader)
+
+        return coarse_dc, wavelet_dc
+
     wavelet_array, coarse_array = ser_iuwt_decomposition(image, n_levels, 0, store_smoothed = True)
-    #coarse_dc = CoarseCube(array = coarse_array, wavelet_type = 'BSPL', fheader = fheader)
     wavelet_dc = WaveletCube(array = wavelet_array, wavelet_type = 'BSPL', fheader = fheader)
 
     return wavelet_dc

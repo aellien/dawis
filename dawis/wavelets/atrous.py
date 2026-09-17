@@ -618,3 +618,98 @@ def ser_iuwt_decomposition(
         return detail_coeffs, C0
     else:
         return detail_coeffs
+
+
+def ser_iuwt_cascade(
+    in1: np.ndarray,
+    scale_count: int,
+    scale_adjust: int = 0,
+) -> tuple[np.ndarray, np.ndarray]:
+    r"""Decompose an image and keep every smooth plane, not only the last.
+
+    :func:`ser_iuwt_decomposition` walks the chain
+    :math:`c_0, c_1, \dots, c_{d}` and returns :math:`c_{d}` alone. A tree
+    of interscale-maximum level :math:`L` needs :math:`c_{L+1}` as its coarse
+    term (#88, #89), and the trees of one iteration sit at many levels, so
+    the whole chain is needed at once.
+
+    The planes cost **no extra smoothing**. They are the loop's own running
+    value, kept instead of overwritten; the price is one array the size of
+    the wavelet planes. The alternative — one decomposition per depth, which
+    is what ``restoration_tests/fixtures/mock.py`` pays at dump time — costs
+    the smoothing chain :math:`d` times over, and :func:`atrous` is 87% of a
+    run's wall time (#5).
+
+    The loop below is written out rather than shared with
+    :func:`ser_iuwt_decomposition`, so that the two are independent
+    implementations and the test that asserts them equal at every depth can
+    disagree with one of them.
+
+    Parameters
+    ----------
+    in1 : numpy.ndarray
+        The 2D image to decompose.
+    scale_count : int
+        Number of scales to smooth through, an exclusive upper bound as in
+        :func:`ser_iuwt_decomposition`.
+    scale_adjust : int, optional
+        Number of leading scales whose *wavelet* coefficients are discarded.
+        The smoothing still happens and their smooth planes are still kept,
+        because the cascade is indexed by level and a caller asking for
+        :math:`c_{L+1}` does not know which scales the caller of the wavelet
+        planes threw away. Default 0, which is what the pipeline passes.
+
+    Returns
+    -------
+    detail_coeffs : numpy.ndarray
+        Wavelet planes, of shape ``in1.shape + (scale_count - scale_adjust,)``
+        — bit for bit what :func:`ser_iuwt_decomposition` returns.
+    coarse_cascade : numpy.ndarray
+        Smooth planes, of shape ``in1.shape + (scale_count + 1,)``. Plane
+        ``j`` is the image smoothed ``j`` times, so plane 0 is the image and
+        plane ``scale_count`` is the coarse plane
+        :func:`ser_iuwt_decomposition` returns.
+
+    Notes
+    -----
+    Unlike :func:`ser_iuwt_decomposition`'s coarse plane, which comes back
+    transposed relative to its own wavelet planes, the cascade is returned in
+    the DAWIS axis order — the two image axes unchanged and the scale last,
+    the same order as the wavelet planes beside it.
+
+    The chain does **not** telescope onto the wavelet planes: the loop takes
+    the detail as :math:`w_j = c_j - H_j^2 c_j` while the chain advances as
+    :math:`c_{j+1} = H_j c_j`, one smoothing against two, so
+    :math:`c_{L+1} \neq c_{d} + \sum_{j > L} w_j` (#89, measured at 15.8-21.0%
+    relative).
+
+    See Also
+    --------
+    ser_iuwt_decomposition : The pipeline's decomposition, coarse plane
+        dropped.
+    """
+
+    wavelet_filter = (1. / 16) * np.array([1, 4, 6, 4, 1])
+
+    detail_coeffs = np.empty([scale_count - scale_adjust,
+                              in1.shape[0], in1.shape[1]])
+    coarse_cascade = np.empty([in1.shape[0], in1.shape[1], scale_count + 1])
+
+    C0 = in1
+    coarse_cascade[:, :, 0] = C0
+
+    for i in range(0, scale_adjust):
+        C0 = ser_a_trous(C0, wavelet_filter, i)
+        coarse_cascade[:, :, i + 1] = C0
+
+    for i in range(scale_adjust, scale_count):
+        C = ser_a_trous(C0, wavelet_filter, i)
+        C1 = ser_a_trous(C, wavelet_filter, i)
+        detail_coeffs[i - scale_adjust, :, :] = C0 - C1
+        C0 = C
+        coarse_cascade[:, :, i + 1] = C0
+
+    detail_coeffs = np.swapaxes(detail_coeffs, 0, 2)
+    detail_coeffs = np.swapaxes(detail_coeffs, 0, 1)
+
+    return detail_coeffs, coarse_cascade
