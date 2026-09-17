@@ -68,6 +68,9 @@ from dawis.exceptions import ConfigError
 
 __all__ = [
     'BOUNDARY_CONDITIONS',
+    'CG_LINE_DIRECTIONS',
+    'CG_STEP_SIZES',
+    'UNWIRED_KNOBS',
     'DEFAULT_CG_MAX_ITER',
     'OUTPUT_FORMATS',
     'PARALLEL_BACKENDS',
@@ -87,6 +90,46 @@ __all__ = [
 #: question of what it should be** — its sweep is the experiment, and this is
 #: the value the sweep starts from.
 DEFAULT_CG_MAX_ITER = 200
+
+#: Formulae the conjugate-gradient solver has a branch for when it builds the
+#: conjugate direction coefficient — Fletcher-Reeves, Polak-Ribière-Polyak,
+#: Hestenes-Stiefel and conjugate descent, all four transcribed from the
+#: published solve. #74 swept them and #82 chose ``'HS'``, which is why
+#: :attr:`Config.step_size` defaults to it and the published method does not.
+#: Stated here beside the ``if`` chain in
+#: :meth:`~dawis.trees.construction.InterscaleTree.CG_minimization` rather
+#: than derived from it — this module is shared vocabulary that imports no
+#: block of the package. That every value in it has a branch behind it is
+#: asserted on a real tree, in ``tests/unit/test_cg_axes.py``.
+CG_STEP_SIZES = ('FR', 'PRP', 'HS', 'CD')
+
+#: Readings of the conjugate direction recursion the solver has a branch for.
+#: ``'as_written'`` is ``v = fr + beta * old_fr``, what the published
+#: pseudocode prints and what DAWIS has always run; ``'textbook'`` is
+#: ``v = fr + beta * v``, what both published CG algorithms on this problem
+#: do (#76). They agree on the first update, because ``v`` starts as a copy
+#: of the residual gradient, and part company on the second. #82 ruled the
+#: as-written form a documented variant rather than a defect — the textbook
+#: form is better on neither metric on any class — so it stays the default.
+CG_LINE_DIRECTIONS = ('as_written', 'textbook')
+
+#: Knobs this class accepts and validates that **no run reads yet**.
+#:
+#: #96 lands the six arm axes one at a time and wires all of them at once
+#: (#104), because #3's goldens are re-recorded once, after that wiring
+#: (#105). In between, a knob can exist and be validated before anything
+#: carries it to the solver — :attr:`Config.step_size` and
+#: :attr:`Config.line_direction` are there now, and a run still solves the
+#: published ``'FR'`` and ``'as_written'``.
+#:
+#: That gap is recorded here rather than left implicit, because provenance
+#: reads this class: ``tests/goldens/recording.py`` and
+#: ``benchmarks/run_benchmark.py`` write every field of a ``Config`` into a
+#: table documented as the values a run *used*, and a knob nothing honours
+#: would make that table false. They drop these names instead. **#104 empties
+#: this tuple**, and the provenance tables gain the knobs at the same moment
+#: the runs gain them.
+UNWIRED_KNOBS = ('step_size', 'line_direction')
 
 #: Boundary conditions the à trous transform accepts. Stated here so an
 #: unusable value is refused at construction rather than an iteration into the
@@ -273,6 +316,19 @@ class Config:
         :meth:`~dawis.trees.construction.InterscaleTree.CG_minimization`.
         Default :data:`DEFAULT_CG_MAX_ITER`, the published 200; **#26 owns
         the question of what it should be.**
+    step_size : {'HS', 'FR', 'PRP', 'CD'}, optional
+        Formula for the conjugate direction coefficient of that solver.
+        Default ``'HS'`` — Hestenes-Stiefel, what #82 chose, and the one
+        default in this class that **moves** off the published arm, which ran
+        ``'FR'``. **Not honoured by a run yet**: nothing carries it to
+        :meth:`~dawis.trees.construction.InterscaleTree.CG_minimization`
+        until #104 wires all six arm axes together, so a run still solves
+        ``'FR'``. See :data:`UNWIRED_KNOBS`.
+    line_direction : {'as_written', 'textbook'}, optional
+        Which reading of the conjugate direction recursion the solver takes —
+        see :data:`CG_LINE_DIRECTIONS`. Default ``'as_written'``, the
+        published one, which is also what an unwired run solves. **Not
+        honoured by a run yet**, for the same reason as ``step_size`` above.
 
     Attributes
     ----------
@@ -329,6 +385,8 @@ class Config:
     resume: bool = True
     seed: int | None = None
     cg_max_iter: int = DEFAULT_CG_MAX_ITER
+    step_size: str = 'HS'
+    line_direction: str = 'as_written'
 
     def __new__(cls, *args: Any, **knobs: Any) -> Config:
         """Refuse a name this class has no knob for, before anything is set.
@@ -397,6 +455,8 @@ class Config:
 
         self._one_of('conditions', BOUNDARY_CONDITIONS)
         self._one_of('outfile_format', OUTPUT_FORMATS)
+        self._one_of('step_size', CG_STEP_SIZES)
+        self._one_of('line_direction', CG_LINE_DIRECTIONS)
 
         # None is a value here and not a missing one -- it means *decide from
         # the worker count* -- so it is excused the closed-set check rather

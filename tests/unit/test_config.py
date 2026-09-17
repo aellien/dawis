@@ -42,10 +42,13 @@ from tinyrun import tiny_image as make_tiny_image
 
 from dawis.config import (
     BOUNDARY_CONDITIONS,
+    CG_LINE_DIRECTIONS,
+    CG_STEP_SIZES,
     DEFAULT_CG_MAX_ITER,
     OUTPUT_FORMATS,
     PARALLEL_BACKENDS,
     SEED_BITS,
+    UNWIRED_KNOBS,
     Config,
     make_rng,
     resolve_seed,
@@ -63,7 +66,14 @@ SEED = 20260823
 
 
 def test_the_default_configuration_is_the_published_one():
-    """A bare ``Config`` is what the pipeline has always run."""
+    """A bare ``Config`` is what the pipeline has always run, with one
+    deliberate exception.
+
+    #100 moves ``step_size`` to the ``'HS'`` #82 chose, which the published
+    arm did not run. That is the only knob whose default this map moves, and
+    it is asserted on its own below rather than folded in here, so the move
+    cannot be made quietly.
+    """
     config = Config()
 
     assert config.seed is None
@@ -167,6 +177,8 @@ def test_the_configuration_cannot_be_changed_after_it_is_checked():
     ('ecc_sep', 1.5),
     ('conditions', 'wrap'),
     ('outfile_format', 'csv'),
+    ('step_size', 'FLETCHER'),
+    ('line_direction', 'published'),
     ('backend', 'dask'),
     ('seed', -1),
     ('seed', 2 ** SEED_BITS),
@@ -551,3 +563,92 @@ def test_a_contradictory_configuration_never_becomes_a_run(tmp_path):
         Config(starting_level = 9, n_levels = 9)
 
     assert list(tmp_path.iterdir()) == []
+
+
+# ---------------------------------------------------------------------------
+# The two conjugate-gradient axes (#100)
+# ---------------------------------------------------------------------------
+
+
+def test_the_shipping_beta_is_the_default_and_it_is_not_the_published_one():
+    """The one default this map moves.
+
+    #74 swept the four beta formulae and #82 chose Hestenes-Stiefel; the
+    published arm ran Fletcher-Reeves. The method keeps ``'FR'`` so a
+    positional caller of the published solve keeps the published arm — the
+    move happens here, on the knob a run sets.
+    """
+    assert Config().step_size == 'HS'
+    assert Config().step_size != 'FR'
+
+
+def test_the_published_line_direction_is_the_default():
+    """``as_written`` is ``v = fr + beta * old_fr``, what DAWIS has always
+    done. #82 ruled it a documented variant and not a defect — the textbook
+    form is not better on either metric on any class — so it ships as the
+    default and ``textbook`` ships beside it."""
+    assert Config().line_direction == 'as_written'
+
+
+@pytest.mark.parametrize('step_size', CG_STEP_SIZES)
+def test_every_beta_formula_the_solver_implements_is_accepted(step_size):
+    assert Config(step_size = step_size).step_size == step_size
+
+
+@pytest.mark.parametrize('line_direction', CG_LINE_DIRECTIONS)
+def test_every_line_direction_the_solver_implements_is_accepted(line_direction):
+    assert Config(line_direction = line_direction).line_direction == line_direction
+
+
+def test_the_two_axes_name_exactly_what_the_solver_branches_on():
+    """The lists are the solver's branches, written down.
+
+    ``dawis.config`` is shared vocabulary and imports no module of the
+    package, so these two tuples are stated beside the ``if`` chain in
+    :meth:`~dawis.trees.construction.InterscaleTree.CG_minimization` rather
+    than derived from it. A value ``Config`` accepted and the solve had no
+    branch for would be a run that validates and then reconstructs by a
+    formula nobody chose, so widening either list has to be deliberate here
+    *and* there. That every value in them does run is asserted on a real tree
+    in ``tests/unit/test_cg_axes.py``.
+    """
+    assert CG_STEP_SIZES == ('FR', 'PRP', 'HS', 'CD')
+    assert CG_LINE_DIRECTIONS == ('as_written', 'textbook')
+
+
+def test_every_unwired_knob_is_a_knob():
+    """:data:`UNWIRED_KNOBS` names fields, not guesses.
+
+    A stale name in it would silently stop protecting anything, and a
+    provenance table would go back to reporting a value no run used.
+    """
+    knobs = {field.name for field in dataclasses.fields(Config)}
+
+    assert set(UNWIRED_KNOBS) <= knobs
+
+
+def test_the_unwired_knobs_are_the_two_arm_axes_that_landed_early():
+    """#100's two, and #104 empties the tuple when it wires all six axes.
+
+    Pinned so that widening it is a decision: a knob listed here is one the
+    package accepts, validates and ignores, which is worth exactly as long as
+    the ticket that empties the list.
+    """
+    assert UNWIRED_KNOBS == ('step_size', 'line_direction')
+
+
+@pytest.mark.parametrize('writer', [
+    Path(__file__).parents[1] / 'goldens' / 'recording.py',
+    Path(__file__).parents[2] / 'benchmarks' / 'run_benchmark.py',
+])
+def test_the_provenance_writers_drop_the_unwired_knobs(writer):
+    """Both tables are documented as the values a run *used*.
+
+    ``tests/goldens/recording.py`` writes the ``[config]`` table of a golden's
+    ``provenance.toml`` and ``benchmarks/run_benchmark.py`` writes
+    ``benchmark.json``; both take every field of a ``Config``. A knob nothing
+    honours would make both of them false, so both consult
+    :data:`UNWIRED_KNOBS`. Asserted on the source because running either
+    writer means recording a golden.
+    """
+    assert 'UNWIRED_KNOBS' in writer.read_text()

@@ -474,6 +474,11 @@ def run(args):
             dawis.run_fits(image_path, config_object, outdir=args.outdir)
 
         resolved_config = dataclasses.asdict(config_object)
+        # Knobs the 1.0 tree validates and no run reads yet (#104 empties the
+        # tuple). `benchmark.json` reports what the run did, so a knob
+        # nothing honours has no value to report.
+        for name in getattr(dawis.config, "UNWIRED_KNOBS", ()):
+            resolved_config.pop(name, None)
     else:
         entry = dawis.synthesis_by_analysis
         entry_params = inspect.signature(entry).parameters

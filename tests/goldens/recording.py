@@ -428,6 +428,13 @@ def config_table(dawis, work_dir: Path, infile: str,
 
     if goldenrun.is_array_in(dawis):
         config = dataclasses.asdict(goldenrun.golden_config(dawis, cg_max_iter))
+        # A knob the tree accepts and no run reads yet is not a value this run
+        # used, and this table says it is. #96 lands the arm axes one at a
+        # time and wires them all at once (#104), so between those tickets
+        # `Config` carries knobs the solver never sees -- `dawis.config`
+        # names them and #104 empties that tuple.
+        for name in getattr(dawis.config, "UNWIRED_KNOBS", ()):
+            config.pop(name, None)
     else:
         config = goldenrun.effective_config(
             dawis.synthesis_by_analysis,

@@ -35,7 +35,11 @@ import logging
 import numpy as np
 
 from dawis.exceptions import DawisValueError
-from dawis.config import DEFAULT_CG_MAX_ITER
+from dawis.config import (
+    CG_LINE_DIRECTIONS,
+    CG_STEP_SIZES,
+    DEFAULT_CG_MAX_ITER,
+)
 from dawis.cubes import CoarseCube, LabelCube, WaveletCube
 from dawis.detection import region
 from dawis.restoration.deconvolution import richardson_lucy_np, twod_B2spline
@@ -545,6 +549,7 @@ class InterscaleTree(object):
         deconv: bool = False,
         synthesis_operator: str = 'ADJOINT',
         step_size: str = 'FR',
+        line_direction: str = 'as_written',
         sigma_flux: float = 1E-3,
         max_iter: int = DEFAULT_CG_MAX_ITER,
         verbose: bool = False,
@@ -584,8 +589,24 @@ class InterscaleTree(object):
             transform (#84, #98) — see :meth:`synthesis_transpose`.
         step_size : {'FR', 'PRP', 'HS', 'CD'}, optional
             Formula for the conjugate direction coefficient — Fletcher-Reeves,
-            Polak-Ribière-Polyak, Hestenes-Stiefel or conjugate descent.
-            Default is ``'FR'``, the published choice.
+            Polak-Ribière-Polyak, Hestenes-Stiefel or conjugate descent —
+            :data:`~dawis.config.CG_STEP_SIZES`. Default is ``'FR'``, the
+            published choice, which is what a run still gets:
+            :attr:`dawis.config.Config.step_size` defaults to the ``'HS'``
+            #82 chose, and **nothing carries it here yet** — #104 wires all
+            six arm axes at once, and until it does this argument is set by
+            its callers or not at all.
+        line_direction : {'as_written', 'textbook'}, optional
+            Which reading of the conjugate direction recursion to take.
+            ``'as_written'``, the default, is ``v = fr + beta * old_fr`` —
+            what the published pseudocode prints and what DAWIS has always
+            run. ``'textbook'`` is ``v = fr + beta * v``, what both published
+            CG algorithms on this problem do (#76). They agree on the first
+            update, because ``v`` starts as a copy of ``fr``, and part
+            company on the second. #74 swept both and #82 ruled the
+            as-written form a **documented variant, not a defect** — the
+            textbook form is better on neither metric on any class. Set here
+            or not at all until #104, like ``step_size`` above.
         sigma_flux : float, optional
             Relative flux change below which the descent stops. Default is
             1E-3.
@@ -638,6 +659,23 @@ class InterscaleTree(object):
         wavelet_tube, support_tube, label_tube = self.tubes(
             wavelet_cube, label_cube, coarse_cube = coarse_cube)
         n_levels = wavelet_tube.shape[2] - int(coarse)
+
+        # Both axes are read inside the loop, where an unrecognised value
+        # costs a whole descent before it shows -- and the line direction
+        # would not show at all, because the recursion it selects between has
+        # a published form to fall back on. A sweep harness with a misspelt
+        # cell would file as-written numbers under `textbook`, so the value is
+        # refused here rather than silently reinterpreted.
+        if step_size not in CG_STEP_SIZES:
+            raise DawisValueError(
+                'step_size names the formula the conjugate direction '
+                'coefficient is built by -->',
+                step_size, list(CG_STEP_SIZES))
+        if line_direction not in CG_LINE_DIRECTIONS:
+            raise DawisValueError(
+                'line_direction names the reading of the conjugate '
+                'direction recursion -->',
+                line_direction, list(CG_LINE_DIRECTIONS))
 
         if deconv == True:
             if self.interscale_maximum.level <= 2:
@@ -734,7 +772,11 @@ class InterscaleTree(object):
                         beta = np.sum( (fr - old_fr) * fr ) / np.sum( (fr - old_fr) * v )
                 elif step_size == 'CD':
                         beta = np.linalg.norm( fr )**2 / np.sum( v * old_fr )
-                v = fr + beta * old_fr
+
+                if line_direction == 'textbook':
+                    v = fr + beta * v
+                else:
+                    v = fr + beta * old_fr
 
         wr = wavelet_tube - _analysis_tube(reconstructed, n_levels, filter,
                                            coarse) * support_tube
