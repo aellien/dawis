@@ -48,6 +48,7 @@ from dawis.config import (
     OUTPUT_FORMATS,
     PARALLEL_BACKENDS,
     SEED_BITS,
+    SYNTHESIS_OPERATORS,
     UNWIRED_KNOBS,
     Config,
     make_rng,
@@ -600,11 +601,11 @@ def test_every_line_direction_the_solver_implements_is_accepted(line_direction):
     assert Config(line_direction = line_direction).line_direction == line_direction
 
 
-def test_the_two_axes_name_exactly_what_the_solver_branches_on():
+def test_the_solver_axes_name_exactly_what_the_solver_branches_on():
     """The lists are the solver's branches, written down.
 
     ``dawis.config`` is shared vocabulary and imports no module of the
-    package, so these two tuples are stated beside the ``if`` chain in
+    package, so these three tuples are stated beside the ``if`` chain in
     :meth:`~dawis.trees.construction.InterscaleTree.CG_minimization` rather
     than derived from it. A value ``Config`` accepted and the solve had no
     branch for would be a run that validates and then reconstructs by a
@@ -614,6 +615,7 @@ def test_the_two_axes_name_exactly_what_the_solver_branches_on():
     """
     assert CG_STEP_SIZES == ('FR', 'PRP', 'HS', 'CD')
     assert CG_LINE_DIRECTIONS == ('as_written', 'textbook')
+    assert SYNTHESIS_OPERATORS == ('ADJOINT', 'SUM', 'TRANSPOSE')
 
 
 def test_every_unwired_knob_is_a_knob():

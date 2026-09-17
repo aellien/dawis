@@ -75,6 +75,7 @@ __all__ = [
     'OUTPUT_FORMATS',
     'PARALLEL_BACKENDS',
     'SEED_BITS',
+    'SYNTHESIS_OPERATORS',
     'Config',
     'make_rng',
     'resolve_seed',
@@ -112,6 +113,28 @@ CG_STEP_SIZES = ('FR', 'PRP', 'HS', 'CD')
 #: as-written form a documented variant rather than a defect — the textbook
 #: form is better on neither metric on any class — so it stays the default.
 CG_LINE_DIRECTIONS = ('as_written', 'textbook')
+
+#: Operators the solver has a branch for when it rebuilds an image from a
+#: tube — the cascaded smoothing of the published path, the plain sum of the
+#: planes, and the genuine transpose of the transform (#84, #98).
+#:
+#: **This tuple is an allow-list, not a default.** #82's chosen arm names
+#: ``'TRANSPOSE'``, but nothing here records that and nothing carries it: the
+#: method still defaults to the published ``'ADJOINT'``, and
+#: :func:`~dawis.restoration.synthesis.restore_object` still routes between
+#: ``'SUM'`` and ``'ADJOINT'`` by tree shape. Unlike :data:`CG_STEP_SIZES`
+#: and :data:`CG_LINE_DIRECTIONS` the axis is not a :class:`Config` field at
+#: all, which is why it is absent from :data:`UNWIRED_KNOBS` — there is no
+#: knob yet to be unwired. #104 is what makes one and wires it, and the
+#: default it sets is #82's business and not this module's.
+#:
+#: Stated here beside the ``if`` chains in
+#: :meth:`~dawis.trees.construction.InterscaleTree.CG_minimization` for the
+#: same reason as the two tuples above, and guarded there for a sharper one:
+#: those chains have no ``else``, so a value naming none of them left
+#: ``reconstructed`` unassigned and surfaced as an ``UnboundLocalError``
+#: several frames from the cause (#108).
+SYNTHESIS_OPERATORS = ('ADJOINT', 'SUM', 'TRANSPOSE')
 
 #: Knobs this class accepts and validates that **no run reads yet**.
 #:

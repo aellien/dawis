@@ -93,8 +93,8 @@ def solve(a_tree, max_iter = STEPS, **axes):
     """Run the arm on the fixture tree, with the axes under test set."""
 
     tree, wavelet_cube, label_cube = a_tree
+    axes.setdefault('synthesis_operator', 'TRANSPOSE')
     return tree.CG_minimization(wavelet_cube, label_cube, filter = BSPL,
-                                synthesis_operator = 'TRANSPOSE',
                                 max_iter = max_iter, **axes)
 
 
@@ -247,6 +247,8 @@ def test_the_method_still_defaults_to_the_published_beta(a_tree):
     ('step_size', 'fr'),
     ('line_direction', 'text_book'),
     ('line_direction', 'Textbook'),
+    ('synthesis_operator', 'transpose'),
+    ('synthesis_operator', 'ADJ'),
 ])
 def test_an_axis_value_the_solver_has_no_branch_for_is_refused(a_tree, axis,
                                                                value):
@@ -256,8 +258,11 @@ def test_an_axis_value_the_solver_has_no_branch_for_is_refused(a_tree, axis,
     directly: #74's and #92's arms call it cell by cell. An unrecognised line
     direction has a published form to fall through to, so a misspelt cell
     would file as-written numbers under ``textbook`` and nothing would say
-    so. Both axes are checked at the door instead, and the message names the
-    value and what would have been accepted.
+    so. An unrecognised synthesis operator matches none of the three arms
+    that build ``reconstructed``, so it surfaced as an ``UnboundLocalError``
+    several frames from the cause (#108). All three axes are checked at the
+    door instead, and the message names the value and what would have been
+    accepted.
     """
 
     with pytest.raises(DawisValueError) as raised:

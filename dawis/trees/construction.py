@@ -39,6 +39,7 @@ from dawis.config import (
     CG_LINE_DIRECTIONS,
     CG_STEP_SIZES,
     DEFAULT_CG_MAX_ITER,
+    SYNTHESIS_OPERATORS,
 )
 from dawis.cubes import CoarseCube, LabelCube, WaveletCube
 from dawis.detection import region
@@ -574,7 +575,8 @@ class InterscaleTree(object):
         filter : numpy.ndarray
             1D low-band filter of the à trous transform, normally B3-spline.
         synthesis_operator : {'ADJOINT', 'SUM', 'TRANSPOSE'}, optional
-            Which operator rebuilds an image from a tube. Default is
+            Which operator rebuilds an image from a tube —
+            :data:`~dawis.config.SYNTHESIS_OPERATORS`. Default is
             ``'ADJOINT'``. ``'TRANSPOSE'`` is the genuine transpose of the
             transform (#84, #98) — see :meth:`synthesis_transpose`.
         step_size : {'FR', 'PRP', 'HS', 'CD'}, optional
@@ -623,6 +625,13 @@ class InterscaleTree(object):
             than beside the other axes, so a positional caller of the
             published method keeps binding what it always bound.
 
+        Raises
+        ------
+        dawis.exceptions.DawisValueError
+            If ``synthesis_operator``, ``step_size`` or ``line_direction``
+            names a branch the solve does not have, or if the coarse cube is
+            not one plane deeper than the wavelet cube — see :meth:`tubes`.
+
         Returns
         -------
         reconstructed : numpy.ndarray
@@ -645,12 +654,27 @@ class InterscaleTree(object):
         smoothing cascade per ``ADJOINT`` one.
         """
 
-        coarse = coarse_cube is not None
-        wavelet_tube, support_tube, label_tube = self.tubes(
-            wavelet_cube, label_cube, coarse_cube = coarse_cube)
-        n_levels = wavelet_tube.shape[2] - int(coarse)
+        # All three axes are refused here, ahead of the tube build:
+        # `tubes` raises a `DawisValueError` of its own on a coarse cube of
+        # the wrong depth or basis, and the call most likely to trip these
+        # guards -- a positional caller written before #101 -- is as likely
+        # to trip that one. Reported in the other order, the axis error hides
+        # behind the coarse-cube one, which is the failure being guarded.
+        #
+        # The three `if`/`elif` chains the operator selects between have no
+        # `else`, so a value naming none of them matched nothing, left
+        # `reconstructed` unassigned and surfaced as an `UnboundLocalError`
+        # several frames from the cause. #101 made that worth guarding rather
+        # than noting: removing `deconv` shifted this into the fourth
+        # positional slot, so a caller outside the tree who passed
+        # positionally now binds here what they meant as `deconv`.
+        if synthesis_operator not in SYNTHESIS_OPERATORS:
+            raise DawisValueError(
+                'synthesis_operator names the operator that rebuilds an '
+                'image from a tube -->',
+                synthesis_operator, list(SYNTHESIS_OPERATORS))
 
-        # Both axes are read inside the loop, where an unrecognised value
+        # Both CG axes are read inside the loop, where an unrecognised value
         # costs a whole descent before it shows -- and the line direction
         # would not show at all, because the recursion it selects between has
         # a published form to fall back on. A sweep harness with a misspelt
@@ -666,6 +690,11 @@ class InterscaleTree(object):
                 'line_direction names the reading of the conjugate '
                 'direction recursion -->',
                 line_direction, list(CG_LINE_DIRECTIONS))
+
+        coarse = coarse_cube is not None
+        wavelet_tube, support_tube, label_tube = self.tubes(
+            wavelet_cube, label_cube, coarse_cube = coarse_cube)
+        n_levels = wavelet_tube.shape[2] - int(coarse)
 
         if synthesis_operator == 'ADJOINT':
             reconstructed = self.synthesis_adjoint(wavelet_tube, filter = filter, coarse = coarse)
