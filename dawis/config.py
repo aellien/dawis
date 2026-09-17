@@ -72,6 +72,7 @@ __all__ = [
     'CG_STEP_SIZES',
     'UNWIRED_KNOBS',
     'DEFAULT_CG_MAX_ITER',
+    'MINIMIZERS',
     'OUTPUT_FORMATS',
     'PARALLEL_BACKENDS',
     'SEED_BITS',
@@ -135,6 +136,27 @@ CG_LINE_DIRECTIONS = ('as_written', 'textbook')
 #: ``reconstructed`` unassigned and surfaced as an ``UnboundLocalError``
 #: several frames from the cause (#108).
 SYNTHESIS_OPERATORS = ('ADJOINT', 'SUM', 'TRANSPOSE')
+
+#: Algorithms that solve a tree — the minimizer axis (#74, #82, #102).
+#: ``'bijaoui_rue'`` is the published conjugate gradient of Ellien+2021,
+#: :meth:`~dawis.trees.construction.InterscaleTree.CG_minimization`; the other
+#: three are the proximal arms in :mod:`dawis.trees.minimizers`. #82 kept this
+#: axis user-settable with **no shortlist**, so every value #74 measured ships
+#: — except ``'wolfe'``, which #20 deleted from the 1.0 tree and preserved on
+#: the ``v0.0.7-h`` tag, a standing deletion #96 does not re-open.
+#:
+#: **This tuple is an allow-list, not a default**, like
+#: :data:`SYNTHESIS_OPERATORS` and for the same reason: the axis is not a
+#: :class:`Config` field, so it is absent from :data:`UNWIRED_KNOBS` — there
+#: is no knob yet to be unwired. #104 is what makes one, wires it, and sets
+#: the default #82 chose.
+#:
+#: Which axes each minimizer carries is **not** stated here — it is
+#: :data:`dawis.trees.minimizers.MINIMIZER_AXES`, beside the branches it
+#: describes. This module is shared vocabulary that imports no block of the
+#: package, and the two agreeing is asserted instead, in
+#: ``tests/unit/test_minimizers.py``.
+MINIMIZERS = ('bijaoui_rue', 'fista', 'condat_vu', 'projected_gradient')
 
 #: Knobs this class accepts and validates that **no run reads yet**.
 #:

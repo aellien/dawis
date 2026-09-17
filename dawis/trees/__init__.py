@@ -13,7 +13,7 @@ An **interscale tree** is one structure seen at every scale at once: a root
 region on a coarse plane plus the finer regions that belong to the same
 object. Trees are what the pipeline restores; one tree becomes one atom.
 
-Two modules split the work along the seam identified by the target
+Three modules split the work along the seam identified by the target
 architecture (#4).
 
 :mod:`dawis.trees.construction` holds :class:`InterscaleTree` — what a tree
@@ -29,6 +29,12 @@ that function — one plain, one under ``@ray.remote`` — collapsed into this o
 when the parallelism seam landed (#47), and where a patch of roots runs is now
 :mod:`dawis.parallel`'s business rather than this block's.
 
+:mod:`dawis.trees.minimizers` holds the choice of *which* algorithm does that
+synthesis — the minimizer axis (#102). :func:`minimize` is the one door over
+all four: the published conjugate gradient, and the three proximal arms #74
+measured against it. It depends on :mod:`dawis.trees.construction` and nothing
+there depends back on it, so the published solve stays readable on its own.
+
 The watershed pass that once enforced monomodality inside a tree was deleted
 upstream in ``ae19cb2``, well before this carve; its dead ``monomodality`` and
 ``threshold_rel`` knobs are dropped here.
@@ -42,9 +48,11 @@ from dawis.trees.deblending import (
     interscale_connectivity,
     make_interscale_trees,
 )
+from dawis.trees.minimizers import minimize
 
 __all__ = [
     'InterscaleTree',
     'interscale_connectivity',
     'make_interscale_trees',
+    'minimize',
 ]
