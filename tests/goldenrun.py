@@ -196,9 +196,11 @@ def pin_cg_max_iter(dawis, max_iter: int):
 def effective_config(entry, passed: dict) -> dict:
     """Every pipeline parameter with the value a run actually used.
 
-    Most knobs take the entry point's defaults, and several of those are live
-    — ``conditions`` picks the boundary treatment of the transform — so
-    provenance records the resolved set rather than only what was passed.
+    Most knobs take the entry point's defaults and several of those are
+    live, so provenance records the resolved set rather than only what was
+    passed. No knob is named as the example: ``deconv`` was one until #101
+    removed it, and ``conditions`` is accepted by ``bspl_atrous`` and never
+    read.
     """
     config = {}
     for name, param in inspect.signature(entry).parameters.items():

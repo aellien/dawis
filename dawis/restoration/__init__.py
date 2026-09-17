@@ -3,7 +3,9 @@
 The fourth block carved out of the flat package, and the one the run time
 lives in — #5 measured this block at 98.4% of the loop.
 
-At runtime it imports only :mod:`dawis.cubes`. It consumes the trees that
+At runtime it imports no other *block* — only :mod:`dawis.cubes`,
+and :mod:`dawis.config` and :mod:`dawis.parallel`, which are shared
+vocabulary rather than blocks. It consumes the trees that
 :mod:`dawis.trees` builds, but takes them as arguments rather than importing
 the package. The reference to the tree class in the annotations of
 :mod:`dawis.restoration.synthesis` sits behind ``TYPE_CHECKING``: the type is

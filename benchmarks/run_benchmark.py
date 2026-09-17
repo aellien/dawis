@@ -364,9 +364,10 @@ def effective_config(entry, passed):
 
     The benchmark passes only the reference parameter set, so most knobs take
     the entry point's defaults. A results file that recorded only what was
-    passed would omit live knobs -- `conditions` picks the boundary
-    treatment of the transform -- so the defaults are resolved here and
-    recorded with the rest.
+    passed would omit knobs that are live but defaulted, so the defaults
+    are resolved here and recorded with the rest. No knob is named as the
+    example: `deconv` was one until #101 removed it, and `conditions` is
+    accepted by `bspl_atrous` and never read.
     """
     config = {}
     for name, param in inspect.signature(entry).parameters.items():

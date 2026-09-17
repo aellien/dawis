@@ -249,8 +249,8 @@ def restore_patch(
                                                                               lvl_sep_lin, \
                                                                               lvl_sep_big, \
                                                                               lvl_sep_op, \
-                                                                              cg_max_iter, \
-                                                                              verbose )
+                                                                              cg_max_iter = cg_max_iter, \
+                                                                              verbose = verbose )
 
         if (rm_gamma_for_big == False) or (tree.interscale_maximum.level < lvl_sep_big):
             image = image * gamma  # add attenuation factor
@@ -278,6 +278,11 @@ def restore_object(
     lvl_sep_lin: int,
     lvl_sep_big: int,
     lvl_sep_op: int = 2,
+    # Keyword-only since #101. `deconv` used to sit here, so a caller written
+    # against the old signature who passed it positionally would otherwise
+    # bind `cg_max_iter = False` — zero, one CG iteration, and an
+    # under-converged atom returned with no error at all.
+    *,
     cg_max_iter: int = DEFAULT_CG_MAX_ITER,
     verbose: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, str, bool, float, float, str, str]:
