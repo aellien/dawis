@@ -81,8 +81,8 @@ CG_ALGORITHM = 'CG'
 #: the class or not at all.
 UNKNOWN_PROVENANCE = 'UNKNOWN'
 
-# Annotations only. dawis.trees imports the deconvolution of this package, so
-# importing it back at runtime would close a cycle.
+# Annotations only. This package imports dawis.trees for the type alone; the
+# runtime import is not needed and is not taken.
 if TYPE_CHECKING:
     from dawis.trees import InterscaleTree
 
@@ -144,13 +144,6 @@ class Atom(object):
     with nothing set, and a pickle restores a ``__dict__`` with no such key
     without ever calling this constructor. Either way the lookup falls through
     to the class and answers ``'UNKNOWN'`` instead of raising.
-
-    The operator is worth having on disk for a second reason: the optional
-    deconvolution inside the solver runs on the two adjoint-like branches
-    only, so an atom that records ``'ADJOINT'`` or ``'TRANSPOSE'`` is an atom
-    that was deconvolved if the run asked for deconvolution at all, and one
-    that records ``'SUM'`` never is — a fact nothing else records. Before #98
-    the first of those words identified the deconvolved set on its own.
     """
 
     # Read by an atom whose stored state predates these two fields. See Notes.
@@ -198,7 +191,6 @@ def restore_patch(
     lvl_sep_op: int,
     gamma: float,
     rm_gamma_for_big: bool,
-    deconv: bool,
     cg_max_iter: int = DEFAULT_CG_MAX_ITER,
     verbose: bool = False,
 ) -> list[Atom]:
@@ -232,8 +224,6 @@ def restore_patch(
     rm_gamma_for_big : bool
         If True, skip the attenuation for objects at or above
         ``lvl_sep_big``.
-    deconv : bool
-        Whether the solver deconvolves each plane by the B3-spline kernel.
     cg_max_iter : int, optional
         Iteration cap handed to the solver. Default
         :data:`~dawis.config.DEFAULT_CG_MAX_ITER`.
@@ -259,7 +249,6 @@ def restore_patch(
                                                                               lvl_sep_lin, \
                                                                               lvl_sep_big, \
                                                                               lvl_sep_op, \
-                                                                              deconv, \
                                                                               cg_max_iter, \
                                                                               verbose )
 
@@ -289,7 +278,6 @@ def restore_object(
     lvl_sep_lin: int,
     lvl_sep_big: int,
     lvl_sep_op: int = 2,
-    deconv: bool = True,
     cg_max_iter: int = DEFAULT_CG_MAX_ITER,
     verbose: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, str, bool, float, float, str, str]:
@@ -326,9 +314,6 @@ def restore_object(
     lvl_sep_op : int, optional
         Scale above which the adjoint synthesis operator replaces the plain
         sum of planes. Default 2.
-    deconv : bool, optional
-        Whether the solver deconvolves each plane by the B3-spline kernel.
-        Default True.
     cg_max_iter : int, optional
         Iteration cap handed to the solver. Default
         :data:`~dawis.config.DEFAULT_CG_MAX_ITER`, the published 200 — see
@@ -380,7 +365,7 @@ def restore_object(
         
         synthesis_operator = 'SUM'
         image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_cube, label_cube, filter = haar, \
-                                                        synthesis_operator = synthesis_operator, deconv = deconv, \
+                                                        synthesis_operator = synthesis_operator, \
                                                         max_iter = cg_max_iter, verbose = verbose )
         filter_kw = 'HAAR'
 
@@ -388,12 +373,12 @@ def restore_object(
         if interscale_tree.interscale_maximum.level <= lvl_sep_op:
             synthesis_operator = 'SUM'
             image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_cube, label_cube, filter = bspl, \
-                                                    synthesis_operator = synthesis_operator, deconv = deconv, \
+                                                    synthesis_operator = synthesis_operator, \
                                                     max_iter = cg_max_iter, verbose = verbose )
         else:
             synthesis_operator = 'ADJOINT'
             image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_cube, label_cube, filter = bspl, \
-                                                    synthesis_operator = synthesis_operator, deconv = deconv, \
+                                                    synthesis_operator = synthesis_operator, \
                                                     max_iter = cg_max_iter, verbose = verbose )
         filter_kw = 'BSPL'
 
@@ -486,7 +471,6 @@ def restore_objects_default(
     ecc_sep: float,
     lvl_sep_lin: int,
     lvl_sep_op: int,
-    deconv: bool,
     size_patch_small: int = 1,
     gamma: float = 1,
     size_patch_big: int = 1,
@@ -539,8 +523,6 @@ def restore_objects_default(
         Scale at or above which the Haar branch is never taken.
     lvl_sep_op : int
         Scale above which the adjoint synthesis operator replaces the sum.
-    deconv : bool
-        Whether the solver deconvolves each plane by the B3-spline kernel.
     size_patch_small : int, optional
         Trees per patch for objects below ``size_big_objects``. Default 1.
     gamma : float, optional
@@ -593,7 +575,7 @@ def restore_objects_default(
          for patch in patches],
         shared = (wavelet_cube, label_cube, extent_sep, ecc_sep,
                   lvl_sep_lin, lvl_sep_big, lvl_sep_op, gamma,
-                  rm_gamma_for_big, deconv, cg_max_iter, verbose),
+                  rm_gamma_for_big, cg_max_iter, verbose),
         n_workers = n_workers,
     )
 

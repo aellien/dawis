@@ -197,7 +197,7 @@ def effective_config(entry, passed: dict) -> dict:
     """Every pipeline parameter with the value a run actually used.
 
     Most knobs take the entry point's defaults, and several of those are live
-    — ``deconv`` gates a Richardson-Lucy call inside the CG loop — so
+    — ``conditions`` picks the boundary treatment of the transform — so
     provenance records the resolved set rather than only what was passed.
     """
     config = {}

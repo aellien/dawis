@@ -364,9 +364,9 @@ def effective_config(entry, passed):
 
     The benchmark passes only the reference parameter set, so most knobs take
     the entry point's defaults. A results file that recorded only what was
-    passed would omit live knobs -- `deconv` gates a Richardson-Lucy call
-    inside the CG loop, `conditions` picks the boundary treatment -- so the
-    defaults are resolved here and recorded with the rest.
+    passed would omit live knobs -- `conditions` picks the boundary
+    treatment of the transform -- so the defaults are resolved here and
+    recorded with the rest.
     """
     config = {}
     for name, param in inspect.signature(entry).parameters.items():

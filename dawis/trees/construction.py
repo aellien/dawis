@@ -42,7 +42,6 @@ from dawis.config import (
 )
 from dawis.cubes import CoarseCube, LabelCube, WaveletCube
 from dawis.detection import region
-from dawis.restoration.deconvolution import richardson_lucy_np, twod_B2spline
 from dawis.wavelets import atrous, atrous_adjoint
 
 log = logging.getLogger(__name__)
@@ -546,7 +545,6 @@ class InterscaleTree(object):
         wavelet_cube: WaveletCube,
         label_cube: LabelCube,
         filter: np.ndarray,
-        deconv: bool = False,
         synthesis_operator: str = 'ADJOINT',
         step_size: str = 'FR',
         line_direction: str = 'as_written',
@@ -575,14 +573,6 @@ class InterscaleTree(object):
             Label cube the tree was built on.
         filter : numpy.ndarray
             1D low-band filter of the à trous transform, normally B3-spline.
-        deconv : bool, optional
-            Deconvolve each reconstruction with a B2-spline PSF by ten
-            Richardson-Lucy iterations. Default is False. Only meaningful on
-            the two adjoint-like operators, ``'ADJOINT'`` and
-            ``'TRANSPOSE'``: the Richardson-Lucy steps run on the synthesised
-            image, so what ``deconv`` needs is a synthesis to deconvolve
-            rather than one particular one (#84). Under ``'SUM'`` the kernel
-            is built and never read.
         synthesis_operator : {'ADJOINT', 'SUM', 'TRANSPOSE'}, optional
             Which operator rebuilds an image from a tube. Default is
             ``'ADJOINT'``. ``'TRANSPOSE'`` is the genuine transpose of the
@@ -677,21 +667,10 @@ class InterscaleTree(object):
                 'direction recursion -->',
                 line_direction, list(CG_LINE_DIRECTIONS))
 
-        if deconv == True:
-            if self.interscale_maximum.level <= 2:
-                im_psf = twod_B2spline(xsize = self.x_size, ysize = self.y_size, order = 0)
-
-            else:
-                im_psf = twod_B2spline(xsize = self.x_size, ysize = self.y_size, order = 2)
-    
         if synthesis_operator == 'ADJOINT':
             reconstructed = self.synthesis_adjoint(wavelet_tube, filter = filter, coarse = coarse)
-            if deconv == True:
-                reconstructed = richardson_lucy_np(reconstructed, im_psf, 10)
         elif synthesis_operator == 'TRANSPOSE':
             reconstructed = self.synthesis_transpose(wavelet_tube, filter = filter, coarse = coarse)
-            if deconv == True:
-                reconstructed = richardson_lucy_np(reconstructed, im_psf, 10)
         elif synthesis_operator == 'SUM':
             reconstructed = self.synthesis_sum(wavelet_tube)
 
@@ -700,13 +679,9 @@ class InterscaleTree(object):
 
         if synthesis_operator == 'ADJOINT':
             fr = self.synthesis_adjoint(wr, filter = filter, coarse = coarse )
-            if deconv == True:
-                fr = richardson_lucy_np(fr, im_psf, 10)
 
         elif synthesis_operator == 'TRANSPOSE':
             fr = self.synthesis_transpose(wr, filter = filter, coarse = coarse )
-            if deconv == True:
-                fr = richardson_lucy_np(fr, im_psf, 10)
 
         elif synthesis_operator == 'SUM':
             fr = self.synthesis_sum(wr)
@@ -749,13 +724,9 @@ class InterscaleTree(object):
 
                 if synthesis_operator == 'ADJOINT':
                     fr = self.synthesis_adjoint(wr, filter = filter, coarse = coarse )
-                    if deconv == True:
-                        fr = richardson_lucy_np(fr, im_psf, 10)
 
                 elif synthesis_operator == 'TRANSPOSE':
                     fr = self.synthesis_transpose(wr, filter = filter, coarse = coarse )
-                    if deconv == True:
-                        fr = richardson_lucy_np(fr, im_psf, 10)
 
                 elif synthesis_operator == 'SUM':
                     fr = self.synthesis_sum(wr)

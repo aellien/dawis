@@ -291,8 +291,6 @@ class Config:
         ``ceps``. Default 1.
     conditions : {'loop', 'prolongation', 'mirror'}, optional
         Boundary condition of the wavelet transform. Default ``'loop'``.
-    deconv : bool, optional
-        Deconvolve each reconstruction inside the solver. Default False.
     max_iter : int, optional
         Hard cap on greedy iterations, counted across every scale. Unrelated
         to ``cg_max_iter`` despite the name they nearly share. Default 500.
@@ -377,7 +375,6 @@ class Config:
     ceps: float = 1E-3
     scale_lvl_eps: float = 1
     conditions: str = 'loop'
-    deconv: bool = False
     max_iter: int = 500
     size_patch: int = 100
     inpaint_res: bool = True

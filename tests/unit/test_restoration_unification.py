@@ -42,7 +42,6 @@ REST_PARAMS = dict(
     ecc_sep=0.95,
     lvl_sep_lin=2,
     lvl_sep_op=3,
-    deconv=False,
     gamma=0.2,
     size_patch_small=1,
     size_patch_big=1,

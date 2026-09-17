@@ -9,7 +9,7 @@ The layout is one subpackage per block::
     dawis.wavelets      the à trous transform and variance stabilisation
     dawis.detection     thresholds, labels, regions
     dawis.trees         interscale trees
-    dawis.restoration   atom synthesis, deconvolution, inpainting
+    dawis.restoration   atom synthesis, inpainting
     dawis.selection     atoms into source models (reserved, #17)
     dawis.pipelines     the compositions users run
     dawis.io            FITS, the object store, the legacy pickle format
@@ -101,18 +101,13 @@ from dawis.pipelines import run, run_fits
 from dawis.results import InputDiagnostics, RunResult
 from dawis.restoration import (
     Atom,
-    B2spline,
     Reconstruction,
     inpaint_with_gaussian_noise,
-    pad,
     restore_object,
     restore_objects_default,
     restore_patch,
-    richardson_lucy_np,
     sample_noise,
     subtract_background,
-    twod_B2spline,
-    unpad,
 )
 from dawis.trees import (
     InterscaleTree,
@@ -135,7 +130,6 @@ from dawis.wavelets import (
 __all__ = [
     'AnscombeStabilisation',
     'Atom',
-    'B2spline',
     'CoarseCube',
     'Config',
     'ConfigError',
@@ -169,7 +163,6 @@ __all__ = [
     'max_levels',
     'ms_detect_and_deblend',
     'object_recursive_save_to_hdf5',
-    'pad',
     'pg_noise_bissection',
     'pkl_to_hdf5',
     'read_image',
@@ -183,15 +176,12 @@ __all__ = [
     'restore_object',
     'restore_objects_default',
     'restore_patch',
-    'richardson_lucy_np',
     'run',
     'run_fits',
     'sample_noise',
     'ser_iuwt_decomposition',
     'subtract_background',
     'table_noise_stds',
-    'twod_B2spline',
-    'unpad',
     'write_itl_to_hdf5',
     'write_itl_to_pickle',
     'write_ol_to_hdf5',

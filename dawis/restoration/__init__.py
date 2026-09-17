@@ -6,28 +6,21 @@ lives in — #5 measured this block at 98.4% of the loop.
 At runtime it imports only :mod:`dawis.cubes`. It consumes the trees that
 :mod:`dawis.trees` builds, but takes them as arguments rather than importing
 the package. The reference to the tree class in the annotations of
-:mod:`dawis.restoration.synthesis` sits behind ``TYPE_CHECKING``. That is
-deliberate: the edge runs the other way — the solver on the tree calls the
-deconvolution here — so importing trees for real would close a cycle.
+:mod:`dawis.restoration.synthesis` sits behind ``TYPE_CHECKING``: the type is
+all that is wanted, so the runtime import is not taken.
 
 Restoration is the *synthesis* half of synthesis by analysis. Detection and
 tree building say where a structure is and which scales it spans; this block
 turns that into an image, and the pipeline subtracts it from the running
 residual before analysing what is left.
 
-Four modules.
+Three modules.
 
 :mod:`dawis.restoration.synthesis` is the entry point.
 :func:`restore_objects_default` walks the trees of one iteration —
 in process, or over workers, as :mod:`dawis.parallel` decides — and each
 becomes an :class:`Atom`. :func:`restore_object` makes the per-tree
 choice of filter and synthesis operator that the solver then runs with.
-
-:mod:`dawis.restoration.deconvolution` holds the optional PSF step inside that
-solve: Richardson-Lucy against the à trous B3-spline kernel that
-:func:`twod_B2spline` builds, at one of two orders picked from the level of
-the interscale maximum. Only the two adjoint-like branches of the solver
-read it, ADJOINT and TRANSPOSE.
 
 :mod:`dawis.restoration.inpainting` closes the loop. A slightly over-restored
 atom digs a hole in the residual, and the next iteration would detect that
@@ -54,19 +47,13 @@ the deviation is deliberate and it is a deviation: what belongs here is the
 *choice* of how to call the solver, and that is what this block holds. Moving
 the solver itself waits for the minimizer interface of #22.
 
-The old flat modules ``dawis.restore_objects``, ``dawis.deconvolution`` and
-``dawis.inpainting`` held these names until #50 deleted them. This package is
-the only address they have.
+The old flat modules ``dawis.restore_objects`` and ``dawis.inpainting`` held
+these names until #50 deleted them, and this package is the only address they
+have. The third, ``dawis.deconvolution``, has no address at all: #101 removed
+the Richardson-Lucy step and the module it lived in.
 """
 
 from dawis.restoration.accumulation import Reconstruction
-from dawis.restoration.deconvolution import (
-    B2spline,
-    pad,
-    richardson_lucy_np,
-    twod_B2spline,
-    unpad,
-)
 from dawis.restoration.inpainting import (
     inpaint_with_gaussian_noise,
     sample_noise,
@@ -81,16 +68,11 @@ from dawis.restoration.synthesis import (
 
 __all__ = [
     'Atom',
-    'B2spline',
     'Reconstruction',
     'inpaint_with_gaussian_noise',
-    'pad',
     'restore_object',
     'restore_objects_default',
     'restore_patch',
-    'richardson_lucy_np',
     'sample_noise',
     'subtract_background',
-    'twod_B2spline',
-    'unpad',
 ]

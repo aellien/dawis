@@ -500,7 +500,6 @@ def run(image, config: Config | None = None, *, outdir: str = '.',
                                                                rm_gamma_for_big = config.rm_gamma_for_big, \
                                                                size_patch_big = 1, \
                                                                size_big_objects = 512, \
-                                                               deconv = config.deconv, \
                                                                cg_max_iter = config.cg_max_iter, \
                                                                n_workers = config.n_workers, \
                                                                verbose = True ) # objects in original image pixel value range
