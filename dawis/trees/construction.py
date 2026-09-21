@@ -588,6 +588,17 @@ class InterscaleTree(object):
             #82 chose, and **nothing carries it here yet** — #104 wires all
             six arm axes at once, and until it does this argument is set by
             its callers or not at all.
+
+            Whichever formula is chosen, a denominator of **exactly** zero
+            restarts the recursion at ``beta = 0`` rather than dividing.
+            The published code substituted 1.0 for ``||old_fr||**2`` and
+            read that substitution from ``'FR'`` alone, so the other three
+            divided unguarded and a tube that vanishes on the support
+            returned ``nan`` (#109). A denominator that is merely *near*
+            zero is not caught: ``'HS'`` and ``'CD'`` divide by an inner
+            product of two different vectors, which can cancel without
+            either vanishing, and a large ``beta`` from one of those is
+            #111 rather than this guard.
         line_direction : {'as_written', 'textbook'}, optional
             Which reading of the conjugate direction recursion to take.
             ``'as_written'``, the default, is ``v = fr + beta * old_fr`` —
@@ -719,6 +730,7 @@ class InterscaleTree(object):
 
         iter = 0
         total_flux = 1.0
+        restarted = False        # whether #109's guard has already spoken
         while iter <= max_iter:
 
             iter = iter + 1
@@ -760,18 +772,43 @@ class InterscaleTree(object):
                 elif synthesis_operator == 'SUM':
                     fr = self.synthesis_sum(wr)
 
-                squared_norm_old_fr = np.linalg.norm( old_fr )**2
-                if squared_norm_old_fr == 0.:
-                    squared_norm_old_fr = 1.0
-
                 if step_size == 'FR':
-                    beta = np.linalg.norm( fr )**2 / squared_norm_old_fr
+                    numerator = np.linalg.norm( fr )**2
+                    denominator = np.linalg.norm( old_fr )**2
                 elif step_size == 'PRP':
-                        beta = np.sum( (fr - old_fr) * fr ) / np.sum( fr * fr )
+                    numerator = np.sum( (fr - old_fr) * fr )
+                    denominator = np.sum( fr * fr )
                 elif step_size == 'HS':
-                        beta = np.sum( (fr - old_fr) * fr ) / np.sum( (fr - old_fr) * v )
+                    numerator = np.sum( (fr - old_fr) * fr )
+                    denominator = np.sum( (fr - old_fr) * v )
                 elif step_size == 'CD':
-                        beta = np.linalg.norm( fr )**2 / np.sum( v * old_fr )
+                    numerator = np.linalg.norm( fr )**2
+                    denominator = np.sum( v * old_fr )
+
+                # A denominator of exactly zero is the conjugacy relation
+                # degenerating, not a small number, and beta = 0 restarts the
+                # recursion at steepest descent — the classical remedy, and
+                # the only finite value that is right for all four formulas.
+                # The published code substituted 1.0 for the denominator
+                # instead, and read that substitution from the FR branch
+                # alone. On FR under `as_written` the substitution and the
+                # restart are indistinguishable — a zero `||old_fr||**2`
+                # means `old_fr` has vanished to everything the norm can
+                # see, so `beta * old_fr` vanishes whatever beta is — which
+                # is why replacing it moved no cell of #100's 56 (#109).
+                if denominator == 0.0:
+                    if not restarted:
+                        # Once per solve, not once per iteration: a
+                        # degenerate tube restarts on every step of the
+                        # descent, and 200 identical lines per tree across
+                        # a field would bury the run's own log.
+                        log.debug('conjugate direction restarted: %s '
+                                  'denominator is zero, first at iteration '
+                                  '%s', step_size, iter)
+                        restarted = True
+                    beta = 0.0
+                else:
+                    beta = numerator / denominator
 
                 if line_direction == 'textbook':
                     v = fr + beta * v

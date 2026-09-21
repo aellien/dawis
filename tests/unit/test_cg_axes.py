@@ -185,8 +185,12 @@ def test_the_textbook_direction_is_the_textbook_recursion(a_tree):
                                    False) * support
         fr = synthesise(wr)
 
-        squared_norm_old_fr = np.linalg.norm(old_fr) ** 2 or 1.0
-        beta = np.linalg.norm(fr) ** 2 / squared_norm_old_fr
+        # The restart #109 landed, not the substitution it replaced: this
+        # loop is asserted bit-exact against the method, and FR under
+        # ``textbook`` is the one cell where the two differ.
+        squared_norm_old_fr = np.linalg.norm(old_fr) ** 2
+        beta = (np.linalg.norm(fr) ** 2 / squared_norm_old_fr
+                if squared_norm_old_fr else 0.0)
 
         v = fr + beta * v
 
