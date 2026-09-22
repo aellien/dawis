@@ -450,19 +450,34 @@ def _finish(
     filter: np.ndarray,
     coarse: bool,
     diverged: bool,
+    first_norm_wr: float | None,
 ) -> tuple[np.ndarray, float, float]:
     """Score the final iterate, or report the divergence.
 
     A diverged solve is zeroed and both residual quantities set to ``nan``,
-    which is what ``restoration_tests/arms/proximal.py`` does and therefore
-    what this has to do: the atom is compared against that arm bit for bit.
+    which is what :func:`dawis.restoration.synthesis.restore_object` then
+    reads: it tests ``norm_wr`` as well as the image, so a zeroed atom comes
+    back with ``flag_convergence = False`` rather than as a converged one
+    (#104).
 
-    It is **not** what :func:`dawis.restoration.synthesis.restore_object`
-    detects. That function zeroes the image and sets ``flag_convergence =
-    False`` on ``np.isnan(np.sum(image))``, and an all-zero image is finite,
-    so it passes straight through. The research arm carries a ``diverged``
-    field beside the arrays and this returns a three-tuple, so the flag has
-    nowhere to go — see the module docstring.
+    **The growth test is applied here, to the iterate that is returned**
+    (#110). Inside the loop it reads a residual measured *before* the step,
+    so iterate *k* is only tested at iteration *k + 1* — and a loop that ends
+    on ``max_iter`` or on the flux test has no iteration *k + 1*. The last
+    iterate was therefore the one nothing scored, and on ``fista.HAAR.SUM``
+    capped one step below where the in-loop guard fires, the atom came back
+    unflagged with a residual over a thousand times its starting value.
+    ``Config.cg_max_iter`` is a user knob and this repo has benchmarked at 3.
+
+    Testing it here costs nothing: ``wr`` is the residual of that same
+    iterate, computed for ``sum_wr`` and ``norm_wr`` anyway. With this in
+    place every iterate is tested — the earlier ones one step late by the
+    loop, the last one here — so the lag is no longer a hole.
+
+    This is a **departure** from ``restoration_tests/arms/proximal.py``, which
+    keeps the hole and stays the record of what every #74, #81 and #92 number
+    was taken with. It can only turn a returned atom into a flagged one; it
+    never changes an atom's pixels and never unflags a solve.
 
     Parameters
     ----------
@@ -471,6 +486,10 @@ def _finish(
     filter : numpy.ndarray
     coarse : bool
     diverged : bool
+    first_norm_wr : float or None
+        The wavelet residual norm the solve started from, or None when
+        ``max_iter`` left the loop no iteration to take one in — nothing
+        moved, so there is no growth to test.
 
     Returns
     -------
@@ -479,12 +498,17 @@ def _finish(
     norm_wr : float
     """
 
+    if not diverged:
+        wr = _residual(wavelet_tube, support_tube, image, filter, coarse)
+        norm_wr = float(np.sqrt(np.sum(wr ** 2)))
+
+        diverged = first_norm_wr is not None and _diverging(
+            image, norm_wr, first_norm_wr, DEFAULT_DIVERGENCE_FACTOR)
+
     if diverged:
         return np.zeros_like(image), float('nan'), float('nan')
 
-    wr = _residual(wavelet_tube, support_tube, image, filter, coarse)
-
-    return image, float(np.sum(wr)), float(np.sqrt(np.sum(wr ** 2)))
+    return image, float(np.sum(wr)), norm_wr
 
 
 def _forward_backward(
@@ -589,7 +613,7 @@ def _forward_backward(
             break
 
     return _finish(wavelet_tube, support_tube, image, filter, coarse,
-                   diverged)
+                   diverged, first_norm_wr)
 
 
 def _dual_prox(
@@ -729,7 +753,7 @@ def _condat_vu(
             break
 
     return _finish(wavelet_tube, support_tube, image, filter, coarse,
-                   diverged)
+                   diverged, first_norm_wr)
 
 
 # -- the door ------------------------------------------------------------
@@ -881,11 +905,10 @@ def minimize(
     atom and NaN residuals rather than as an exception, which is what the
     research arm does and what the port has to reproduce.
 
-    **Two hazards rode on that, and one is still live.** Both are inherited
-    from ``restoration_tests/arms/proximal.py`` and were reproduced bit for
-    bit here, because a port that repaired them would stop matching the
-    implementation every #74, #81 and #92 number was taken with. They were
-    #104's to settle, before a run reaches this door:
+    **Two hazards rode on that, and both are settled.** Both were inherited
+    from ``restoration_tests/arms/proximal.py`` and reproduced bit for bit
+    here, because a port that repaired them would have stopped matching the
+    implementation every #74, #81 and #92 number was taken with:
 
     * **The NaN residuals were the only signal, and nothing read them.**
       Settled at #104. A zeroed atom is finite, so
@@ -895,15 +918,24 @@ def minimize(
       function tests ``norm_wr`` as well now, which moves no number — the
       image it zeroes is already zero — and agrees with the rule
       ``restoration_tests/arms/base.py`` applies to the same solve.
-    * **The growth test lags one step, and never sees the iterate returned.**
-      Still live, and #110's: changing when a solve is called diverged is a
-      departure from the reference rather than an agreement with it.
-      The residual it compares is the one measured before the step, and a loop
-      that ends on ``max_iter`` or on the flux test is not tested again. On
-      the ``fista.HAAR.SUM`` cell at ``max_iter`` 1 to 24 the atom comes back
-      unflagged with a residual 1700 times its starting value; only at 25 does
-      the guard fire. ``Config.cg_max_iter`` is a user knob and this repo has
-      benchmarked at 3, so a low cap is not hypothetical.
+    * **The growth test lagged one step, and never saw the iterate
+      returned.** Settled at #110, and unlike the first this one is a
+      **departure** from the reference rather than an agreement with it. The
+      residual the loop compares is the one measured before the step, so
+      iterate *k* was only scored at iteration *k + 1* and a loop ending on
+      ``max_iter`` or on the flux test had no iteration *k + 1*.
+      :func:`_finish` now scores the iterate it returns, where that residual
+      is computed for ``norm_wr`` anyway, and the two together leave no
+      iterate untested. ``Config.cg_max_iter`` is a user knob this repo has
+      benchmarked at 3, so a low cap was not hypothetical.
+
+      The departure is narrow in both directions, and
+      ``.research/110-divergence-guard/`` is the measurement: it can only turn
+      a returned atom into a flagged one, it never moves the pixels of an atom
+      that is still returned, and on all 432 of #81's undiverged rows the
+      returned residual is at most 1.214 times the one the solve started
+      from — three orders of magnitude below the ``1e3`` that flags, so no
+      #81, #92 or #94 verdict moves.
     """
 
     if minimizer not in MINIMIZERS:

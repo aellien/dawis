@@ -37,8 +37,10 @@ from dawis.config import MINIMIZERS
 from dawis.exceptions import DawisValueError
 from dawis.trees import minimize
 from dawis.trees.minimizers import (
+    DEFAULT_DIVERGENCE_FACTOR,
     DEFAULT_STEP_SAFETY,
     MINIMIZER_AXES,
+    _finish,
     spectral_radius,
 )
 
@@ -487,3 +489,73 @@ def test_a_diverged_solve_is_a_zeroed_atom_and_nan_residuals(a_tree):
     assert np.all(atom == 0.0)
     assert np.isnan(sum_wr)
     assert np.isnan(norm_wr)
+
+
+def test_the_iterate_that_is_returned_is_the_one_that_is_tested(a_tree):
+    """#110. The loop's guard reads a residual measured **before** the step,
+    so iterate *k* is only scored at iteration *k + 1* — and a loop that ends
+    on ``max_iter`` or on the flux rule has no iteration *k + 1*. The last
+    iterate was therefore the one nothing scored, and ``Config.cg_max_iter``
+    is a user knob this repo has benchmarked at 3.
+
+    On this tree ``fista.HAAR.SUM`` crosses the divergence factor at step 24.
+    Before #110 the guard fired at 25 and a cap of 24 handed back an atom
+    with ``flag_convergence`` left True; :func:`_finish` now scores the
+    iterate it is about to return, where its residual is computed for
+    ``norm_wr`` anyway.
+
+    The pair is what makes this a test of the *hole* and not of the factor:
+    23 is under the factor and still comes back as an atom, so the repair has
+    not simply started flagging everything.
+    """
+
+    haar = np.array([1.0, 0.0, 1.0]) / 2.0
+    tree, wavelet_cube, label_cube = a_tree
+
+    def solve(max_iter):
+        return minimize(tree, wavelet_cube, label_cube, filter = haar,
+                        minimizer = 'fista', synthesis_operator = 'SUM',
+                        max_iter = max_iter)
+
+    atom, sum_wr, norm_wr = solve(24)
+    assert np.all(atom == 0.0)
+    assert np.isnan(sum_wr) and np.isnan(norm_wr)
+
+    atom, sum_wr, norm_wr = solve(23)
+    assert np.any(atom > 0.0)
+    assert np.isfinite(sum_wr) and np.isfinite(norm_wr)
+
+
+def test_a_returned_iterate_over_the_factor_is_flagged():
+    """#110's guard, on its own, without a tree to build it a residual.
+
+    :func:`_finish` is where the returned iterate is scored, so this is the
+    unit: a finite image whose residual has grown past
+    :data:`DEFAULT_DIVERGENCE_FACTOR` comes back zeroed with NaN residuals,
+    the same one under the factor comes back untouched, and a solve that took
+    no step at all — ``max_iter`` of zero, so no starting residual was ever
+    measured — has no growth to test and is returned as it is.
+    """
+
+    wavelet_tube = np.zeros((8, 8, 2))
+    support_tube = np.ones((8, 8, 2))
+    image = np.zeros((8, 8))
+    image[4, 4] = 10.0
+
+    # With a zero tube the residual is minus the analysis of the image, so a
+    # point source has a non-zero residual and the ratio is what is tested. A
+    # flat image would not: its detail planes are zero.
+    _, _, norm_wr = _finish(wavelet_tube, support_tube, image, BSPL, False,
+                            False, None)
+    assert np.isfinite(norm_wr) and norm_wr > 0.0
+
+    atom, sum_wr, flagged = _finish(wavelet_tube, support_tube, image, BSPL,
+                                    False, False,
+                                    norm_wr / (DEFAULT_DIVERGENCE_FACTOR * 2))
+    assert np.all(atom == 0.0)
+    assert np.isnan(sum_wr) and np.isnan(flagged)
+
+    atom, _, kept = _finish(wavelet_tube, support_tube, image, BSPL, False,
+                            False, norm_wr)
+    assert np.array_equal(atom, image)
+    assert kept == norm_wr
