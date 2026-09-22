@@ -41,13 +41,16 @@ from tinyrun import TINY_NAME, TINY_PARAMS, run_quiet
 from tinyrun import tiny_image as make_tiny_image
 
 from dawis.config import (
+    AXIS_CARRIERS,
     BOUNDARY_CONDITIONS,
     CG_LINE_DIRECTIONS,
     CG_STEP_SIZES,
     DEFAULT_CG_MAX_ITER,
+    MINIMIZERS,
     OUTPUT_FORMATS,
     PARALLEL_BACKENDS,
     SEED_BITS,
+    SYNTHESIS_FILTERS,
     SYNTHESIS_OPERATORS,
     UNWIRED_KNOBS,
     Config,
@@ -629,17 +632,18 @@ def test_every_unwired_knob_is_a_knob():
     assert set(UNWIRED_KNOBS) <= knobs
 
 
-def test_the_unwired_knobs_are_the_early_arm_axes_and_the_dead_thresholds():
-    """#100's two, which #104 removes, and #103's four, which nothing wires.
+def test_the_unwired_knobs_are_the_dead_thresholds_and_nothing_else():
+    """#103's four, which nothing wires. #100's two left at #104.
 
     Pinned so that widening it is a decision: a knob listed here is one the
     package accepts, validates and ignores, and both provenance writers drop
-    it. The two arm axes are worth listing exactly as long as the ticket that
-    wires them; the four thresholds are listed because #96 keeps them
-    deliberately inert and a later map, not #104, decides their fate.
+    it. ``step_size`` and ``line_direction`` sat here between #100 and #104
+    and are honoured now, which is why the pin is worth keeping exact. The
+    four thresholds stay because #96 keeps them deliberately inert and a
+    later map decides their fate.
     """
-    assert UNWIRED_KNOBS == ('step_size', 'line_direction', 'extent_sep',
-                             'ecc_sep', 'lvl_sep_lin', 'lvl_sep_op')
+    assert UNWIRED_KNOBS == ('extent_sep', 'ecc_sep', 'lvl_sep_lin',
+                             'lvl_sep_op')
 
 
 @pytest.mark.parametrize('writer', [
@@ -657,3 +661,109 @@ def test_the_provenance_writers_drop_the_unwired_knobs(writer):
     writer means recording a golden.
     """
     assert 'UNWIRED_KNOBS' in writer.read_text()
+
+
+# -- the arm (#104) ------------------------------------------------------
+#
+# Six knobs that name one cell of #74's grid. What is checked here is the
+# rule about two of them at once: an axis the chosen minimizer does not carry
+# has to be None, and one it does carry has to be named. What is checked in
+# ``test_arm_wiring.py`` is the other half -- that a run honours all six.
+
+
+def test_the_default_arm_is_the_one_82_chose():
+    """``Config()`` is ``bijaoui_rue.BSPL.TRANSPOSE.as_written.HS.coarse``.
+
+    Spelled out rather than read back off the class, because this is the
+    decision #82 made and #96 exists to land: a default moving is a change of
+    what DAWIS ships and has to fail here.
+    """
+    config = Config()
+
+    assert config.minimizer == 'bijaoui_rue'
+    assert config.filter_kw == 'BSPL'
+    assert config.synthesis_operator == 'TRANSPOSE'
+    assert config.line_direction == 'as_written'
+    assert config.step_size == 'HS'
+    assert config.coarse is True
+
+
+def test_the_filter_names_are_the_ones_that_resolve_to_coefficients():
+    """:data:`SYNTHESIS_FILTERS` against the mapping that builds them.
+
+    Stated twice for the reason :data:`BOUNDARY_CONDITIONS` is -- this module
+    is shared vocabulary and imports no block of the package -- so the two
+    agreeing is asserted rather than arranged.
+    """
+    from dawis.restoration.synthesis import FILTERS
+
+    assert set(SYNTHESIS_FILTERS) == set(FILTERS)
+
+
+@pytest.mark.parametrize('minimizer', MINIMIZERS)
+def test_every_minimizer_is_configurable_with_the_axes_it_carries(minimizer):
+    """Each arm has a spelling that is accepted, and it is the declared one."""
+    values = dict(synthesis_operator = 'TRANSPOSE', step_size = 'HS',
+                  line_direction = 'as_written')
+    axes = {axis: values[axis] if minimizer in carriers else None
+            for axis, carriers in AXIS_CARRIERS.items()}
+
+    config = Config(minimizer = minimizer, **axes)
+
+    assert config.minimizer == minimizer
+    for axis, value in axes.items():
+        assert getattr(config, axis) == value
+
+
+@pytest.mark.parametrize('minimizer, axis', [
+    ('condat_vu', 'synthesis_operator'),
+    ('condat_vu', 'step_size'),
+    ('fista', 'step_size'),
+    ('fista', 'line_direction'),
+    ('projected_gradient', 'step_size'),
+])
+def test_an_axis_the_minimizer_has_not_got_is_refused(minimizer, axis):
+    """Refused rather than dropped, and the message names both knobs.
+
+    The default of every one of these axes is a value, so this fires on
+    ``Config(minimizer = 'condat_vu')`` with nothing else said -- which is the
+    call this ticket had to make. Coercing it to None instead would leave a
+    caller believing they chose a formula the run never used, and provenance
+    is read back as the record of what a run *did*.
+    """
+    with pytest.raises(ConfigError) as raised:
+        Config(minimizer = minimizer)
+
+    message = str(raised.value)
+    assert minimizer in message
+    assert axis in message
+    assert 'None' in message
+
+
+@pytest.mark.parametrize('axis', sorted(AXIS_CARRIERS))
+def test_an_axis_the_minimizer_does_have_cannot_be_left_at_none(axis):
+    """None means *no such axis*, so it is refused where there is one.
+
+    The other direction of the same rule. Without it a caller could null out
+    ``step_size`` on the conjugate gradient and get the published ``'FR'``
+    from the solver's own default, while the provenance table recorded None.
+    """
+    with pytest.raises(ConfigError) as raised:
+        Config(minimizer = 'bijaoui_rue', **{axis: None})
+
+    assert axis in str(raised.value)
+
+
+def test_the_arm_is_checked_before_the_image_decides_the_depth():
+    """``n_levels = None`` must not postpone the arm check.
+
+    The rules that compare a scale index against the depth of the
+    decomposition cannot fire until the image is open, and ``_check_pairs``
+    returns early for them. The arm depends on no image, so it is checked on
+    the configuration the caller wrote rather than on the one the pipeline
+    rebuilds.
+    """
+    assert Config().n_levels is None
+
+    with pytest.raises(ConfigError):
+        Config(minimizer = 'condat_vu', n_levels = None)

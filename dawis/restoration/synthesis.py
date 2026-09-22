@@ -6,10 +6,12 @@ tree as an image and wraps it as an :class:`Atom` — the *atom* of
 ``CONTEXT.md``. The pipeline sums the atoms of an iteration, subtracts them
 from the residual, and goes round again.
 
-The solver itself is not here. The conjugate-gradient descent lives on the
-tree, as :meth:`~dawis.trees.construction.InterscaleTree.CG_minimization`,
-because it works on the tubes the tree cuts out of the cubes. What this module
-owns is the choice of how to call it.
+The solver itself is not here. The four minimizers live behind one door,
+:func:`~dawis.trees.minimizers.minimize` — the published conjugate-gradient
+descent on the tree itself, the three proximal arms beside it — because they
+work on the tubes the tree cuts out of the cubes. What this module owns is
+the choice of how to call it, and since #104 that choice arrives whole from
+:class:`~dawis.config.Config`.
 
 :func:`restore_object` no longer makes that choice (#103). It used to route:
 small or elongated structures below ``lvl_sep_lin`` took the Haar filter,
@@ -83,17 +85,24 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from dawis.config import DEFAULT_CG_MAX_ITER, SYNTHESIS_OPERATORS
-from dawis.cubes import LabelCube, WaveletCube
+from dawis.cubes import CoarseCube, LabelCube, WaveletCube
 from dawis.exceptions import DawisValueError
 from dawis.parallel import cut_into_patches, pmap
+from dawis.trees.minimizers import minimize
 
 log = logging.getLogger(__name__)
 
-#: What :attr:`Atom.algorithm` holds for an atom this module reconstructed.
-#: The conjugate-gradient descent is the only reconstruction DAWIS has, so it
-#: is the only value a run produces; the attribute exists so that a second one
-#: would be distinguishable, not because a second one is being added.
-CG_ALGORITHM = 'CG'
+#: What :attr:`Atom.synthesis_operator` holds when the solve had no operator
+#: axis to record — Condat-Vu, which moves through :math:`W` and
+#: :math:`W^{\mathsf{T}}` and never chooses between them
+#: (:data:`~dawis.config.AXIS_CARRIERS`).
+#:
+#: A word and not ``None``, because this is written onto an atom and read
+#: back off a table months later: ``None`` in that column reads as an
+#: operator called None, or as a column nothing filled in. The spelling is
+#: the one ``restoration_tests/full_dawis/seam.py`` writes, so an atom off a
+#: seam-driven run and an atom off a native one are comparable on it.
+NO_OPERATOR = 'NONE'
 
 #: The low-band à trous filters a solve can run with, by the name an atom
 #: records under :attr:`Atom.filter`.
@@ -159,14 +168,16 @@ class Atom(object):
     norm_wr : float, optional
         Norm of the wavelet residual at the last iteration of the solve.
     algorithm : str, optional
-        Which reconstruction produced the image. :data:`CG_ALGORITHM` for
-        everything DAWIS reconstructs today. Default
+        Which reconstruction produced the image — one of
+        :data:`~dawis.config.MINIMIZERS`, the run's
+        :attr:`~dawis.config.Config.minimizer`. Atoms written before #104
+        wired that axis read ``'CG'``, the one value the conjugate gradient
+        wrote when it was the only algorithm. Default
         :data:`UNKNOWN_PROVENANCE`.
     synthesis_operator : str, optional
-        Which synthesis operator that reconstruction ran with — one of the
-        words :meth:`InterscaleTree.CG_minimization
-        <dawis.trees.construction.InterscaleTree.CG_minimization>` branches
-        on, ``'SUM'``, ``'ADJOINT'`` or ``'TRANSPOSE'``. Default
+        Which synthesis operator that reconstruction ran with —
+        ``'SUM'``, ``'ADJOINT'`` or ``'TRANSPOSE'``, or :data:`NO_OPERATOR`
+        for a minimizer that carries no operator axis. Default
         :data:`UNKNOWN_PROVENANCE`.
     blank : bool, optional
         If True, set no attributes at all and ignore every other argument.
@@ -234,7 +245,11 @@ def restore_patch(
     # through `pmap`'s `shared` tuple, positionally, so a new one goes on the
     # end or every existing one moves.
     filter_kw: str = 'BSPL',
-    synthesis_operator: str = 'SUM',
+    synthesis_operator: str | None = 'SUM',
+    minimizer: str = 'bijaoui_rue',
+    step_size: str | None = None,
+    line_direction: str | None = None,
+    coarse_cube: CoarseCube | None = None,
 ) -> list[Atom]:
     """Synthesise one patch of trees into atoms.
 
@@ -275,9 +290,20 @@ def restore_patch(
         fires. Default False.
     filter_kw : {'BSPL', 'HAAR'}, optional
         The arm's filter, the same for every tree. Default ``'BSPL'``.
-    synthesis_operator : {'SUM', 'ADJOINT', 'TRANSPOSE'}, optional
+    synthesis_operator : {'SUM', 'ADJOINT', 'TRANSPOSE'} or None, optional
         The arm's synthesis operator, the same for every tree. Default
         ``'SUM'``.
+    minimizer : str, optional
+        The arm's algorithm, the same for every tree. Default
+        ``'bijaoui_rue'``.
+    step_size, line_direction : str or None, optional
+        The arm's two conjugate-gradient axes; see :func:`restore_object`.
+        Default None for both.
+    coarse_cube : dawis.cubes.CoarseCube, optional
+        Smooth planes of this iteration's decomposition, or None for an arm
+        with no coarse term. One cube for the whole patch: the term a tree
+        takes from it is its own :math:`c_{L+1}`, cut and masked by
+        :meth:`~dawis.trees.construction.InterscaleTree.tubes`. Default None.
 
     Returns
     -------
@@ -307,6 +333,10 @@ def restore_patch(
                                                                               lvl_sep_op, \
                                                                               filter_kw = filter_kw, \
                                                                               synthesis_operator = synthesis_operator, \
+                                                                              minimizer = minimizer, \
+                                                                              step_size = step_size, \
+                                                                              line_direction = line_direction, \
+                                                                              coarse_cube = coarse_cube, \
                                                                               cg_max_iter = cg_max_iter, \
                                                                               verbose = verbose )
 
@@ -343,19 +373,29 @@ def restore_object(
     # here too (#103), for the same reason: a new argument of an exported
     # function is a positional trap unless it cannot be passed positionally.
     *,
+    minimizer: str = 'bijaoui_rue',
     filter_kw: str = 'BSPL',
-    synthesis_operator: str = 'SUM',
+    synthesis_operator: str | None = 'SUM',
+    step_size: str | None = None,
+    line_direction: str | None = None,
+    coarse_cube: CoarseCube | None = None,
     cg_max_iter: int = DEFAULT_CG_MAX_ITER,
     verbose: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, str, bool, float, float, str, str]:
     """Synthesise one interscale tree into an image.
 
-    Runs :meth:`~dawis.trees.construction.InterscaleTree.CG_minimization`
-    with the filter and the synthesis operator its caller names, whatever the
-    tree is. Since #103 this function chooses nothing: it used to route a
-    small or elongated tree below ``lvl_sep_lin`` onto Haar and to swap the
-    plain sum of planes for the adjoint above ``lvl_sep_op``, and one arm now
-    applies to every tree of every iteration.
+    Runs :func:`~dawis.trees.minimizers.minimize` with the arm its caller
+    names, whatever the tree is. Since #103 this function chooses nothing: it
+    used to route a small or elongated tree below ``lvl_sep_lin`` onto Haar
+    and to swap the plain sum of planes for the adjoint above ``lvl_sep_op``,
+    and one arm now applies to every tree of every iteration.
+
+    All six axes of that arm arrive here from
+    :class:`~dawis.config.Config` (#104), so a run solves what its
+    configuration says it solves. The defaults below are the published ones
+    rather than #82's chosen arm: a run overrides every one of them, and a
+    caller reaching this function directly is asking for this function and
+    not for DAWIS 1.0's default.
 
     A solve that produces NaNs is not an error: the image is zeroed and
     ``flag_convergence`` comes back False.
@@ -378,13 +418,30 @@ def restore_object(
         Not used; see Notes.
     lvl_sep_op : int, optional
         Not used; see Notes. Default 2.
+    minimizer : str, optional
+        Which algorithm solves the tree — one of
+        :data:`~dawis.config.MINIMIZERS`. Default ``'bijaoui_rue'``, the
+        published conjugate gradient.
     filter_kw : {'BSPL', 'HAAR'}, optional
         Which low-band filter every tree is synthesised with —
         :data:`FILTERS`. Default ``'BSPL'``.
-    synthesis_operator : {'SUM', 'ADJOINT', 'TRANSPOSE'}, optional
+    synthesis_operator : {'SUM', 'ADJOINT', 'TRANSPOSE'} or None, optional
         Which operator every tree's first reconstruction is built with —
-        :data:`~dawis.config.SYNTHESIS_OPERATORS`, checked by
-        ``CG_minimization`` itself. Default ``'SUM'``.
+        :data:`~dawis.config.SYNTHESIS_OPERATORS`. Default ``'SUM'``. None
+        on a minimizer that carries no operator axis.
+    step_size : str or None, optional
+        Formula for the conjugate direction coefficient —
+        :data:`~dawis.config.CG_STEP_SIZES`. Default None, which takes the
+        published ``'FR'`` on ``'bijaoui_rue'`` and is the only legal value
+        on every other minimizer.
+    line_direction : str or None, optional
+        Reading of the conjugate direction recursion —
+        :data:`~dawis.config.CG_LINE_DIRECTIONS`. Default None, like
+        ``step_size``.
+    coarse_cube : dawis.cubes.CoarseCube, optional
+        Smooth planes of the same decomposition. Handed one, the tree's tube
+        gains its coarse term :math:`c_{L+1}` as one more channel (#89).
+        Default None, no coarse term.
     cg_max_iter : int, optional
         Iteration cap handed to the solver. Default
         :data:`~dawis.config.DEFAULT_CG_MAX_ITER`, the published 200 — see
@@ -407,9 +464,11 @@ def restore_object(
     norm_wr : float
         Norm of the wavelet residual at the last solver iteration.
     algorithm : str
-        :data:`CG_ALGORITHM`, the one reconstruction this function calls.
+        The minimizer this call was given, back out so the atom can record
+        which algorithm reconstructed it.
     synthesis_operator : str
-        The operator this call was given, back out for the same reason.
+        The operator this call was given, back out for the same reason, or
+        :data:`NO_OPERATOR` when the minimizer carries no operator axis.
 
     Notes
     -----
@@ -455,15 +514,24 @@ def restore_object(
             'filter_kw names the low-band filter every tree of the run is '
             'synthesised with -->', filter_kw, list(FILTERS))
 
-    if synthesis_operator not in SYNTHESIS_OPERATORS:
+    # None passes: it is what a minimizer with no operator axis is given, and
+    # `minimize` is what knows which those are. A *name* outside the set is
+    # refused here whatever the minimizer, because that is the error the
+    # caller can still fix cheaply.
+    if (synthesis_operator is not None
+            and synthesis_operator not in SYNTHESIS_OPERATORS):
         raise DawisValueError(
             'synthesis_operator names the operator that rebuilds an image '
             'from a tube -->', synthesis_operator, list(SYNTHESIS_OPERATORS))
 
     flag_convergence = True
 
-    image, sum_wr, norm_wr = interscale_tree.CG_minimization( wavelet_cube, label_cube, filter = FILTERS[filter_kw], \
+    image, sum_wr, norm_wr = minimize( interscale_tree, wavelet_cube, label_cube, filter = FILTERS[filter_kw], \
+                                                    minimizer = minimizer, \
                                                     synthesis_operator = synthesis_operator, \
+                                                    step_size = step_size, \
+                                                    line_direction = line_direction, \
+                                                    coarse_cube = coarse_cube, \
                                                     max_iter = cg_max_iter, verbose = verbose )
 
     if interscale_tree.det_err_tube(wavelet_cube, label_cube).shape[2] > 1:
@@ -471,13 +539,26 @@ def restore_object(
     else:
         det_err_image = np.squeeze(interscale_tree.det_err_tube(wavelet_cube, label_cube), 2) # from (x, y, 1) to (x, y)    
 
-    # Security
-    if np.isnan(np.sum(image)):
+    # Security. The residual is tested as well as the image, because the two
+    # minimizer families fail differently and only the conjugate gradient
+    # fails visibly: it carries its blow-up into the reconstruction, where a
+    # NaN sum finds it. A proximal arm's own guard has already zeroed the
+    # image by the time it returns, and a zeroed image is finite — so on
+    # `fista.HAAR.SUM`, which diverges on nearly every cell it is offered,
+    # this test alone passed an empty atom through as a converged one.
+    # `norm_wr` is what the arm leaves NaN, and it is the one quantity both
+    # families agree to mark. Inert on the shipping arm, where a NaN residual
+    # and a NaN image arrive together; and it is the rule
+    # `restoration_tests/arms/base.py` already applies, so the two
+    # implementations agree on the flag as well as on the number (#104).
+    if np.isnan(np.sum(image)) or np.isnan(norm_wr):
         image = np.zeros( image.shape )
         flag_convergence = False
 
     return (image, det_err_image, filter_kw, flag_convergence, sum_wr, norm_wr,
-            CG_ALGORITHM, synthesis_operator)
+            minimizer,
+            synthesis_operator if synthesis_operator is not None
+            else NO_OPERATOR)
 
 
 def _schedule_patches(
@@ -563,7 +644,11 @@ def restore_objects_default(
     cg_max_iter: int = DEFAULT_CG_MAX_ITER,
     verbose: bool = False,
     filter_kw: str = 'BSPL',
-    synthesis_operator: str = 'SUM',
+    synthesis_operator: str | None = 'SUM',
+    minimizer: str = 'bijaoui_rue',
+    step_size: str | None = None,
+    line_direction: str | None = None,
+    coarse_cube: CoarseCube | None = None,
 ) -> list[Atom]:
     """Synthesise a list of interscale trees into atoms.
 
@@ -634,10 +719,22 @@ def restore_objects_default(
     filter_kw : {'BSPL', 'HAAR'}, optional
         The arm's filter, applied to every tree of the list. Default
         ``'BSPL'``.
-    synthesis_operator : {'SUM', 'ADJOINT', 'TRANSPOSE'}, optional
+    synthesis_operator : {'SUM', 'ADJOINT', 'TRANSPOSE'} or None, optional
         The arm's synthesis operator, applied to every tree of the list.
-        Default ``'SUM'``. #104 is what carries a :class:`~dawis.config.Config`
-        value here; until then the pipeline takes this default.
+        Default ``'SUM'``.
+    minimizer : str, optional
+        The arm's algorithm, applied to every tree of the list. Default
+        ``'bijaoui_rue'``.
+    step_size, line_direction : str or None, optional
+        The arm's two conjugate-gradient axes; see :func:`restore_object`.
+        Default None for both.
+    coarse_cube : dawis.cubes.CoarseCube, optional
+        Smooth planes of this iteration's decomposition, or None for an arm
+        with no coarse term. Default None.
+
+        These six are the arm, and since #104 the pipeline names all six from
+        :class:`~dawis.config.Config` on every call. The defaults here are
+        the published ones and a run reaches none of them.
 
     Returns
     -------
@@ -669,7 +766,8 @@ def restore_objects_default(
         shared = (wavelet_cube, label_cube, extent_sep, ecc_sep,
                   lvl_sep_lin, lvl_sep_big, lvl_sep_op, gamma,
                   rm_gamma_for_big, cg_max_iter, verbose, filter_kw,
-                  synthesis_operator),
+                  synthesis_operator, minimizer, step_size, line_direction,
+                  coarse_cube),
         n_workers = n_workers,
     )
 

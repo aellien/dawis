@@ -469,7 +469,16 @@ def run(image, config: Config | None = None, *, outdir: str = '.',
 
                             # Labels & true wavelet coefficients
                             ldc, dea = ms_detect_and_deblend(awdc, n_sigmas = config.n_sigmas, lvl_deblend = config.lvl_deblend, deblend_contrast = config.deblend_contrast, verbose = True)
-                            wdc = bspl_atrous(reconstruction.residuals, level, header, config.conditions)
+                            # The coarse planes of *this* decomposition, when
+                            # the arm carries the coarse term: a tree's term
+                            # is c_{L+1} of the residual the iteration is
+                            # restoring, and `ser_iuwt_cascade` keeps the
+                            # whole chain for no extra smoothing (#99).
+                            if config.coarse:
+                                cdc, wdc = bspl_atrous(reconstruction.residuals, level, header, config.conditions, coarse = True)
+                            else:
+                                cdc = None
+                                wdc = bspl_atrous(reconstruction.residuals, level, header, config.conditions)
 
                             # Regions of significance
                             rl = make_regions_full_props(wdc, ldc, verbose = True)
@@ -502,6 +511,12 @@ def run(image, config: Config | None = None, *, outdir: str = '.',
                                                                size_big_objects = 512, \
                                                                cg_max_iter = config.cg_max_iter, \
                                                                n_workers = config.n_workers, \
+                                                               minimizer = config.minimizer, \
+                                                               filter_kw = config.filter_kw, \
+                                                               synthesis_operator = config.synthesis_operator, \
+                                                               step_size = config.step_size, \
+                                                               line_direction = config.line_direction, \
+                                                               coarse_cube = cdc, \
                                                                verbose = True ) # objects in original image pixel value range
 
                         # Atom

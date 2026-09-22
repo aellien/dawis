@@ -67,6 +67,7 @@ import numpy as np
 from dawis.exceptions import ConfigError
 
 __all__ = [
+    'AXIS_CARRIERS',
     'BOUNDARY_CONDITIONS',
     'CG_LINE_DIRECTIONS',
     'CG_STEP_SIZES',
@@ -76,6 +77,7 @@ __all__ = [
     'OUTPUT_FORMATS',
     'PARALLEL_BACKENDS',
     'SEED_BITS',
+    'SYNTHESIS_FILTERS',
     'SYNTHESIS_OPERATORS',
     'Config',
     'make_rng',
@@ -119,17 +121,17 @@ CG_LINE_DIRECTIONS = ('as_written', 'textbook')
 #: tube — the cascaded smoothing of the published path, the plain sum of the
 #: planes, and the genuine transpose of the transform (#84, #98).
 #:
-#: **This tuple is an allow-list, not a default.** #82's chosen arm names
-#: ``'TRANSPOSE'``, but nothing here records that and nothing carries it: the
-#: method still defaults to the published ``'ADJOINT'``, and
-#: :func:`~dawis.restoration.synthesis.restore_object` — which stopped
-#: routing between ``'SUM'`` and ``'ADJOINT'`` by tree shape at #103 — takes
-#: the operator from its caller and defaults to ``'SUM'``, which nothing above
-#: it overrides yet. Unlike :data:`CG_STEP_SIZES` and
-#: :data:`CG_LINE_DIRECTIONS` the axis is not a :class:`Config` field at all,
-#: which is why it is absent from :data:`UNWIRED_KNOBS` — there is no knob yet
-#: to be unwired. #104 is what makes one and wires it, and the default it sets
-#: is #82's business and not this module's.
+#: **This tuple is an allow-list, not a default.** The default is
+#: :attr:`Config.synthesis_operator`, ``'TRANSPOSE'`` since #104 wired the
+#: axis and #82 chose the value. The method's own default stays the published
+#: ``'ADJOINT'`` and :func:`~dawis.restoration.synthesis.restore_object`'s
+#: stays ``'SUM'``: a run reaches neither, because the pipeline names the
+#: operator on every call, and a direct caller of either is asking for that
+#: function rather than for DAWIS 1.0's arm.
+#:
+#: ``None`` is a value of the *knob* and not of this tuple. It means the
+#: chosen minimizer has no operator axis — Condat-Vu — and which minimizers
+#: those are is :data:`AXIS_CARRIERS`.
 #:
 #: Stated here beside the ``if`` chains in
 #: :meth:`~dawis.trees.construction.InterscaleTree.CG_minimization` for the
@@ -148,28 +150,59 @@ SYNTHESIS_OPERATORS = ('ADJOINT', 'SUM', 'TRANSPOSE')
 #: the ``v0.0.7-h`` tag, a standing deletion #96 does not re-open.
 #:
 #: **This tuple is an allow-list, not a default**, like
-#: :data:`SYNTHESIS_OPERATORS` and for the same reason: the axis is not a
-#: :class:`Config` field, so it is absent from :data:`UNWIRED_KNOBS` — there
-#: is no knob yet to be unwired. #104 is what makes one, wires it, and sets
-#: the default #82 chose.
+#: :data:`SYNTHESIS_OPERATORS`. The default is :attr:`Config.minimizer`,
+#: ``'bijaoui_rue'`` — #82's choice, and the published algorithm.
 #:
-#: Which axes each minimizer carries is **not** stated here — it is
-#: :data:`dawis.trees.minimizers.MINIMIZER_AXES`, beside the branches it
-#: describes. This module is shared vocabulary that imports no block of the
-#: package, and the two agreeing is asserted instead, in
-#: ``tests/unit/test_minimizers.py``.
+#: Which axes each minimizer carries is stated twice, in two shapes: here as
+#: :data:`AXIS_CARRIERS`, the public rule a knob is refused against, and in
+#: :data:`dawis.trees.minimizers.MINIMIZER_AXES`, the solver's own table,
+#: beside the branches it describes. This module is shared vocabulary that
+#: imports no block of the package, so the two are written separately and
+#: asserted equal instead, in ``tests/unit/test_minimizers.py``.
 MINIMIZERS = ('bijaoui_rue', 'fista', 'condat_vu', 'projected_gradient')
+
+#: Low-band à trous filters a solve can run with, by the name an atom records
+#: under :attr:`~dawis.restoration.synthesis.Atom.filter`. Every minimizer
+#: carries this axis; #82 chose ``'BSPL'``, the published B3-spline.
+#:
+#: Named here and built in :data:`dawis.restoration.synthesis.FILTERS`, which
+#: is the one place a name becomes coefficients. Stated rather than imported
+#: for the reason :data:`BOUNDARY_CONDITIONS` is, and the two agreeing is
+#: asserted in ``tests/unit/test_config.py``.
+SYNTHESIS_FILTERS = ('BSPL', 'HAAR')
+
+#: Which minimizers carry each of the three optional arm axes — the public
+#: face of :data:`dawis.trees.minimizers.MINIMIZER_AXES`, inverted, because
+#: what a caller who named a knob needs back is *which arms take this knob*.
+#:
+#: The three axes in it are the ones a run can be configured **without**.
+#: Minimizer and filter are not: every arm carries both, so there is no
+#: configuration in which either is absent, and they are checked against
+#: their own tuples alone.
+#:
+#: An axis the chosen minimizer does not carry is ``None`` on
+#: :class:`Config`, never a value — a Condat-Vu that named ``'SUM'`` would
+#: read as a Condat-Vu that chose an operator, when what it did was dissolve
+#: the fork. The same rule the sweep's own table states
+#: (``restoration_tests/arms/grid.py``), and :meth:`Config._check_arm` is
+#: where a run is held to it.
+AXIS_CARRIERS = {
+    'synthesis_operator': ('bijaoui_rue', 'fista', 'projected_gradient'),
+    'step_size': ('bijaoui_rue',),
+    'line_direction': ('bijaoui_rue',),
+}
 
 #: Knobs this class accepts and validates that **no run reads**.
 #:
-#: Two kinds, and they end differently.
+#: One kind, since #104 emptied the other.
 #:
-#: *Not read yet.* #96 lands the six arm axes one at a time and wires all of
-#: them at once (#104), because #3's goldens are re-recorded once, after that
-#: wiring (#105). In between, a knob can exist and be validated before
-#: anything carries it to the solver — :attr:`Config.step_size` and
-#: :attr:`Config.line_direction` are there now, and a run still solves the
-#: published ``'FR'`` and ``'as_written'``. **#104 takes these two out.**
+#: *Not read yet.* Nothing, now. #96 landed the six arm axes one at a time
+#: and #104 wired all six at once, because #3's goldens are re-recorded once,
+#: after that wiring (#105). Between #100 and #104
+#: :attr:`Config.step_size` and :attr:`Config.line_direction` sat here —
+#: accepted, validated, and carried to no solver — and a run solved the
+#: published ``'FR'`` and ``'as_written'`` whatever they said. Both are
+#: honoured now, and every remaining name below is the second kind.
 #:
 #: *Read by nothing, by decision.* :attr:`Config.extent_sep`,
 #: :attr:`Config.ecc_sep`, :attr:`Config.lvl_sep_lin` and
@@ -189,8 +222,7 @@ MINIMIZERS = ('bijaoui_rue', 'fista', 'condat_vu', 'projected_gradient')
 #: four thresholds here, #105's re-recorded ``provenance.toml`` would list
 #: ``lvl_sep_op = 3`` in that table and a reader reproducing from it would
 #: conclude routing was applied.
-UNWIRED_KNOBS = ('step_size', 'line_direction', 'extent_sep', 'ecc_sep',
-                 'lvl_sep_lin', 'lvl_sep_op')
+UNWIRED_KNOBS = ('extent_sep', 'ecc_sep', 'lvl_sep_lin', 'lvl_sep_op')
 
 #: Boundary conditions the à trous transform accepts. Stated here so an
 #: unusable value is refused at construction rather than an iteration into the
@@ -379,19 +411,38 @@ class Config:
         :meth:`~dawis.trees.construction.InterscaleTree.CG_minimization`.
         Default :data:`DEFAULT_CG_MAX_ITER`, the published 200; **#26 owns
         the question of what it should be.**
-    step_size : {'HS', 'FR', 'PRP', 'CD'}, optional
-        Formula for the conjugate direction coefficient of that solver.
-        Default ``'HS'`` — Hestenes-Stiefel, what #82 chose, and the one
-        default in this class that **moves** off the published arm, which ran
-        ``'FR'``. **Not honoured by a run yet**: nothing carries it to
-        :meth:`~dawis.trees.construction.InterscaleTree.CG_minimization`
-        until #104 wires all six arm axes together, so a run still solves
-        ``'FR'``. See :data:`UNWIRED_KNOBS`.
-    line_direction : {'as_written', 'textbook'}, optional
+    minimizer : {'bijaoui_rue', 'fista', 'condat_vu', 'projected_gradient'}, optional
+        Which algorithm solves every interscale tree of the run —
+        :data:`MINIMIZERS`. Default ``'bijaoui_rue'``, the published
+        conjugate gradient of Ellien+2021.
+    filter_kw : {'BSPL', 'HAAR'}, optional
+        Low-band à trous filter the solve runs with —
+        :data:`SYNTHESIS_FILTERS`. Default ``'BSPL'``, the published
+        B3-spline. The *detection* decomposition is B3-spline whatever this
+        says; this is the arm's filter, not the pipeline's.
+    synthesis_operator : {'TRANSPOSE', 'SUM', 'ADJOINT'} or None, optional
+        Which operator rebuilds an image from a tube —
+        :data:`SYNTHESIS_OPERATORS`. Default ``'TRANSPOSE'``, the true
+        transpose of the transform, which is what #82 chose over the
+        published ``'ADJOINT'``. ``None`` on a minimizer that carries no
+        operator axis, and **required** to be None there; see
+        :data:`AXIS_CARRIERS`.
+    step_size : {'HS', 'FR', 'PRP', 'CD'} or None, optional
+        Formula for the conjugate direction coefficient of the conjugate
+        gradient. Default ``'HS'`` — Hestenes-Stiefel, what #82 chose, and
+        the one default in this class that **moves** off the published arm,
+        which ran ``'FR'``. ``None``, and required to be None, on every
+        minimizer but ``'bijaoui_rue'``: no proximal arm has a conjugate
+        direction.
+    line_direction : {'as_written', 'textbook'} or None, optional
         Which reading of the conjugate direction recursion the solver takes —
         see :data:`CG_LINE_DIRECTIONS`. Default ``'as_written'``, the
-        published one, which is also what an unwired run solves. **Not
-        honoured by a run yet**, for the same reason as ``step_size`` above.
+        published one. ``None`` like ``step_size``, and for the same reason.
+    coarse : bool, optional
+        Whether a tree's tube carries its coarse term :math:`c_{L+1}` as one
+        more channel (#88, #89). Default True, which is what #82 chose and
+        the largest single effect #74 measured. A property of the tube, so
+        every minimizer carries it.
 
     Attributes
     ----------
@@ -447,8 +498,12 @@ class Config:
     resume: bool = True
     seed: int | None = None
     cg_max_iter: int = DEFAULT_CG_MAX_ITER
-    step_size: str = 'HS'
-    line_direction: str = 'as_written'
+    minimizer: str = 'bijaoui_rue'
+    filter_kw: str = 'BSPL'
+    synthesis_operator: str | None = 'TRANSPOSE'
+    step_size: str | None = 'HS'
+    line_direction: str | None = 'as_written'
+    coarse: bool = True
 
     def __new__(cls, *args: Any, **knobs: Any) -> Config:
         """Refuse a name this class has no knob for, before anything is set.
@@ -517,8 +572,19 @@ class Config:
 
         self._one_of('conditions', BOUNDARY_CONDITIONS)
         self._one_of('outfile_format', OUTPUT_FORMATS)
-        self._one_of('step_size', CG_STEP_SIZES)
-        self._one_of('line_direction', CG_LINE_DIRECTIONS)
+        self._one_of('minimizer', MINIMIZERS)
+        self._one_of('filter_kw', SYNTHESIS_FILTERS)
+
+        # None is a value on the three optional axes and not a missing one --
+        # it means *the chosen minimizer has no such axis* -- so it is excused
+        # the closed-set check here. Whether it is the right answer is a rule
+        # about two knobs at once, and `_check_arm` owns it.
+        if self.synthesis_operator is not None:
+            self._one_of('synthesis_operator', SYNTHESIS_OPERATORS)
+        if self.step_size is not None:
+            self._one_of('step_size', CG_STEP_SIZES)
+        if self.line_direction is not None:
+            self._one_of('line_direction', CG_LINE_DIRECTIONS)
 
         # None is a value here and not a missing one -- it means *decide from
         # the worker count* -- so it is excused the closed-set check rather
@@ -537,6 +603,8 @@ class Config:
 
     def _check_pairs(self) -> None:
         """Check the rules no single knob is wrong on its own for."""
+
+        self._check_arm()
 
         if self.min_span > self.max_span:
             raise ConfigError(
@@ -568,6 +636,54 @@ class Config:
         # small image gets from the defaults: a 64x64 cutout supports six
         # scales and ``lvl_sep_big`` defaults to 6. Rejecting it would refuse
         # runs that work.
+
+    def _check_arm(self) -> None:
+        """Refuse an arm: an axis set on a minimizer that has none, or missing.
+
+        The rule #104 settled, and the one place a run is held to it. An axis
+        the chosen minimizer does not carry has to be ``None`` and nothing
+        else, including the default this class ships — so
+        ``Config(minimizer = 'condat_vu')`` is refused, and the refusal names
+        the three knobs to null out.
+
+        Refused rather than nulled out here, which is the choice this ticket
+        had. A ``Config`` is read back as the record of what a run used:
+        ``tests/goldens/recording.py`` and ``benchmarks/run_benchmark.py``
+        write every field of one into a provenance table. Coercing
+        ``step_size = 'HS'`` to None behind the caller would make that table
+        right and the caller's belief wrong, and a caller who thinks they
+        chose Hestenes-Stiefel on Condat-Vu has misunderstood something an
+        error can fix and a silent fix cannot. It is the same failure
+        :data:`UNWIRED_KNOBS` exists for, met from the third side.
+
+        Raises
+        ------
+        ConfigError
+            If a knob names an axis the minimizer has not got, or leaves one
+            it has got at None.
+        """
+
+        absent = [axis for axis, carriers in AXIS_CARRIERS.items()
+                  if self.minimizer not in carriers
+                  and getattr(self, axis) is not None]
+        if absent:
+            raise ConfigError(
+                'minimizer %r carries no %s axis --> pass None for each; the '
+                'minimizers that carry one are %s'
+                % (self.minimizer, ', '.join(absent),
+                   sorted({carrier for axis in absent
+                           for carrier in AXIS_CARRIERS[axis]}))
+            )
+
+        missing = [axis for axis, carriers in AXIS_CARRIERS.items()
+                   if self.minimizer in carriers
+                   and getattr(self, axis) is None]
+        if missing:
+            raise ConfigError(
+                'minimizer %r carries a %s axis --> name a value for each; '
+                'None means an axis this minimizer has not got, and it has'
+                % (self.minimizer, ', '.join(missing))
+            )
 
     # -- one-knob checks -------------------------------------------------
 

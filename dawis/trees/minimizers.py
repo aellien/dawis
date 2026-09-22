@@ -83,14 +83,21 @@ gets a zeroed atom and NaN residuals and is owed the reason.
 
 What a diverged solve costs, and who owns it
 --------------------------------------------
-Divergence comes back as a zeroed atom with NaN residuals, and **nothing in
-the package reads either**. Two consequences ride on that, both inherited
-from the research arm and both reproduced deliberately — repairing them would
-stop the port matching the implementation every #74, #81 and #92 number was
-taken with, which is the one thing this ticket had to do. They are listed in
-:func:`minimize`'s Notes and they are #104's to settle before a run reaches
-this door: ``restore_object`` cannot see a zeroed atom, and the growth test
-lags one step and never tests the iterate it returns.
+Divergence comes back as a zeroed atom with NaN residuals. Two consequences
+rode on that, both inherited from the research arm and both reproduced
+deliberately here — repairing them would have stopped the port matching the
+implementation every #74, #81 and #92 number was taken with, which is the one
+thing this ticket had to do. They are listed in :func:`minimize`'s Notes, and
+#104 — which is what lets a run reach this door at all — settled the first of
+them: ``restore_object`` tests ``norm_wr`` as well as the image, so a zeroed
+atom is flagged rather than recorded as converged. That test moves no number,
+because the image it zeroes is already zero, and it is the rule
+``restoration_tests/arms/base.py`` applies too.
+
+What is still open is the second: the growth test lags one step and never
+tests the iterate it returns, so an arm can stop *below* the divergence
+factor and hand back an atom far above it. Changing when a solve is called
+diverged does move numbers, and that is #110.
 
 What is measured, and what it costs
 -----------------------------------
@@ -800,9 +807,10 @@ def minimize(
     no layer to the path a run already takes. The other three are the proximal
     arms in this module.
 
-    This is the one entry point #104 wires
-    :class:`~dawis.config.Config` to; nothing in :mod:`dawis.restoration` calls
-    it yet, and a run still reaches ``CG_minimization`` directly.
+    This is the one entry point :class:`~dawis.config.Config` reaches. Since
+    #104 :func:`~dawis.restoration.synthesis.restore_object` calls it for
+    every tree of every iteration, with the six axes the run was configured
+    with, so a stock run comes through here.
 
     Parameters
     ----------
@@ -873,18 +881,23 @@ def minimize(
     atom and NaN residuals rather than as an exception, which is what the
     research arm does and what the port has to reproduce.
 
-    **Two hazards ride on that, and neither is fixed here.** Both are
-    inherited from ``restoration_tests/arms/proximal.py`` and reproduced bit
-    for bit, because a port that repaired them would stop matching the
-    implementation every #74, #81 and #92 number was taken with. They are
+    **Two hazards rode on that, and one is still live.** Both are inherited
+    from ``restoration_tests/arms/proximal.py`` and were reproduced bit for
+    bit here, because a port that repaired them would stop matching the
+    implementation every #74, #81 and #92 number was taken with. They were
     #104's to settle, before a run reaches this door:
 
-    * **The NaN residuals are the only signal, and nothing reads them.** A
-      zeroed atom is finite, so
+    * **The NaN residuals were the only signal, and nothing read them.**
+      Settled at #104. A zeroed atom is finite, so
       :func:`~dawis.restoration.synthesis.restore_object`'s
-      ``np.isnan(np.sum(image))`` does not fire and ``flag_convergence`` stays
-      ``True``. A diverged solve would be recorded as a converged one.
+      ``np.isnan(np.sum(image))`` did not fire and ``flag_convergence``
+      stayed ``True``: a diverged solve was recorded as a converged one. That
+      function tests ``norm_wr`` as well now, which moves no number — the
+      image it zeroes is already zero — and agrees with the rule
+      ``restoration_tests/arms/base.py`` applies to the same solve.
     * **The growth test lags one step, and never sees the iterate returned.**
+      Still live, and #110's: changing when a solve is called diverged is a
+      departure from the reference rather than an agreement with it.
       The residual it compares is the one measured before the step, and a loop
       that ends on ``max_iter`` or on the flux test is not tested again. On
       the ``fista.HAAR.SUM`` cell at ``max_iter`` 1 to 24 the atom comes back

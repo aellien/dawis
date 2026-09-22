@@ -165,6 +165,37 @@ def test_only_the_conjugate_gradient_carries_the_conjugate_gradient_axes():
         assert carries_cg_axes == (minimizer == 'bijaoui_rue')
 
 
+def test_the_public_carrier_table_agrees_with_the_solver_table():
+    """:data:`~dawis.config.AXIS_CARRIERS` against :data:`MINIMIZER_AXES`.
+
+    The same fact in two shapes, written twice for the reason the tuple above
+    is: ``dawis.config`` is shared vocabulary and imports no block of the
+    package. One is the rule a knob is refused against at construction and
+    the other is the rule the solve settles an axis with, and a run that
+    passed the first and failed the second would be a configuration the
+    package accepted and could not run.
+
+    Only the three optional axes are compared. Minimizer and filter are
+    carried by every arm, so there is nothing for a carrier table to say
+    about them.
+    """
+
+    from dawis.config import AXIS_CARRIERS
+
+    # Both directions. Iterating the public table alone would pass an axis
+    # added to the solver's and forgotten here, and `Config._check_arm` would
+    # then never refuse that axis on a minimizer that has not got it -- the
+    # accepted-and-unhonoured knob this pair of tables exists to prevent.
+    assert set(AXIS_CARRIERS) == {axis
+                                  for axes in MINIMIZER_AXES.values()
+                                  for axis in axes}
+
+    for axis, carriers in AXIS_CARRIERS.items():
+        assert set(carriers) == {minimizer
+                                 for minimizer, axes in MINIMIZER_AXES.items()
+                                 if axis in axes}
+
+
 def test_condat_vu_carries_no_synthesis_operator():
     """The whole point of #74's note on this arm: a primal-dual method moves
     between the two spaces with the genuine transpose and never with a
