@@ -1,6 +1,0 @@
-rows           : 540
-factor         : 1000.0
-already flagged: 108
-re-scored      : 432
-worst growth   : x1.214  (fista.BSPL.SUM on small/sersic_n1_halo_balanced_r1/tree005)
-VERDICTS MOVED : 0
