@@ -943,8 +943,9 @@ def minimize(
       benchmarked at 3, so a low cap was not hypothetical.
 
       The departure is narrow in both directions, and
-      ``.research/110-divergence-guard/`` is the measurement: it can only turn
-      a returned atom into a flagged one, it never moves the pixels of an atom
+      ``.research/110-divergence-guard/`` on the research branch is the
+      measurement: it can only turn a returned atom into a flagged one, it
+      never moves the pixels of an atom
       that is still returned, and on all 432 of #81's undiverged rows the
       returned residual is at most 1.214 times the one the solve started
       from — three orders of magnitude below the ``1e3`` that flags, so no
