@@ -559,3 +559,18 @@ def test_a_returned_iterate_over_the_factor_is_flagged():
                             False, norm_wr)
     assert np.array_equal(atom, image)
     assert kept == norm_wr
+
+    # No starting residual switches off the growth half of the test and
+    # nothing else. A `max_iter` of zero takes no step, so there is no growth
+    # to measure — but an initial iterate that overflowed is still not an
+    # atom, and `restore_object`'s NaN test does not catch an `inf`.
+    atom, _, _ = _finish(wavelet_tube, support_tube, image, BSPL, False,
+                         False, None)
+    assert np.array_equal(atom, image)
+
+    overflowed = image.copy()
+    overflowed[0, 0] = np.inf
+    atom, sum_wr, norm_wr = _finish(wavelet_tube, support_tube, overflowed,
+                                    BSPL, False, False, None)
+    assert np.all(atom == 0.0)
+    assert np.isnan(sum_wr) and np.isnan(norm_wr)

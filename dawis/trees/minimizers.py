@@ -85,19 +85,24 @@ What a diverged solve costs, and who owns it
 --------------------------------------------
 Divergence comes back as a zeroed atom with NaN residuals. Two consequences
 rode on that, both inherited from the research arm and both reproduced
-deliberately here — repairing them would have stopped the port matching the
-implementation every #74, #81 and #92 number was taken with, which is the one
-thing this ticket had to do. They are listed in :func:`minimize`'s Notes, and
-#104 — which is what lets a run reach this door at all — settled the first of
-them: ``restore_object`` tests ``norm_wr`` as well as the image, so a zeroed
-atom is flagged rather than recorded as converged. That test moves no number,
-because the image it zeroes is already zero, and it is the rule
+deliberately at #102 — repairing them there would have stopped the port
+matching the implementation every #74, #81 and #92 number was taken with,
+which was the one thing that ticket had to do. Both are settled now, and both
+are listed in :func:`minimize`'s Notes.
+
+#104 — which is what lets a run reach this door at all — settled the first:
+``restore_object`` tests ``norm_wr`` as well as the image, so a zeroed atom is
+flagged rather than recorded as converged. That test moves no number, because
+the image it zeroes is already zero, and it is the rule
 ``restoration_tests/arms/base.py`` applies too.
 
-What is still open is the second: the growth test lags one step and never
-tests the iterate it returns, so an arm can stop *below* the divergence
-factor and hand back an atom far above it. Changing when a solve is called
-diverged does move numbers, and that is #110.
+#110 settled the second, and unlike the first it is a **departure**. The
+growth test inside the loop lags one step, so a loop ending on ``max_iter`` or
+on the flux rule never tested the iterate it handed back and an arm could stop
+*below* the divergence factor with an atom far above it. :func:`_finish` now
+scores the iterate it returns, so no iterate is untested; the research arm
+keeps the hole and stays the record. What the departure moves is measured
+rather than argued — see :func:`_finish`.
 
 What is measured, and what it costs
 -----------------------------------
@@ -489,7 +494,8 @@ def _finish(
     first_norm_wr : float or None
         The wavelet residual norm the solve started from, or None when
         ``max_iter`` left the loop no iteration to take one in — nothing
-        moved, so there is no growth to test.
+        moved, so there is no growth to test. The finiteness half of the test
+        still runs.
 
     Returns
     -------
@@ -502,8 +508,15 @@ def _finish(
         wr = _residual(wavelet_tube, support_tube, image, filter, coarse)
         norm_wr = float(np.sqrt(np.sum(wr ** 2)))
 
-        diverged = first_norm_wr is not None and _diverging(
-            image, norm_wr, first_norm_wr, DEFAULT_DIVERGENCE_FACTOR)
+        # A starting residual of ``inf`` switches off the *growth* half of the
+        # test and nothing else: with no step taken there is no growth to
+        # measure, but the iterate still has to be finite. Skipping the whole
+        # test would return an ``inf`` atom unflagged, and
+        # ``restore_object``'s NaN test does not catch an ``inf``.
+        diverged = _diverging(
+            image, norm_wr,
+            float('inf') if first_norm_wr is None else first_norm_wr,
+            DEFAULT_DIVERGENCE_FACTOR)
 
     if diverged:
         return np.zeros_like(image), float('nan'), float('nan')
