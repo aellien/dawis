@@ -107,7 +107,7 @@ def _require_a_parallel_backend(parallel_backend_name: str):
 
     Both halves are pointless without a parallel backend, and the serial half
     is a session fixture shared with the golden file, so without this guard a
-    machine lacking the ``[ray]`` extra would run for half an hour and only
+    machine lacking the ``[ray]`` extra would run a whole Tier 2 pass and only
     then discover it had nothing to compare against.
 
     Session-scoped and autouse for the same reason as the goldens guard in

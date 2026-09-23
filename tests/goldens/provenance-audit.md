@@ -223,6 +223,21 @@ non-Linux machine, where `platform.platform()` reports no libc version, and
 **F9** once a golden is recorded from the 1.0 tree, which is the first
 recording whose `[config]` will name a backend.
 
+**F9's trigger fired at #105** (2026-09-22), which re-recorded both tiers from
+`refactor/1.0`. Half of F9 is now closed and half is not, and they are
+different halves:
+
+- *Recorded*: both `provenance.toml` files now carry `backend` in `[config]`.
+  It reads `backend = ""`, which is `Config.backend = None` — the default,
+  meaning the worker count picks, and at one worker that is the serial path.
+  Note that `""` means `None` here and means *not installed* in
+  `[dependencies]`; the two tables spell absence the same way and mean
+  different things by it.
+- *Still unverified*: whether the backend handing out the work can move an
+  atom. #105 did not measure it and could not — `ray` is still not installed
+  on this machine, and one recording at one backend is not a comparison. The
+  claim stays untested across backends, and F9 keeps its expiry on that half.
+
 ## Reproducing the measurements
 
 The Tier 1 harness drives all of them. A run is

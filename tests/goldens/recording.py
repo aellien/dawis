@@ -30,9 +30,19 @@ TESTS = REPO / "tests"
 #: environment; whatever gets stubbed is recorded in provenance.
 STUBBABLE = ("ray", "ultranest")
 
-#: The branch every golden must be recorded from: the published Ellien+2021
-#: algorithm with the RNG pinned and the post-publication drift reverted (#32).
-GOLDEN_BRANCH = "legacy-seeded"
+#: The branch every golden must be recorded from.
+#:
+#: Was ``legacy-seeded`` — the published Ellien+2021 algorithm with the RNG
+#: pinned and the post-publication drift reverted (#32) — for as long as the
+#: goldens pinned published behaviour. #105 ratchets them to the arm #82 chose,
+#: which exists on no legacy branch, so the source moves with them.
+#:
+#: This is a guard against recording from the wrong checkout by accident, not
+#: a claim that only one branch may ever record. ``--allow-any-branch`` is
+#: still the way to say a different one is meant, and the branch that was
+#: actually used is recorded in ``[source]`` either way — provenance states the
+#: fact, this constant only makes the common mistake loud.
+GOLDEN_BRANCH = "refactor/1.0"
 
 #: Knobs the legacy trees spell differently, mapped to the name 1.0 uses.
 #: Provenance records the 1.0 spelling, so a re-recording cannot walk a rename
@@ -239,6 +249,30 @@ def toml_table(name: str, mapping: dict, comment: str | None = None) -> list[str
     return lines
 
 
+def exact_columns() -> list[str]:
+    """What ``[tolerances].exact`` records: every column compared exactly.
+
+    Read off ``goldencompare``'s own lists rather than restated, because the
+    restated version went stale the moment #105 added a column to one of them
+    — and a provenance file that understates what is compared exactly is the
+    one kind of staleness a reader cannot catch, since the file reads as the
+    authority on the comparison it is describing.
+
+    Both run-level counts join the union because they are asserted by their
+    own tests (``test_atom_count_is_exact``, ``test_iteration_count_is_exact``)
+    rather than by a column comparison, so neither list carries them and a
+    reader of this line would otherwise think they were tolerated.
+    ``n_atoms`` is in ``CONVERGENCE_EXACT`` as well, meaning the count for one
+    iteration rather than for the run; one set union, so it appears once and
+    the line stays a set of names rather than a list with a duplicate in it.
+    """
+    from goldencompare import ATOM_EXACT, CONVERGENCE_EXACT
+
+    return sorted(
+        {"n_atoms", "n_iterations"} | set(ATOM_EXACT) | set(CONVERGENCE_EXACT)
+    )
+
+
 def source_table(state: dict, stubbed) -> list[str]:
     """The ``[source]`` table, identical at every tier."""
     return toml_table("source", {
@@ -249,8 +283,12 @@ def source_table(state: dict, stubbed) -> list[str]:
         "dirty": state["dirty"],
         "stubbed_modules": stubbed,
     }, comment=(
-        "The branch the goldens were recorded from: the published algorithm\n"
-        "with the RNG pinned and the post-publication drifts reverted (#32)."
+        "The branch the goldens were recorded from. Through #62 that was\n"
+        "legacy-seeded, the published algorithm with the RNG pinned and the\n"
+        "post-publication drifts reverted (#32); since #105 it is refactor/1.0,\n"
+        "because the goldens are ratcheted to the arm #82 chose and no legacy\n"
+        "branch can produce it. A golden that records one branch and is\n"
+        "compared against a run of another is the failure this line exists for."
     ))
 
 
@@ -360,9 +398,14 @@ def dependencies_table() -> list[str]:
         "segmentation, scikit-image supplies the region morphology that picks\n"
         "an atom's restoration operator, and scipy clips on the simple\n"
         "detector path. Every one of those is a DECISION, where no tolerance\n"
-        "absorbs a difference: measured on the Tier 1 cutout, a noise sigma\n"
-        "1e-4 higher restores 74 atoms in 19 iterations rather than 76 in 20,\n"
-        "while the same sigma one float32 ulp higher changes nothing at all.\n"
+        "absorbs a difference: measured for #62 on the Tier 1 cutout, on the\n"
+        "golden of the day -- a noise sigma 1e-4 higher restored 74 atoms in\n"
+        "19 iterations rather than 76 in 20, while the same sigma one float32\n"
+        "ulp higher changed nothing at all. Those four numbers are the #62\n"
+        "measurement and not this recording's; [run] above is this one, and\n"
+        "#105 ratcheted the baseline they were taken against. What the\n"
+        "measurement established is the SIZE of nudge a decision survives,\n"
+        "which is a property of the detection path rather than of one arm.\n"
         "So a version bump moves a decision when it changes an ALGORITHM --\n"
         "a default maxiters, a centre statistic -- and not when it merely\n"
         "rounds differently. Until #62 a golden recorded numpy and none of\n"
@@ -453,6 +496,12 @@ def config_table(dawis, work_dir: Path, infile: str,
                 config[new_name] = config.pop(old_name)
 
     return toml_table("config", config, comment=(
-        "Every pipeline parameter with the value this run actually used,\n"
-        "defaults resolved."
+        "Every pipeline parameter the run actually READ, defaults resolved.\n"
+        "A knob the tree accepts and no run reads is deliberately absent\n"
+        "rather than recorded at its default: dawis.config.UNWIRED_KNOBS names\n"
+        "those, and since #104 what is left in it is #103's four routing\n"
+        "thresholds -- extent_sep, ecc_sep, lvl_sep_lin and lvl_sep_op, which\n"
+        "are still on Config and route nothing. Their absence here is the\n"
+        "point: this table says what a run used, and a threshold recorded at\n"
+        "0.1 would read as a rule that was applied."
     ))

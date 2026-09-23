@@ -18,12 +18,19 @@ import numpy as np
 
 from goldenrun import CONVERGENCE_APPROXIMATE
 
-#: Per-atom columns compared exactly. Positions, levels, the chosen synthesis
-#: operator and the convergence flag are decisions, not measurements: a
+#: Per-atom columns compared exactly. Positions, levels, the arm the tree was
+#: solved with and the convergence flag are decisions, not measurements: a
 #: tolerance on them would hide the very drift the tier is looking for.
+#:
+#: ``algorithm`` and ``synthesis_operator`` arrive with #105. This list and
+#: the module docstring above both promised the chosen synthesis operator was
+#: compared exactly from the day they were written, and until #105 recorded
+#: the column there was nothing to compare — the promise was carried by the
+#: routing rule, which derived the operator from ``filter`` and ``level``, and
+#: it outlived that rule by one ticket when #103 switched the routing off.
 ATOM_EXACT = (
     "iteration", "index", "level", "bbox_0", "bbox_1", "bbox_2", "bbox_3",
-    "flag_convergence", "filter",
+    "flag_convergence", "filter", "algorithm", "synthesis_operator",
 )
 
 #: Per-atom columns compared by tolerance — everything measured off the atom.

@@ -60,29 +60,6 @@ from tier1 import TIER1_PARAMS, cutout_of, run_tier1
 from tier2 import PARALLEL_N_THREADS, PARALLEL_N_WORKERS, run_tier2
 
 
-#: The golden comparisons #103 moved, and #105 puts back.
-#:
-#: #82 chose one reconstruction arm for DAWIS 1.0 and #96 lands it one axis at
-#: a time. #103 switched the per-tree routing off, which is the first of those
-#: axes to change what a stock run produces: 43 of the Tier 1 golden's 76 atoms
-#: were restored with ``SUM`` and 33 with ``ADJOINT``, and one arm for every
-#: tree cannot reproduce both. The goldens are re-recorded **once**, at #105,
-#: after #104 has wired all six axes — re-recording them here and again there
-#: would spend a Tier 2 run on a default nothing ships.
-#:
-#: So these are expected failures rather than a red suite, and ``strict``
-#: because a comparison that starts passing again means the routing came back.
-#: What replaces them as evidence is not a green suite either way: every port
-#: ticket on #96 proves its own equality against ``restoration_tests/`` or
-#: against #93's seam, and #103's is in ``.research/103-routing-off/``.
-#:
-#: #105 deletes this and the decorators that use it.
-RATCHET_PENDING = pytest.mark.xfail(
-    strict = True,
-    reason = 'routing off (#103) moves the recorded output; the goldens are '
-             'ratcheted to the shipping arm at #105',
-)
-
 if TYPE_CHECKING:
     # Imported for the annotation only. Every fixture here reaches for `dawis`
     # inside its own body rather than at module scope, so that collecting the

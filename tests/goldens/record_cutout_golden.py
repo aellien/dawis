@@ -6,13 +6,15 @@ configuration on the agreed 256x256 cutout of the gallery image, copies the
 outputs into ``tests/goldens/tier1_cutout/`` and writes the ``provenance.toml``
 beside them.
 
-The goldens must come from the *published* algorithm, so the run is driven
-against a ``legacy-seeded`` checkout (#32) rather than against whatever tree
-this script happens to sit in::
+The run is driven against a named checkout rather than against whatever tree
+this script happens to sit in, and ``recording.GOLDEN_BRANCH`` says which one.
+Through #62 that was a ``legacy-seeded`` checkout (#32), because the goldens
+pinned the *published* algorithm; since #105 it is ``refactor/1.0``, because
+they are ratcheted to the arm #82 chose::
 
     python tests/goldens/record_cutout_golden.py \\
-        --source ~/dawis-legacy-seeded \\
-        --reason "initial Tier 1 recording for #36"
+        --source ~/dawis \\
+        --reason "ratchet the Tier 1 goldens to the shipping arm (#105)"
 
 The run definition itself — cutout bounds, seed, pinned CG ``max_iter``,
 pipeline parameters — lives in ``tests/tier1.py`` and is imported from there,
@@ -101,9 +103,12 @@ def main():
     lines = [
         "# Provenance of the Tier 1 cutout goldens (#36).",
         "#",
-        "# These pin the published Ellien+2021 behaviour on a 256x256 patch and",
-        "# gate every commit of the 1.0 carve. Regenerate them only in a commit",
-        "# whose message says why the golden moved (#3).",
+        "# These pin what DAWIS 1.0 produces on a 256x256 patch, and gate every",
+        "# commit of the 1.0 carve. Through #62 they pinned the published",
+        "# Ellien+2021 behaviour instead; #105 ratcheted them to the arm #82",
+        "# chose, and [source] below says which tree they came from.",
+        "# Regenerate them only in a commit whose message says why the golden",
+        "# moved (#3).",
         "",
     ]
     lines += recording.golden_table(
@@ -166,8 +171,7 @@ def main():
         "atom_atol": 0.0,
         "convergence_rtol": atom_rtol,
         "convergence_atol": 0.0,
-        "exact": ["n_atoms", "n_iterations", "level", "bbox", "flag_convergence",
-                  "filter"],
+        "exact": recording.exact_columns(),
     }, comment=(
         "Per #3: float tolerance on images and per-atom quantities, exact on\n"
         "atom and iteration counts. The values are #3's stated starting points\n"

@@ -1,8 +1,8 @@
 # Goldens
 
 Recorded outputs that pin DAWIS behaviour, plus `provenance.toml` recording
-for each one: the `legacy-seeded` commit it came from, the seed, the
-tolerances, and who regenerated it, when and why.
+for each one: the commit it came from, the seed, the tolerances, and who
+regenerated it, when and why.
 
 Goldens live in plain git, no LFS. Revisit that only if they grow past
 about 100 MB; Tier 1 and Tier 2 together are about 10 MB.
@@ -11,12 +11,31 @@ They are a ratchet, not a shrine. Through the 1.0 refactor no golden is
 regenerated, because nothing should move. When later science work does move
 one, it is regenerated in a commit whose message says why.
 
+**They have been ratcheted once: at #105.** Through #62 they recorded the
+published Ellien+2021 output from `legacy-seeded` at `1434f66`. #82 chose a
+different reconstruction arm for DAWIS 1.0, #96 landed it one axis at a time,
+and #103 was the first of those axes to move a stock run's output — so from
+#103 to #105 the twelve golden comparisons were `xfail(strict = True)` rather
+than red, and at #105 both tiers were re-recorded from `refactor/1.0` at
+`bijaoui_rue.BSPL.TRANSPOSE.as_written.HS.coarse`.
+
+What a ratchet cannot do is guard itself: the suite the goldens gate is the
+suite that recorded them, so a port error becomes the recorded truth rather
+than a failure. What authorises this one is therefore evidence taken outside
+the suite — every axis proved bit-exact against `restoration_tests/arms/` or
+against #93's seam before it landed — and the whole chain, with what moved and
+by how much, is in `.research/105-goldens-ratchet/`.
+
 ## `tier1_cutout/` — the per-commit gate (#36)
 
 One seeded run on the agreed 256x256 patch of the gallery image, recorded from
-`legacy-seeded` at `1434f66`: the published Ellien+2021 algorithm with the RNG
-pinned and the post-publication drift reverted (#32). About 40 s, 20
-iterations, 76 atoms.
+`refactor/1.0` at `5978cc7` at the arm #82 chose. About 24 s, 19 iterations,
+85 atoms.
+
+Through #62 this was the published Ellien+2021 algorithm with the RNG pinned
+and the drift reverted (#32), recorded from `legacy-seeded` at `1434f66`:
+40 s, 20 iterations, 76 atoms, of which 43 took `SUM` and 33 `ADJOINT`. #105
+ratcheted it.
 
 | File | What it pins |
 |---|---|
@@ -38,12 +57,17 @@ script and by the comparison in `tests/regression/test_golden_cutout.py`.
 ## `tier2_gallery/` — the checkpoint science check (#37)
 
 One seeded run on the **whole** 900x900 gallery image at the **shipping** CG
-`max_iter=200`, recorded from the same `legacy-seeded` commit `1434f66`. 1708 s,
-27 iterations, 463 atoms.
+`max_iter=200`, recorded from the same `refactor/1.0` commit `71c0a4d` as
+Tier 1. 643 s, 16 iterations, 449 atoms.
+
+Through #62 this was the published algorithm from `legacy-seeded` at
+`1434f66`: 1708 s, 27 iterations, 463 atoms, of which 322 took `SUM` and 141
+`ADJOINT`. #105 ratcheted it.
 
 Tier 1 asks whether the carve broke the structure of the pipeline; Tier 2 asks
-whether the pipeline still does the published science, at the solver setting
-1.0 actually ships. Every Tier 2 test carries the `slow` marker and is excluded
+whether the pipeline still does the science it is meant to, at the solver
+setting 1.0 actually ships. *Which* science that is moved at #105; the solver
+setting did not move with it. Every Tier 2 test carries the `slow` marker and is excluded
 from the default run, so it costs nothing per commit. It runs at named carve
 checkpoints — after each subpackage is fully carved out — and nightly in CI
 (#19).
@@ -68,13 +92,20 @@ buys with a recorded copy, without a second 3 MB of FITS.
 ### Budget
 
 `[budget]` in `provenance.toml` carries the measured numbers, so checkpoint
-scheduling is planned from a measurement rather than a guess. Budget **a full
-half hour** per checkpoint run on a 2017 laptop. #37 expected this tier to
-exceed #5's 3539 s baseline; it does not, because #5 measured the drifted Wolfe
-restoration path with animation frames written inside the loop. #33 measured
-this configuration at 1167.6 s at seed 0; this recording is longer because its
-seed restores 463 atoms rather than 394, and because recording also reads every
-atom pickle back off disk.
+scheduling is planned from a measurement rather than a guess. Budget **about
+fifteen minutes** per checkpoint run on a 2017 laptop — 643 s measured at
+#105, against 1708 s before the ratchet. #37 expected this tier to exceed #5's
+3539 s baseline; it does not, because #5 measured the drifted Wolfe restoration
+path with animation frames written inside the loop.
+
+Do not read the 1708 → 643 s drop as what the new arm costs. It confounds
+three changes at once: the arm, the shorter greedy loop (27 iterations to 16),
+and `deconv` — the old recording came from `legacy-seeded`, where the `ADJOINT`
+branch ran ten Richardson-Lucy steps per atom on top of the synthesis for 141
+of its 463 atoms, and #101 removed that. #33's 1167.6 s is not a clean baseline
+either: it ran seed 0 for 394 atoms, and recording additionally reads every
+atom pickle back off disk. What the new default costs a full run is #106's
+question.
 
 ## Shared machinery
 
@@ -168,14 +199,22 @@ Only in a commit whose message says why the golden moved.
 
 ```bash
 python tests/goldens/record_cutout_golden.py \
-    --source ~/dawis-legacy-seeded \
+    --source ~/dawis --goldens /tmp/g1 \
     --reason "why this golden moved"
 
 python tests/goldens/record_gallery_golden.py \
-    --source ~/dawis-legacy-seeded \
+    --source ~/dawis --goldens /tmp/g2 \
     --reason "why this golden moved"
 ```
 
-`--source` must be a clean `legacy-seeded` checkout; the scripts refuse
-anything else unless you pass `--allow-any-branch`. They stub `ray` and
+`--source` must be a clean checkout on `recording.GOLDEN_BRANCH` — since #105
+that is `refactor/1.0`, and through #62 it was `legacy-seeded`. The scripts
+refuse anything else unless you pass `--allow-any-branch`. They stub `ray` and
 `ultranest` if they are not installed — neither is reached on the serial path.
+
+Record into scratch directories and copy the results in afterwards, as above,
+whenever `--source` is this repository rather than a separate checkout.
+Writing a tier's goldens straight into the tree makes it dirty, and the next
+tier then refuses to record at all — correctly, since a golden's provenance
+commit has to describe what produced it. Scratch directories are what let one
+commit stand behind both tiers.

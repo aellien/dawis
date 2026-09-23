@@ -1,24 +1,31 @@
 # Provenance of the Tier 1 cutout goldens (#36).
 #
-# These pin the published Ellien+2021 behaviour on a 256x256 patch and
-# gate every commit of the 1.0 carve. Regenerate them only in a commit
-# whose message says why the golden moved (#3).
+# These pin what DAWIS 1.0 produces on a 256x256 patch, and gate every
+# commit of the 1.0 carve. Through #62 they pinned the published
+# Ellien+2021 behaviour instead; #105 ratcheted them to the arm #82
+# chose, and [source] below says which tree they came from.
+# Regenerate them only in a commit whose message says why the golden
+# moved (#3).
 
 [golden]
 tier = 1
 recorded_by = "Amaël Ellien"
-recorded_on = "2026-08-26"
-reason = "record the dependency versions the goldens depend on (#62)"
+recorded_on = "2026-09-22"
+reason = "ratchet the Tier 1 goldens to the shipping arm bijaoui_rue.BSPL.TRANSPOSE.as_written.HS.coarse (#105)"
 ticket = "https://github.com/aellien/dawis-dev/issues/36"
-wall_s = 40.0
+wall_s = 23.9
 
-# The branch the goldens were recorded from: the published algorithm
-# with the RNG pinned and the post-publication drifts reverted (#32).
+# The branch the goldens were recorded from. Through #62 that was
+# legacy-seeded, the published algorithm with the RNG pinned and the
+# post-publication drifts reverted (#32); since #105 it is refactor/1.0,
+# because the goldens are ratcheted to the arm #82 chose and no legacy
+# branch can produce it. A golden that records one branch and is
+# compared against a run of another is the failure this line exists for.
 [source]
 repo = "dawis-dev"
-branch = "legacy-seeded"
-commit = "1434f66a9482c078f090f474f1ac3ae4b2682b47"
-describe = "v0.0.7-h-5-g1434f66"
+branch = "ticket/105-goldens-ratchet"
+commit = "71c0a4d5f5cc1a2228cb2d9f2a5f164f108ad5d6"
+describe = "v0.0.7-h-67-g71c0a4d"
 dirty = false
 stubbed_modules = ["ray", "ultranest"]
 
@@ -41,7 +48,7 @@ cutout_expression = "image[114:370, 94:350]"
 cutout_dtype = ">f4"
 
 # cg_max_iter is the conjugate-gradient solver's cap inside
-# interscale_tree.CG_minimization, and it is A SPEED KNOB, NOT A SCIENCE
+# InterscaleTree.CG_minimization, and it is A SPEED KNOB, NOT A SCIENCE
 # CLAIM. Tier 1 catches structural breakage during the carve, which it
 # does equally well at any iteration count; the shipping 200 costs about
 # six times more per atom (#33) and would break this tier's three-minute
@@ -63,15 +70,24 @@ n_threads = 1
 cg_max_iter = 3
 cg_max_iter_default_in_source = 200
 pipeline_max_iter = 500
-n_iterations = 20
-n_atoms = 76
+n_iterations = 19
+n_atoms = 85
 
-# Every pipeline parameter with the value this run actually used,
-# defaults resolved.
+# Every pipeline parameter the run actually READ, defaults resolved.
+# A knob the tree accepts and no run reads is deliberately absent
+# rather than recorded at its default: dawis.config.UNWIRED_KNOBS names
+# those, and since #104 what is left in it is #103's four routing
+# thresholds -- extent_sep, ecc_sep, lvl_sep_lin and lvl_sep_op, which
+# are still on Config and route nothing. Their absence here is the
+# point: this table says what a run used, and a threshold recorded at
+# 0.1 would read as a rule that was applied.
 [config]
+n_workers = 1
+backend = ""
+n_threads = 1
 starting_level = 2
-tau = 0.1
 n_levels = 9
+tau = 0.1
 n_sigmas = 5
 deblend_contrast = 0.1
 gamma = 0.5
@@ -81,23 +97,22 @@ lvl_sep_big = 5
 rm_gamma_for_big = false
 lvl_deblend = 3
 outfile_format = "pickle"
-extent_sep = 0.1
-ecc_sep = 0.95
-lvl_sep_lin = 2
-lvl_sep_op = 3
 ceps = 0.0001
 scale_lvl_eps = 1
 conditions = "loop"
-deconv = false
 max_iter = 500
 size_patch = 100
 inpaint_res = true
-data_dump = false
-gif = false
 iptd_sigma = 3
 resume = false
 seed = 20260823
-n_workers = 1
+cg_max_iter = 3
+minimizer = "bijaoui_rue"
+filter_kw = "BSPL"
+synthesis_operator = "TRANSPOSE"
+step_size = "HS"
+line_direction = "as_written"
+coarse = true
 
 # Per #3: float tolerance on images and per-atom quantities, exact on
 # atom and iteration counts. The values are #3's stated starting points
@@ -111,14 +126,14 @@ n_workers = 1
 # worker count as the only variable (#61). It is not a property of the
 # goldens and no golden comparison rests on it.
 [tolerances]
-residual_sigma = 0.0018642150796949865
-image_atol = 1.8642150796949866e-06
+residual_sigma = 0.001868249394465238
+image_atol = 1.8682493944652381e-06
 image_rtol = 1e-05
 atom_rtol = 0.0001
 atom_atol = 0.0
 convergence_rtol = 0.0001
 convergence_atol = 0.0
-exact = ["n_atoms", "n_iterations", "level", "bbox", "flag_convergence", "filter"]
+exact = ["algorithm", "bbox_0", "bbox_1", "bbox_2", "bbox_3", "filter", "flag_convergence", "index", "iteration", "level", "n_atoms", "n_iterations", "synthesis_operator"]
 
 # Every package whose version can change what this run computed,
 # observed in the recording process itself. An empty string means no
@@ -132,9 +147,14 @@ exact = ["n_atoms", "n_iterations", "level", "bbox", "flag_convergence", "filter
 # segmentation, scikit-image supplies the region morphology that picks
 # an atom's restoration operator, and scipy clips on the simple
 # detector path. Every one of those is a DECISION, where no tolerance
-# absorbs a difference: measured on the Tier 1 cutout, a noise sigma
-# 1e-4 higher restores 74 atoms in 19 iterations rather than 76 in 20,
-# while the same sigma one float32 ulp higher changes nothing at all.
+# absorbs a difference: measured for #62 on the Tier 1 cutout, on the
+# golden of the day -- a noise sigma 1e-4 higher restored 74 atoms in
+# 19 iterations rather than 76 in 20, while the same sigma one float32
+# ulp higher changed nothing at all. Those four numbers are the #62
+# measurement and not this recording's; [run] above is this one, and
+# #105 ratcheted the baseline they were taken against. What the
+# measurement established is the SIZE of nudge a decision survives,
+# which is a property of the detection path rather than of one arm.
 # So a version bump moves a decision when it changes an ALGORITHM --
 # a default maxiters, a centre statistic -- and not when it merely
 # rounds differently. Until #62 a golden recorded numpy and none of
@@ -165,7 +185,7 @@ hdf5 = "1.14.5"
 # loaded at all, which is a real answer and not a failure.
 [machine]
 hostname = "amael-XPS-13-9360"
-platform = "Linux-7.0.0-29-generic-x86_64-with-glibc2.43"
+platform = "Linux-7.0.0-31-generic-x86_64-with-glibc2.43"
 python = "3.13.9"
 blas_vendor = "mkl"
 effective_n_threads = 1

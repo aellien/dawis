@@ -15,11 +15,20 @@ test in ``tests/regression/test_golden_gallery.py``, the parallel-consistency
 check in ``tests/regression/test_parallel_consistency.py``, and the hand-run
 recording script ``tests/goldens/record_gallery_golden.py``.
 
-Budget: **a full half hour** on a 2017 laptop. Both the recording and the
-first comparison run measured 1641 s; #33's 1167.6 s for this configuration was
-measured at seed 0, which restores 394 atoms against this seed's 463. That cost
-is why the tier is marked ``slow`` and runs at named carve checkpoints and
-nightly in CI (#19), not on every commit.
+Budget: **about fifteen minutes** on a 2017 laptop — 643 s for the #105
+recording and 625 s for the whole ``-m slow`` selection. Before #105 ratcheted
+the goldens to the shipping arm it was a full half hour, 1641 s either way.
+
+Do not read that drop as what the new arm costs: it confounds the arm with a
+greedy loop that runs 16 iterations rather than 27, and with #101's removal of
+``deconv`` — the old recording came from ``legacy-seeded``, where the
+``ADJOINT`` branch ran ten Richardson-Lucy steps per atom for 141 of its 463
+atoms. #106 is the cost measurement. #33's 1167.6 s is not a clean baseline
+either: seed 0, 394 atoms, and no pickle read-back.
+
+Even at a quarter hour this is far too much for a per-commit gate, which is
+why the tier is marked ``slow`` and runs at named carve checkpoints and
+nightly in CI (#19).
 
 Nothing here imports pytest: the recording script loads this file directly,
 outside a test session.

@@ -1,26 +1,33 @@
 # Provenance of the Tier 2 full-image goldens (#37).
 #
-# These pin the published Ellien+2021 behaviour on the whole gallery
-# image at the shipping CG max_iter. This is the science check: it runs
-# at named carve checkpoints and nightly in CI (#19), not per commit.
+# These pin what DAWIS 1.0 produces on the whole gallery image at the
+# shipping CG max_iter. This is the science check: it runs at named
+# carve checkpoints and nightly in CI (#19), not per commit. Through
+# #62 they pinned the published Ellien+2021 behaviour instead; #105
+# ratcheted them to the arm #82 chose, and [source] below says which
+# tree they came from.
 # Regenerate only in a commit whose message says why the golden moved
 # (#3).
 
 [golden]
 tier = 2
 recorded_by = "Amaël Ellien"
-recorded_on = "2026-08-26"
-reason = "record the dependency versions the goldens depend on (#62)"
+recorded_on = "2026-09-22"
+reason = "ratchet the Tier 2 goldens to the shipping arm bijaoui_rue.BSPL.TRANSPOSE.as_written.HS.coarse (#105)"
 ticket = "https://github.com/aellien/dawis-dev/issues/37"
-wall_s = 1708.1
+wall_s = 643.2
 
-# The branch the goldens were recorded from: the published algorithm
-# with the RNG pinned and the post-publication drifts reverted (#32).
+# The branch the goldens were recorded from. Through #62 that was
+# legacy-seeded, the published algorithm with the RNG pinned and the
+# post-publication drifts reverted (#32); since #105 it is refactor/1.0,
+# because the goldens are ratcheted to the arm #82 chose and no legacy
+# branch can produce it. A golden that records one branch and is
+# compared against a run of another is the failure this line exists for.
 [source]
 repo = "dawis-dev"
-branch = "legacy-seeded"
-commit = "1434f66a9482c078f090f474f1ac3ae4b2682b47"
-describe = "v0.0.7-h-5-g1434f66"
+branch = "ticket/105-goldens-ratchet"
+commit = "71c0a4d5f5cc1a2228cb2d9f2a5f164f108ad5d6"
+describe = "v0.0.7-h-67-g71c0a4d"
 dirty = false
 stubbed_modules = ["ray", "ultranest"]
 
@@ -37,14 +44,17 @@ image_sha256 = "26bce08195dee5216db87d23407692954de489356b64e37f251c9f18a1686463
 cutout = false
 
 # cg_max_iter is the conjugate-gradient solver's cap inside
-# interscale_tree.CG_minimization, and here it is A SCIENCE CLAIM, NOT A
+# InterscaleTree.CG_minimization, and here it is A SCIENCE CLAIM, NOT A
 # SPEED KNOB. 200 is the published Ellien+2021 value; 7c5ba8e cut it to 3
 # in 2024 and #32 reverted that drift. At 200 the solver's sigma_flux
 # convergence test is live rather than vestigial, and atom fluxes sit
 # 25-29% higher than at 3 (#29). Tier 1 (#36) pins 3 because its job is
 # catching structural breakage on a three-minute budget; this tier is the
-# one that says the science is unchanged, so it is never lowered to fit a
-# budget. It is still FORCED rather than inherited: the default is 200 on
+# one that pins the science, so it is never lowered to fit a budget.
+# Through #62 that meant the PUBLISHED science and this tier said it was
+# unchanged; since #105 the goldens are ratcheted to the arm #82 chose,
+# so it pins DAWIS 1.0's own. The solver cap did not move with them.
+# It is still FORCED rather than inherited: the default is 200 on
 # legacy-seeded but 3 on the tree the refactor branched from.
 # pipeline_max_iter is the unrelated cap on the greedy outer loop.
 # n_threads is what this run asked the maths libraries to split a single
@@ -61,15 +71,24 @@ n_threads = 1
 cg_max_iter = 200
 cg_max_iter_default_in_source = 200
 pipeline_max_iter = 500
-n_iterations = 27
-n_atoms = 463
+n_iterations = 16
+n_atoms = 449
 
-# Every pipeline parameter with the value this run actually used,
-# defaults resolved.
+# Every pipeline parameter the run actually READ, defaults resolved.
+# A knob the tree accepts and no run reads is deliberately absent
+# rather than recorded at its default: dawis.config.UNWIRED_KNOBS names
+# those, and since #104 what is left in it is #103's four routing
+# thresholds -- extent_sep, ecc_sep, lvl_sep_lin and lvl_sep_op, which
+# are still on Config and route nothing. Their absence here is the
+# point: this table says what a run used, and a threshold recorded at
+# 0.1 would read as a rule that was applied.
 [config]
+n_workers = 1
+backend = ""
+n_threads = 1
 starting_level = 2
-tau = 0.1
 n_levels = 9
+tau = 0.1
 n_sigmas = 5
 deblend_contrast = 0.1
 gamma = 0.5
@@ -79,23 +98,22 @@ lvl_sep_big = 5
 rm_gamma_for_big = false
 lvl_deblend = 3
 outfile_format = "pickle"
-extent_sep = 0.1
-ecc_sep = 0.95
-lvl_sep_lin = 2
-lvl_sep_op = 3
 ceps = 0.0001
 scale_lvl_eps = 1
 conditions = "loop"
-deconv = false
 max_iter = 500
 size_patch = 100
 inpaint_res = true
-data_dump = false
-gif = false
 iptd_sigma = 3
 resume = false
 seed = 20260823
-n_workers = 1
+cg_max_iter = 200
+minimizer = "bijaoui_rue"
+filter_kw = "BSPL"
+synthesis_operator = "TRANSPOSE"
+step_size = "HS"
+line_direction = "as_written"
+coarse = true
 
 # The same rule as Tier 1, per #3: float tolerance on images and per-atom
 # quantities, exact on atom and iteration counts, rtol=1e-5 with
@@ -110,26 +128,33 @@ n_workers = 1
 # variable (#61). It is not a property of the goldens and no golden
 # comparison rests on it.
 [tolerances]
-residual_sigma = 0.0018638754007406534
-image_atol = 1.8638754007406534e-06
+residual_sigma = 0.0018208381626755
+image_atol = 1.8208381626755e-06
 image_rtol = 1e-05
 atom_rtol = 0.0001
 atom_atol = 0.0
 convergence_rtol = 0.0001
 convergence_atol = 0.0
-exact = ["n_atoms", "n_iterations", "level", "bbox", "flag_convergence", "filter"]
+exact = ["algorithm", "bbox_0", "bbox_1", "bbox_2", "bbox_3", "filter", "flag_convergence", "index", "iteration", "level", "n_atoms", "n_iterations", "synthesis_operator"]
 
 # What this tier costs to run, recorded so checkpoint scheduling is
 # planned from a measurement rather than a guess. #37 expected it to
 # exceed #5's 3539 s baseline; it does not. #5 measured the drifted Wolfe
 # restoration path with animation frames written inside the loop, and #33
-# measured this configuration -- published CG path, gif off -- at 1167.6 s
-# on this machine. wall_s above sits higher than that for two reasons: #33
-# ran seed 0 and restored 394 atoms against this run's 463, and the
-# recording additionally reads every atom pickle back off disk. Budget a
-# full half hour for a checkpoint run.
+# measured the PUBLISHED CG path with gif off at 1167.6 s on this
+# machine, at seed 0, restoring 394 atoms.
+#
+# benchmark_wall_s is therefore not a like-for-like baseline for wall_s
+# above, and three things separate them: the seed (394 atoms against this
+# run's 449), the recording's own cost (it reads every atom
+# pickle back off disk, which a plain run does not), and since #105 the
+# arm itself -- #82's TRANSPOSE with the coarse term on, where #33
+# measured SUM and ADJOINT split by lvl_sep_op. Reading a cost
+# difference off these two numbers would confound all three. What the
+# new default costs a full run is #106's question and is measured there,
+# not here.
 [budget]
-wall_s = 1708.1
+wall_s = 643.2
 benchmark_wall_s = 1167.6
 benchmark_source = "benchmarks/results/2026-08-24-xps13-9360/cg-max-iter-200/benchmark.json"
 marker = "slow"
@@ -147,9 +172,14 @@ runs_on = "carve checkpoints and nightly CI (#19)"
 # segmentation, scikit-image supplies the region morphology that picks
 # an atom's restoration operator, and scipy clips on the simple
 # detector path. Every one of those is a DECISION, where no tolerance
-# absorbs a difference: measured on the Tier 1 cutout, a noise sigma
-# 1e-4 higher restores 74 atoms in 19 iterations rather than 76 in 20,
-# while the same sigma one float32 ulp higher changes nothing at all.
+# absorbs a difference: measured for #62 on the Tier 1 cutout, on the
+# golden of the day -- a noise sigma 1e-4 higher restored 74 atoms in
+# 19 iterations rather than 76 in 20, while the same sigma one float32
+# ulp higher changed nothing at all. Those four numbers are the #62
+# measurement and not this recording's; [run] above is this one, and
+# #105 ratcheted the baseline they were taken against. What the
+# measurement established is the SIZE of nudge a decision survives,
+# which is a property of the detection path rather than of one arm.
 # So a version bump moves a decision when it changes an ALGORITHM --
 # a default maxiters, a centre statistic -- and not when it merely
 # rounds differently. Until #62 a golden recorded numpy and none of
@@ -180,7 +210,7 @@ hdf5 = "1.14.5"
 # loaded at all, which is a real answer and not a failure.
 [machine]
 hostname = "amael-XPS-13-9360"
-platform = "Linux-7.0.0-29-generic-x86_64-with-glibc2.43"
+platform = "Linux-7.0.0-31-generic-x86_64-with-glibc2.43"
 python = "3.13.9"
 blas_vendor = "mkl"
 effective_n_threads = 1

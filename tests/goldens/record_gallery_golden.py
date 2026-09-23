@@ -6,17 +6,21 @@ configuration on the whole 900x900 gallery image at the shipping CG
 ``max_iter=200``, copies the outputs into ``tests/goldens/tier2_gallery/`` and
 writes the ``provenance.toml`` beside them.
 
-This is the science check, so the goldens must come from the *published*
-algorithm: the run is driven against a ``legacy-seeded`` checkout (#32) rather
-than against whatever tree this script happens to sit in::
+This is the science check, so the run is driven against a named checkout
+rather than against whatever tree this script happens to sit in, and
+``recording.GOLDEN_BRANCH`` says which one. Through #62 that was a
+``legacy-seeded`` checkout (#32), because the goldens pinned the *published*
+algorithm; since #105 it is ``refactor/1.0``, because they are ratcheted to
+the arm #82 chose::
 
     python tests/goldens/record_gallery_golden.py \\
-        --source ~/dawis-legacy-seeded \\
-        --reason "initial Tier 2 recording for #37"
+        --source ~/dawis \\
+        --reason "ratchet the Tier 2 goldens to the shipping arm (#105)"
 
-Budget a full half hour on a 2017 laptop — 1641 s measured. The figure lands
-in ``provenance.toml`` under ``[budget]`` so checkpoint scheduling can be
-planned from a number rather than a guess.
+Budget about eleven minutes on a 2017 laptop — 643 s measured at #105, down
+from 1641 s before the ratchet. The figure lands in ``provenance.toml`` under
+``[budget]`` so checkpoint scheduling can be planned from a number rather than
+a guess, together with the three changes that drop confounds.
 
 The run definition — the shipping CG ``max_iter``, the seed, the pipeline
 parameters — lives in ``tests/tier2.py`` and is imported from there, so the
@@ -73,7 +77,8 @@ def main():
     print("  CG max_iter %d (the shipping value — this is the science check)"
           % tier2.CG_MAX_ITER)
     print("  work dir   %s" % work_dir)
-    print("  expect about half an hour (1641 s measured on a 2017 laptop)")
+    print("  expect about eleven minutes (643 s measured at #105 on a 2017 "
+          "laptop; 1641 s before the ratchet)")
 
     started = time.time()
     run = tier2.run_tier2(dawis, image, work_dir)
@@ -105,9 +110,12 @@ def main():
     lines = [
         "# Provenance of the Tier 2 full-image goldens (#37).",
         "#",
-        "# These pin the published Ellien+2021 behaviour on the whole gallery",
-        "# image at the shipping CG max_iter. This is the science check: it runs",
-        "# at named carve checkpoints and nightly in CI (#19), not per commit.",
+        "# These pin what DAWIS 1.0 produces on the whole gallery image at the",
+        "# shipping CG max_iter. This is the science check: it runs at named",
+        "# carve checkpoints and nightly in CI (#19), not per commit. Through",
+        "# #62 they pinned the published Ellien+2021 behaviour instead; #105",
+        "# ratcheted them to the arm #82 chose, and [source] below says which",
+        "# tree they came from.",
         "# Regenerate only in a commit whose message says why the golden moved",
         "# (#3).",
         "",
@@ -146,8 +154,11 @@ def main():
         "convergence test is live rather than vestigial, and atom fluxes sit\n"
         "25-29% higher than at 3 (#29). Tier 1 (#36) pins 3 because its job is\n"
         "catching structural breakage on a three-minute budget; this tier is the\n"
-        "one that says the science is unchanged, so it is never lowered to fit a\n"
-        "budget. It is still FORCED rather than inherited: the default is 200 on\n"
+        "one that pins the science, so it is never lowered to fit a budget.\n"
+        "Through #62 that meant the PUBLISHED science and this tier said it was\n"
+        "unchanged; since #105 the goldens are ratcheted to the arm #82 chose,\n"
+        "so it pins DAWIS 1.0's own. The solver cap did not move with them.\n"
+        "It is still FORCED rather than inherited: the default is 200 on\n"
         "legacy-seeded but 3 on the tree the refactor branched from.\n"
         "pipeline_max_iter is the unrelated cap on the greedy outer loop."
         "\n"
@@ -168,8 +179,7 @@ def main():
         "atom_atol": 0.0,
         "convergence_rtol": atom_rtol,
         "convergence_atol": 0.0,
-        "exact": ["n_atoms", "n_iterations", "level", "bbox", "flag_convergence",
-                  "filter"],
+        "exact": recording.exact_columns(),
     }, comment=(
         "The same rule as Tier 1, per #3: float tolerance on images and per-atom\n"
         "quantities, exact on atom and iteration counts, rtol=1e-5 with\n"
@@ -196,11 +206,22 @@ def main():
         "planned from a measurement rather than a guess. #37 expected it to\n"
         "exceed #5's 3539 s baseline; it does not. #5 measured the drifted Wolfe\n"
         "restoration path with animation frames written inside the loop, and #33\n"
-        "measured this configuration -- published CG path, gif off -- at 1167.6 s\n"
-        "on this machine. wall_s above sits higher than that for two reasons: #33\n"
-        "ran seed 0 and restored 394 atoms against this run's 463, and the\n"
-        "recording additionally reads every atom pickle back off disk. Budget a\n"
-        "full half hour for a checkpoint run."
+        "measured the PUBLISHED CG path with gif off at 1167.6 s on this\n"
+        "machine, at seed 0, restoring 394 atoms.\n"
+        "\n"
+        "benchmark_wall_s is therefore not a like-for-like baseline for wall_s\n"
+        "above, and three things separate them: the seed (394 atoms against this\n"
+        # An f-string on this line alone, rather than a `%` over the whole
+        # comment. The comment is written after a half-hour run, so a stray
+        # per-cent sign added to any other line would throw the run away at
+        # its last step.
+        f"run's {len(atoms)}), the recording's own cost (it reads every atom\n"
+        "pickle back off disk, which a plain run does not), and since #105 the\n"
+        "arm itself -- #82's TRANSPOSE with the coarse term on, where #33\n"
+        "measured SUM and ADJOINT split by lvl_sep_op. Reading a cost\n"
+        "difference off these two numbers would confound all three. What the\n"
+        "new default costs a full run is #106's question and is measured there,\n"
+        "not here."
     ))
     lines += recording.dependencies_table()
     lines += recording.machine_table(goldenrun.GOLDEN_N_THREADS)

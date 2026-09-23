@@ -31,8 +31,11 @@ import numpy as np
 # The legacy tree imports matplotlib at module scope and its pipeline plots the
 # convergence trace at the end of every run. Set before anything imports dawis,
 # because matplotlib reads this only once. The 1.0 tree neither imports nor
-# draws (#46), but a golden recorded on `legacy-seeded` is compared against a
-# run of this tree, so both must be drivable from a headless session.
+# draws (#46), and since #105 the goldens are recorded from the 1.0 tree too —
+# so nothing this module drives needs it any more. Kept because the recording
+# scripts can still be pointed at a legacy checkout (`--allow-any-branch`), and
+# because a run that drew would break a headless session rather than a test:
+# an import-time setting is cheap and its absence is expensive to diagnose.
 os.environ.setdefault("MPLBACKEND", "Agg")
 
 #: Reference image shipped inside the package, used by Tier 1 and Tier 2.
@@ -158,10 +161,21 @@ def observed_threads_at(n_threads: int) -> tuple[int | None, str | None]:
         pools = threadpool_info()
     if not pools:
         return None, None
-    blas = [pool for pool in pools if pool.get("user_api") == "blas"]
-    pool = (blas or pools)[0]
-    threads = pool.get("num_threads")
-    return (None if threads is None else int(threads)), pool.get("internal_api")
+    # The package's rule, mirrored rather than invented: more than one BLAS
+    # can be loaded at once — numpy and scipy are built against different ones
+    # often enough — so every vendor found is named and the *highest* thread
+    # count is reported. Taking whichever pool `threadpoolctl` listed first,
+    # which is what this did before, made the recorded observation silently
+    # one of them: a pin that missed the other library read as landed here and
+    # as not-landed in the run's own log, and the test above would then fail
+    # only on machines with two BLAS builds. One library still threading is
+    # enough to reassociate a sum, which is why the highest is the answer.
+    blas = [pool for pool in pools if pool.get("user_api") == "blas"] or pools
+    counts = [pool["num_threads"] for pool in blas
+              if pool.get("num_threads") is not None]
+    vendors = sorted({pool["internal_api"] for pool in blas
+                      if pool.get("internal_api")})
+    return (max(counts) if counts else None), (", ".join(vendors) or None)
 
 
 @contextmanager
@@ -238,11 +252,17 @@ def is_array_in(dawis) -> bool:
 
 def golden_config(dawis, cg_max_iter: int, seed: int = TEST_SEED,
                   n_workers: int | None = None, n_threads: int | None = None):
-    """The published configuration as a ``Config``, for the array-in entry point.
+    """The golden configuration as a ``Config``, for the array-in entry point.
 
     The same ``GOLDEN_PARAMS`` the keyword entry point is handed, filtered
     against the dataclass the way :func:`golden_kwargs` filters against a
     signature, so neither tier restates a knob.
+
+    ``GOLDEN_PARAMS`` names no arm axis, so all six fall to ``Config``'s own
+    defaults — which since #104 are the arm #82 chose. That is deliberate and
+    it is what #105 ratchets the goldens to: the *pipeline* parameters stay the
+    published set, and the *arm* is whatever 1.0 ships, so a later change to
+    the shipping default turns this tier red rather than sliding past it.
 
     Two knobs may be replaced, and ``None`` keeps the published value of
     either. They are named rather than left to a general override because
@@ -424,19 +444,26 @@ def run_golden(dawis, image: np.ndarray, work_dir: Path, infile: str,
 #: from the atom image; everything else is stored on the atom itself.
 #:
 #: ``algorithm`` and ``synthesis_operator``, which #66 added to the atom, are
-#: not here yet. They used to be a deterministic function of columns this
+#: here since #105. They used to be a deterministic function of columns this
 #: table already records — the filter and the level — against the run's
-#: ``lvl_sep_op``, so recording them bought no coverage and cost two
-#: re-recordings.
+#: ``lvl_sep_op``, so recording them bought no coverage and cost a
+#: re-recording. #103 switched the routing off and ended that derivation: the
+#: operator is now whatever the run was configured onto, and no other recorded
+#: column implies it. #105 is the re-recording they were waiting for.
 #:
-#: **That stopped being true at #103**, which switched the routing off: the
-#: operator is now whatever the run was configured onto, and no recorded
-#: column implies it. So the trigger stated below has arrived, and the
-#: re-recording it was waiting for is #105's. **#105 adds both columns**, at
-#: the same moment it ratchets the goldens to the shipping arm — it is the one
-#: chance to add them without a third re-recording. Until then a run
-#: misconfigured onto the wrong operator would differ from the golden on no
-#: recorded column but ``flux`` and ``peak``, inside tolerance.
+#: What they buy is the one axis pair a golden could otherwise not see.
+#: ``algorithm`` is the ``Config.minimizer`` the tree was solved with and
+#: ``synthesis_operator`` is the operator that arm chose, ``'NONE'`` where the
+#: arm has no operator axis. Without them a run misconfigured onto the wrong
+#: operator differs from the golden on no recorded column but ``flux`` and
+#: ``peak`` — see ``.research/105-goldens-ratchet/`` for how far inside
+#: tolerance that difference sits on the Tier 1 cutout.
+#:
+#: Read with a plain attribute access and no fallback, deliberately. Both are
+#: *class* attributes of ``Atom`` since #66, so every 1.0 atom resolves them,
+#: including one unpickled from before #66. A tree that has neither raises
+#: ``AttributeError`` here, which is the right answer: a column whose job is
+#: to catch a misconfigured arm must not be fillable with a placeholder.
 ATOM_COLUMNS = (
     "iteration",
     "index",
@@ -447,6 +474,8 @@ ATOM_COLUMNS = (
     "bbox_3",
     "eccentricity",
     "filter",
+    "algorithm",
+    "synthesis_operator",
     "flag_convergence",
     "sum_wr",
     "norm_wr",
@@ -477,6 +506,8 @@ def atom_catalogue(dawis, run: GoldenRun) -> list[dict]:
                 "bbox_3": int(atom.bbox[3]),
                 "eccentricity": float(atom.eccentricity),
                 "filter": str(atom.filter),
+                "algorithm": str(atom.algorithm),
+                "synthesis_operator": str(atom.synthesis_operator),
                 "flag_convergence": int(bool(atom.flag_convergence)),
                 "sum_wr": float(atom.sum_wr),
                 "norm_wr": float(atom.norm_wr),
@@ -568,7 +599,17 @@ def convergence_table(run: GoldenRun) -> list[dict]:
         for number, line in enumerate(handle, start=1):
             if line.startswith("#") or not line.strip():
                 continue
-            fields = line.split()
+            # Split from the left into exactly `CONVERGENCE_FIELDS`, so the
+            # last one keeps whatever is left of the line. The wall time is
+            # that last column and it is the one field that can hold a space:
+            # a `timedelta` of a day or more stringifies as `1 day, 0:00:01`,
+            # which `line.split()` reads as eleven fields rather than nine.
+            # The check below would then reject a long iteration as a changed
+            # column count. `dawis.viz.convergence` reads the same file the
+            # same way and for the same reason; this is not an independent
+            # rule, it is the one that was reimplemented here and got it
+            # wrong.
+            fields = line.split(None, CONVERGENCE_FIELDS - 1)
             if len(fields) != CONVERGENCE_FIELDS:
                 # Silently zipping a changed column count would misalign every
                 # row instead of failing, and the goldens would follow.
@@ -594,7 +635,7 @@ INTEGER_COLUMNS = frozenset({
 })
 
 #: Golden-table columns holding text rather than a number.
-TEXT_COLUMNS = frozenset({"filter"})
+TEXT_COLUMNS = frozenset({"filter", "algorithm", "synthesis_operator"})
 
 
 def write_table(path: Path, columns, rows) -> None:
