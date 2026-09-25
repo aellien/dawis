@@ -9,7 +9,7 @@ decision is made.
 
 Three things live on the class.
 
-The **geometry** is fixed in ``__init__``: the bounding box of the member
+The **geometry** is fixed in ``__post_init__``: the bounding box of the member
 regions, widened by half and floored at ``clip`` pixels so the synthesis has
 room to work, plus the extent and eccentricity that the restoration reads to
 choose its branch.
@@ -31,6 +31,7 @@ of planes. Its output is the atom.
 from __future__ import annotations
 
 import logging
+from dataclasses import InitVar, dataclass, field
 
 import numpy as np
 
@@ -109,7 +110,8 @@ def _analysis_tube(
         (wavelets, smooth[:, :, n_levels][:, :, None]), axis = 2)
 
 
-class InterscaleTree(object):
+@dataclass(eq = False)
+class InterscaleTree:
     """One structure, grouped across the wavelet planes it appears on.
 
     A tree owns a list of :class:`~dawis.detection.regions.region` objects
@@ -120,26 +122,23 @@ class InterscaleTree(object):
 
     Parameters
     ----------
-    interscale_maximum : dawis.detection.regions.region, optional
+    interscale_maximum : dawis.detection.regions.region
         The root region of the tree, the brightest of its members. Its level
         is the coarsest scale the tree spans.
-    region_list : list of dawis.detection.regions.region, optional
+    region_list : list of dawis.detection.regions.region
         The connected regions, interscale maximum included.
-    wavelet_cube : dawis.cubes.WaveletCube, optional
+    wavelet_cube : dawis.cubes.WaveletCube
         Wavelet planes the regions were measured on. Read once, to size the
         extent; not stored.
-    label_cube : dawis.cubes.LabelCube, optional
+    label_cube : dawis.cubes.LabelCube
         Label cube the regions were labelled in. Read once, for the cube
         dimensions and the extent; not stored.
-    det_err_array : numpy.ndarray, optional
+    det_err_array : numpy.ndarray
         Per-scale detection uncertainty, one value per plane, as returned by
         :func:`~dawis.detection.deblending.ms_detect_and_deblend`.
     clip : int, optional
         Minimum side of the bounding box, in pixels. A tree smaller than this
         is grown around its centre. Default is 30.
-    blank : bool, optional
-        Build an empty instance and set no attribute at all. Default is False.
-        Used by the object store to rehydrate a tree attribute by attribute.
 
     Attributes
     ----------
@@ -171,73 +170,74 @@ class InterscaleTree(object):
     the one stored.
     """
 
-    def __init__(
+    interscale_maximum: region
+    region_list: list[region]
+    wavelet_cube: InitVar[WaveletCube]
+    label_cube: InitVar[LabelCube]
+    det_err_array: np.ndarray
+    clip: int = 30
+    n_regions: int = field(init = False)
+    span_levels: int = field(init = False)
+    eccentricity: float = field(init = False)
+    bbox: tuple[int, int, int, int] = field(init = False)
+    extent: float = field(init = False)
+    x_size: int = field(init = False)
+    y_size: int = field(init = False)
+    lowb: float = field(init = False, default = 0.)
+    highb: float = field(init = False, default = 2.)
+
+    def __post_init__(
         self,
-        interscale_maximum: region | None = None,
-        region_list: list[region] | None = None,
-        wavelet_cube: WaveletCube | None = None,
-        label_cube: LabelCube | None = None,
-        det_err_array: np.ndarray | None = None,
-        clip: int = 30,
-        blank: bool = False,
+        wavelet_cube: WaveletCube,
+        label_cube: LabelCube,
     ) -> None:
 
-        if blank == False:
-             
-            self.region_list = region_list
-            self.interscale_maximum = interscale_maximum
-            self.n_regions = len(region_list)
-            self.span_levels = np.size(np.unique([ x.level for x in region_list ]))
-            self.clip = clip
-            self.eccentricity = self.interscale_maximum.eccentricity
-            self.det_err_array = det_err_array
-            
-            x_min = np.min([ x.bbox[0] for x in self.region_list ])
-            y_min = np.min([ x.bbox[1] for x in self.region_list ])
-            x_max = np.max([ x.bbox[2] for x in self.region_list ])
-            y_max = np.max([ x.bbox[3] for x in self.region_list ])
+        self.n_regions = len(self.region_list)
+        self.span_levels = np.size(np.unique([ x.level for x in self.region_list ]))
+        self.eccentricity = self.interscale_maximum.eccentricity
 
-            # Extent
-            clip = np.copy(label_cube.array[ x_min:x_max, \
-                                                y_min:y_max, \
-                                                    : ])
-            self.bbox = (x_min, y_min, x_max, y_max)
-            extent_im = np.sum( self.tubes( wavelet_cube, label_cube )[1], axis = 2 )
-            n_pix = np.size( np.where( extent_im != 0. )[0] )
-            self.extent = n_pix / ( ( x_max - x_min ) * ( y_max - y_min ) )
+        x_min = np.min([ x.bbox[0] for x in self.region_list ])
+        y_min = np.min([ x.bbox[1] for x in self.region_list ])
+        x_max = np.max([ x.bbox[2] for x in self.region_list ])
+        y_max = np.max([ x.bbox[3] for x in self.region_list ])
 
-            # Make vignet larger
-            x_min -= int( ( x_max - x_min ) / 2. )
-            x_max += int( ( x_max - x_min ) / 2. )
+        # Extent
+        clip = np.copy(label_cube.array[ x_min:x_max, \
+                                            y_min:y_max, \
+                                                : ])
+        self.bbox = (x_min, y_min, x_max, y_max)
+        extent_im = np.sum( self.tubes( wavelet_cube, label_cube )[1], axis = 2 )
+        n_pix = np.size( np.where( extent_im != 0. )[0] )
+        self.extent = n_pix / ( ( x_max - x_min ) * ( y_max - y_min ) )
+
+        # Make vignet larger
+        x_min -= int( ( x_max - x_min ) / 2. )
+        x_max += int( ( x_max - x_min ) / 2. )
+        if x_min < 0: x_min = 0
+        if x_max > label_cube.x_size: x_max = label_cube.x_size
+
+        y_min -= int( ( y_max - y_min ) / 2. )
+        y_max += int( ( y_max - y_min ) / 2. )
+        if y_min < 0: y_min = 0
+        if y_max > label_cube.y_size: y_max = label_cube.y_size
+
+        # Clip
+        if x_max - x_min < self.clip:
+            x_min = int( (x_max + x_min) / 2. - self.clip / 2. + 1.)   # we resize it to the minclip
+            x_max = int( (x_max + x_min) / 2. + self.clip / 2. + 1.)   # value.
             if x_min < 0: x_min = 0
             if x_max > label_cube.x_size: x_max = label_cube.x_size
 
-            y_min -= int( ( y_max - y_min ) / 2. )
-            y_max += int( ( y_max - y_min ) / 2. )
+        if y_max - y_min < self.clip:
+            y_min = int( (y_max + y_min) / 2. - self.clip / 2. + 1.)   # we resize it to the minclip
+            y_max = int( (y_max + y_min) / 2. + self.clip / 2. + 1.)   # value.
             if y_min < 0: y_min = 0
             if y_max > label_cube.y_size: y_max = label_cube.y_size
 
-            # Clip
-            if x_max - x_min < self.clip:
-                x_min = int( (x_max + x_min) / 2. - self.clip / 2. + 1.)   # we resize it to the minclip
-                x_max = int( (x_max + x_min) / 2. + self.clip / 2. + 1.)   # value.
-                if x_min < 0: x_min = 0
-                if x_max > label_cube.x_size: x_max = label_cube.x_size
+        self.bbox = (x_min, y_min, x_max, y_max)
+        self.x_size = x_max - x_min
+        self.y_size = y_max - y_min
 
-            if y_max - y_min < self.clip:
-                y_min = int( (y_max + y_min) / 2. - self.clip / 2. + 1.)   # we resize it to the minclip
-                y_max = int( (y_max + y_min) / 2. + self.clip / 2. + 1.)   # value.
-                if y_min < 0: y_min = 0
-                if y_max > label_cube.y_size: y_max = label_cube.y_size
-
-            self.bbox = (x_min, y_min, x_max, y_max)
-            self.x_size = x_max - x_min
-            self.y_size = y_max - y_min
-
-            # Bayesian parameter bounds
-            self.lowb = 0.
-            self.highb = 2.
-        
     def det_err_tube(
         self,
         wavelet_cube: WaveletCube,

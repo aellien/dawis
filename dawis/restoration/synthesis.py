@@ -80,6 +80,7 @@ depend on how the work was cut up.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -132,7 +133,8 @@ if TYPE_CHECKING:
     from dawis.trees import InterscaleTree
 
 
-class Atom(object):
+@dataclass(eq = False)
+class Atom:
     """One structure reconstructed from an interscale tree — an *atom*.
 
     The output unit of the pipeline: a synthesised image, the bounding box it
@@ -141,31 +143,31 @@ class Atom(object):
     astrophysically meaningful sources; grouping them into source models is
     atom selection, which is a later step.
 
-    Constructed with ``blank = True`` and no other argument, the instance is
-    left empty for a reader to fill in — that is how
-    :mod:`dawis.io.store` rebuilds one off disk.
+    :mod:`dawis.io.store` rebuilds one off disk the way a pickle does: an
+    empty instance, made without calling the constructor, filled in
+    attribute by attribute.
 
     Parameters
     ----------
-    image : numpy.ndarray, optional
+    image : numpy.ndarray
         Synthesised image of the object, of the shape of ``bbox``.
-    det_err_image : numpy.ndarray, optional
+    det_err_image : numpy.ndarray
         Detection-error image over the same footprint.
-    bbox : tuple of int, optional
+    bbox : tuple of int
         Bounding box of the object in the full frame, as
         ``(x_min, y_min, x_max, y_max)``. Stored as a tuple.
-    level : int, optional
+    level : int
         Wavelet scale of the interscale maximum.
-    eccentricity : float, optional
+    eccentricity : float
         Eccentricity of the interscale maximum.
-    filter_kw : str, optional
+    filter : str
         Which filter synthesised the object, ``'HAAR'`` or ``'BSPL'``. Stored
-        as ``str(filter_kw)`` under the attribute ``filter``.
-    flag_convergence : bool, optional
+        as ``str(filter)``.
+    flag_convergence : bool
         False when the solve produced NaNs and the image was zeroed.
-    sum_wr : float, optional
+    sum_wr : float
         Sum of the wavelet residual at the last iteration of the solve.
-    norm_wr : float, optional
+    norm_wr : float
         Norm of the wavelet residual at the last iteration of the solve.
     algorithm : str, optional
         Which reconstruction produced the image — one of
@@ -179,53 +181,37 @@ class Atom(object):
         ``'SUM'``, ``'ADJOINT'`` or ``'TRANSPOSE'``, or :data:`NO_OPERATOR`
         for a minimizer that carries no operator axis. Default
         :data:`UNKNOWN_PROVENANCE`.
-    blank : bool, optional
-        If True, set no attributes at all and ignore every other argument.
-        Default False.
 
     Notes
     -----
     ``algorithm`` and ``synthesis_operator`` are also *class* attributes,
     holding :data:`UNKNOWN_PROVENANCE`. That is what an atom written before
-    #66 reads: an HDF5 group with no such dataset leaves the blank instance
+    #66 reads: an HDF5 group with no such dataset leaves the empty instance
     with nothing set, and a pickle restores a ``__dict__`` with no such key
     without ever calling this constructor. Either way the lookup falls through
     to the class and answers ``'UNKNOWN'`` instead of raising.
     """
 
-    # Read by an atom whose stored state predates these two fields. See Notes.
+    image: np.ndarray
+    det_err_image: np.ndarray
+    bbox: tuple[int, ...]
+    level: int
+    eccentricity: float
+    filter: str
+    flag_convergence: bool
+    sum_wr: float
+    norm_wr: float
+    # Also what an atom whose stored state predates these two fields reads.
+    # See Notes.
     algorithm: str = UNKNOWN_PROVENANCE
     synthesis_operator: str = UNKNOWN_PROVENANCE
 
-    def __init__(
-        self,
-        image: np.ndarray | None = None,
-        det_err_image: np.ndarray | None = None,
-        bbox: tuple[int, ...] | None = None,
-        level: int | None = None,
-        eccentricity: float | None = None,
-        filter_kw: str | None = None,
-        flag_convergence: bool | None = None,
-        sum_wr: float | None = None,
-        norm_wr: float | None = None,
-        algorithm: str = UNKNOWN_PROVENANCE,
-        synthesis_operator: str = UNKNOWN_PROVENANCE,
-        blank: bool = False,
-    ):
-        
-        if blank == False:
-            
-            self.bbox = tuple(bbox)
-            self.image = image
-            self.det_err_image = det_err_image
-            self.level = level
-            self.eccentricity = eccentricity
-            self.filter = str(filter_kw)
-            self.flag_convergence = flag_convergence
-            self.sum_wr = sum_wr
-            self.norm_wr = norm_wr
-            self.algorithm = str(algorithm)
-            self.synthesis_operator = str(synthesis_operator)
+    def __post_init__(self):
+
+        self.bbox = tuple(self.bbox)
+        self.filter = str(self.filter)
+        self.algorithm = str(self.algorithm)
+        self.synthesis_operator = str(self.synthesis_operator)
 
 def restore_patch(
     interscale_tree_patch: list[InterscaleTree],

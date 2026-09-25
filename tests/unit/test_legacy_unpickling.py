@@ -162,7 +162,7 @@ def an_atom():
         bbox=(0, 0, 4, 4),
         level=2,
         eccentricity=0.5,
-        filter_kw='BSPL',
+        filter='BSPL',
         flag_convergence=True,
         sum_wr=1.0,
         norm_wr=2.0,
@@ -171,7 +171,7 @@ def an_atom():
 
 def a_tree():
     """One interscale tree, built attribute by attribute as the store does."""
-    tree = InterscaleTree(blank=True)
+    tree = InterscaleTree.__new__(InterscaleTree)
     tree.interscale_maximum = a_region()
     tree.region_list = [a_region()]
     tree.bbox = (0, 0, 4, 4)

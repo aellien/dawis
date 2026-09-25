@@ -243,7 +243,7 @@ def fake_run(work_dir: Path, n_iterations: int = 3, size: int = 16) -> str:
             bbox=(it, it, it + 4, it + 4),
             level=it,
             eccentricity=0.5,
-            filter_kw="BSPL",
+            filter="BSPL",
             flag_convergence=True,
             sum_wr=1.0,
             norm_wr=1.0,

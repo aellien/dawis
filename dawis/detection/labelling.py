@@ -81,6 +81,6 @@ def label_regions(
 
     del temp, reg
 
-    label_dc = LabelCube(label_array, lab_counts, support_cube.fheader)
+    label_dc = LabelCube(label_array, lab_counts, fheader = support_cube.fheader)
 
     return label_dc

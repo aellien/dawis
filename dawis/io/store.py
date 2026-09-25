@@ -12,11 +12,11 @@ does not have to be edited when one of them gains a field.
 
 The readers are not generic, because reading has to know what class to build.
 :func:`read_ol_from_hdf5` and :func:`read_itl_from_hdf5` each rebuild their
-own type from a blank instance, which is why
-:class:`~dawis.restoration.synthesis.Atom`,
-:class:`~dawis.trees.construction.InterscaleTree` and
-:class:`~dawis.detection.regions.region` all take a ``blank`` constructor
-flag. Those three imports are the only edges this module has to the other
+own type from an empty instance. An atom and a tree are made the way a
+pickle makes them, with ``cls.__new__(cls)`` and no constructor call, because
+both constructors compute from arguments the file does not hold; a
+:class:`~dawis.detection.regions.region` is built with its defaults. Those
+three imports are the only edges this module has to the other
 blocks, and they run one way: no block imports :mod:`dawis.io`.
 
 The round trip is lossy in one respect worth knowing. The writer stores a
@@ -207,14 +207,14 @@ def load_interscale_tree_from_hdf5_group(grp: h5py.Group) -> InterscaleTree:
     Returns
     -------
     InterscaleTree
-        A blank tree with the stored attributes set on it.
+        An empty tree with the stored attributes set on it.
 
     Notes
     -----
     Only ``region_list`` and ``interscale_maximum`` are restored among the
     subgroups; any other subgroup is skipped.
     """
-    it = InterscaleTree(blank = True)
+    it = InterscaleTree.__new__(InterscaleTree)
     for attr_name in grp.keys():
         attr = grp[attr_name]
         
@@ -311,16 +311,16 @@ def load_atom_from_hdf5_group(grp: h5py.Group) -> Atom:
     Returns
     -------
     Atom
-        A blank atom with the stored attributes set on it.
+        An empty atom with the stored attributes set on it.
 
     Notes
     -----
     An atom written before #66 holds no ``algorithm`` and no
-    ``synthesis_operator`` dataset, so the blank instance keeps the class
+    ``synthesis_operator`` dataset, so the empty instance keeps the class
     attributes :class:`~dawis.restoration.synthesis.Atom` declares and both
     read ``'UNKNOWN'`` rather than raising.
     """
-    o = Atom(blank = True)
+    o = Atom.__new__(Atom)
     for attr_name in grp.keys():
         
         attr = grp[attr_name]

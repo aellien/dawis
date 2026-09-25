@@ -133,4 +133,4 @@ def ms_detect_and_deblend(
                     np.max(label_array[:,:,level])-lab_counts[level]+1,\
                     np.max(label_array[:,:,level])))
             
-    return LabelCube(label_array, lab_counts, wavelet_cube.fheader), np.array(det_err_array)
+    return LabelCube(label_array, lab_counts, fheader = wavelet_cube.fheader), np.array(det_err_array)

@@ -12,6 +12,7 @@ from astropy.io import fits
 from scipy.stats import normaltest
 from dawis.exceptions import DawisDimensionError
 import copy
+from dataclasses import dataclass, field
 # The four display methods that hung off these classes moved to
 # :mod:`dawis.viz.cubes` with #46, where the two versions of the plane grid
 # became one `plot_cube` dispatching on cube type. Nothing outside
@@ -20,7 +21,10 @@ import copy
 
 log = logging.getLogger(__name__)
 
-class Cube(object):
+# `eq = False` throughout: a generated `__eq__` would compare the arrays and
+# raise, where a cube has always been equal only to itself, and hashable.
+@dataclass(eq = False)
+class Cube:
     """Base class for DAWIS cubes. Cubes can either be wavelet planes,
     label cubes or multiresolution supports. Each cube comes in with met-
     hods allowing an easy way of displaying the data and save/read it into fits
@@ -93,23 +97,30 @@ class Cube(object):
     """
 
 
-    def __init__(self, array, dctype = 'NONE', fheader = None):
+    array: np.ndarray
+    dctype: str = 'NONE'
+    # Keyword-only so that each subclass's own field can take the second
+    # position, where its callers have always passed it.
+    fheader: fits.Header | None = field(default = None, kw_only = True)
+    shape: tuple[int, int, int] = field(init = False)
+    x_size: int = field(init = False)
+    y_size: int = field(init = False)
+    z_size: int = field(init = False)
 
-        # ATTRIBUTES
-        self.array  = array
+    def __post_init__(self):
+
         ndim = np.ndim(self.array)
         if ndim != 3:
             raise DawisDimensionError('Not a cube -->', ndim, 3)
 
-        self.shape  = np.shape(array)
-        self.dctype = dctype
+        self.shape  = np.shape(self.array)
         self.x_size, self.y_size, self.z_size = self.shape
 
         # FITS HEADER
-        if fheader == None:
+        if self.fheader is None:
             self.fheader = fits.Header()
         else:
-            self.fheader = copy.copy(fheader)
+            self.fheader = copy.copy(self.fheader)
         self.fheader['DCTYPE'] = self.dctype
         self.fheader.comments['DCTYPE'] = 'DAWIS cube type'
         self.fheader['X_SIZE'] = self.x_size
@@ -180,14 +191,14 @@ class Cube(object):
         dctype = fheader.get('DCTYPE', 'NONE')
 
         if dctype in ['WAVELET', 'COARSE']:
-            return cls(data, fheader['WAVTYPE'], fheader)
+            return cls(data, fheader['WAVTYPE'], fheader = fheader)
         elif dctype == 'SUPPORT':
-            return cls(data, fheader['TRSHTYPE'], fheader)
+            return cls(data, fheader['TRSHTYPE'], fheader = fheader)
         elif dctype == 'LABEL':
             lab_counts = hdu[1].data
-            return cls(data, lab_counts, fheader)
+            return cls(data, lab_counts, fheader = fheader)
 
-        return cls(data, dctype, fheader)
+        return cls(data, dctype, fheader = fheader)
 
 
     def show(self):
@@ -209,40 +220,45 @@ class Cube(object):
     def __str__(self):
         return('\nDAWIS Cube object. Use "show()" method for more details.')
 
+@dataclass(eq = False)
 class WaveletCube(Cube):
     """docstring for ."""
 
-    def __init__(self, array, wavelet_type, fheader = None):
+    dctype: str = field(default = 'WAVELET', init = False)
+    wavelet_type: str
 
-        # Inheritance from parent class Cube
-        super().__init__(array, 'WAVELET', fheader)
-        self.fheader['WAVTYPE'] = wavelet_type
+    def __post_init__(self):
+
+        super().__post_init__()
+        self.fheader['WAVTYPE'] = self.wavelet_type
         self.fheader.comments['WAVTYPE'] = 'DAWIS wavelet type'
-        self.wavelet_type = wavelet_type
 
+@dataclass(eq = False)
 class CoarseCube(Cube):
     """docstring for ."""
 
-    def __init__(self, array, wavelet_type, fheader = None):
+    dctype: str = field(default = 'COARSE', init = False)
+    wavelet_type: str
 
-        # Inheritance from parent class Cube
-        super().__init__(array, 'COARSE', fheader)
-        # Attributes
-        self.fheader['WAVTYPE'] = wavelet_type
+    def __post_init__(self):
+
+        super().__post_init__()
+        self.fheader['WAVTYPE'] = self.wavelet_type
         self.fheader.comments['WAVTYPE'] = 'DAWIS wavelet type'
-        self.wavelet_type = wavelet_type
 
+@dataclass(eq = False)
 class SupportCube(Cube):
     """docstring for ."""
 
-    def __init__(self, array, threshold_type, noise_pixels, fheader = None):
+    dctype: str = field(default = 'SUPPORT', init = False)
+    threshold_type: str
+    # None for a support read back by `from_fits`: the file holds no sample.
+    noise_pixels: np.ndarray | None = None
 
-        # Inheritance from parent class Cube
-        super().__init__(array, 'SUPPORT', fheader)
-        # Attributes
-        self.threshold_type = threshold_type
-        self.noise_pixels = noise_pixels
-        self.fheader['TRSHTYPE'] = threshold_type
+    def __post_init__(self):
+
+        super().__post_init__()
+        self.fheader['TRSHTYPE'] = self.threshold_type
         self.fheader.comments['TRSHTYPE'] = 'DAWIS threshold type'
 
     def test_gaussianity(self, alpha = 1E-3):
@@ -262,15 +278,16 @@ class SupportCube(Cube):
             log.info('Gaussianity test passed : p = %1.5f alpha = %1.5f'%(pval, alpha))
         return k, pval
 
+@dataclass(eq = False)
 class LabelCube(Cube):
     """docstring for ."""
 
-    def __init__(self, array, lab_counts, fheader = None):
+    dctype: str = field(default = 'LABEL', init = False)
+    lab_counts: np.ndarray
 
-        # Inheritance from parent class Cube
-        super().__init__(array, 'LABEL', fheader)
-        # Attributes
-        self.lab_counts = lab_counts
+    def __post_init__(self):
+
+        super().__post_init__()
         self.fheader['LABC'] = np.sum(self.lab_counts)
         self.fheader.comments['LABC'] = 'DAWIS total label counts'
 
