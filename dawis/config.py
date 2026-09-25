@@ -74,7 +74,6 @@ __all__ = [
     'UNWIRED_KNOBS',
     'DEFAULT_CG_MAX_ITER',
     'MINIMIZERS',
-    'OUTPUT_FORMATS',
     'PARALLEL_BACKENDS',
     'SEED_BITS',
     'SYNTHESIS_FILTERS',
@@ -232,9 +231,6 @@ UNWIRED_KNOBS = ('extent_sep', 'ecc_sep', 'lvl_sep_lin', 'lvl_sep_op')
 #: two lists agreeing is asserted instead, in ``tests/unit/test_config.py``.
 BOUNDARY_CONDITIONS = ('loop', 'prolongation', 'mirror')
 
-#: Formats the per-iteration atoms and trees can be written in.
-OUTPUT_FORMATS = ('pickle', 'hdf5')
-
 #: Parallel backends a run may name, beside ``None`` for *let the worker count
 #: decide*. Stated here rather than imported from :data:`dawis.parallel.BACKENDS`
 #: for the same reason as :data:`BOUNDARY_CONDITIONS`, and the two lists
@@ -362,9 +358,6 @@ class Config:
     lvl_deblend : int, optional
         Scale at or above which deblending runs; below it the noise makes
         splitting meaningless. Default 3.
-    outfile_format : {'pickle', 'hdf5'}, optional
-        Format the per-iteration atoms and trees are written in. Default
-        ``'pickle'``.
     extent_sep : float, optional
         Routes nothing since #103; see :data:`UNWIRED_KNOBS`. Was: extent
         below which a tree took the Haar synthesis branch, as a fraction of
@@ -483,7 +476,6 @@ class Config:
     lvl_sep_big: int = 6
     rm_gamma_for_big: bool = False
     lvl_deblend: int = 3
-    outfile_format: str = 'pickle'
     extent_sep: float = 0.1
     ecc_sep: float = 0.95
     lvl_sep_lin: int = 2
@@ -571,7 +563,6 @@ class Config:
             self._in_unit_interval(name, include_zero = True)
 
         self._one_of('conditions', BOUNDARY_CONDITIONS)
-        self._one_of('outfile_format', OUTPUT_FORMATS)
         self._one_of('minimizer', MINIMIZERS)
         self._one_of('filter_kw', SYNTHESIS_FILTERS)
 

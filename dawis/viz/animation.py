@@ -9,21 +9,21 @@ there is, which is why it exists.
 It used to be written from inside the loop, one frame per iteration, and #5
 measured that at 52% of the loop's time — the pipeline spent more time drawing
 than restoring. The frames carry no information the run does not already
-store: every atom of every iteration is written to disk anyway, and the sum of
+store: every atom of every iteration is in the run's atom store anyway, and the sum of
 the final restored and residual images is the input the loop worked on. So
 :func:`rebuild_animation` replays a finished run from those files and draws
 the frames afterwards.
 
 That makes the animation a documentation and gallery tool rather than a
-runtime cost: a normal run never draws, and any run — including one recorded
-long ago, by an older version, as long as its atom dumps are next to it — can
-be animated later.
+runtime cost: a normal run never draws, and any run that left an atom store
+can be animated later. A pre-1.0 run, with per-iteration atom dumps and no
+store, cannot (#122).
 
 Including a run that never finished (#66). A greedy loop that takes hours gets
 killed for good reasons, and the two final images are written only when it
 ends, so an interrupted run has no image to sum. :func:`rebuild_animation`
 therefore takes that image from its caller, as an array or as a path, and when
-nothing supplies it draws the two panels the atom dumps alone determine and
+nothing supplies it draws the two panels the atom store alone determines and
 leaves the other two blank. The frame's title says it is partial; nothing is
 warned and nothing is logged.
 
@@ -35,10 +35,8 @@ frames are still on disk and only the assembly is skipped.
 
 from __future__ import annotations
 
-import glob
 import logging
 import os
-import re
 from subprocess import CalledProcessError, run
 
 import matplotlib.pyplot as plt
@@ -52,17 +50,12 @@ from astropy.visualization import (
     ZScaleInterval,
 )
 
-from dawis.io import read_ol_from_hdf5, read_ol_from_pickle
+from dawis.io import read_atom_index, read_frame_shape, read_image_atoms
+from dawis.io.store import STORE_SUFFIX
 
-__all__ = ['iteration_dumps', 'make_gif', 'plot_frame', 'rebuild_animation']
+__all__ = ['make_gif', 'plot_frame', 'rebuild_animation']
 
 log = logging.getLogger(__name__)
-
-#: Iteration dumps a run leaves behind, in the two formats the pipeline
-#: writes, mapped to the reader that opens them.
-_DUMP_READERS = {'.pkl': read_ol_from_pickle, '.hdf5': read_ol_from_hdf5}
-
-_ITERATION = re.compile(r'\.ol\.it(\d+)\.(pkl|hdf5)$')
 
 
 def plot_frame(
@@ -104,7 +97,7 @@ def plot_frame(
 
     Notes
     -----
-    The two left-hand panels are computed from the atom dumps alone, so they
+    The two left-hand panels are computed from the atom store alone, so they
     are drawn whatever else is missing; the two right-hand ones need the image
     the loop worked on. A frame drawn without it says so in its title and
     nowhere else — nothing is warned and nothing is logged, so the picture is
@@ -204,40 +197,6 @@ def make_gif( framerate: int, outpath: str ) -> None:
         log.info('Could not assemble the frames into a video: %s', error)
 
 
-def iteration_dumps(outpath: str) -> list[tuple[int, str]]:
-    """List the atom dumps of a finished run, in iteration order.
-
-    Parameters
-    ----------
-    outpath : str
-        Path stem of the run, as handed to the pipeline —
-        ``<outdir>/<infile without .fits>``.
-
-    Returns
-    -------
-    list of (int, str)
-        Iteration number and path, one per dump, sorted by iteration. A run
-        that was resumed can hold both formats; a pickle and an HDF5 file of
-        the same iteration are the same atoms, so only one is returned — the
-        first in name order, which makes the choice stable rather than a
-        matter of what the filesystem lists first.
-    """
-
-    found = {}
-    for path in sorted(glob.glob(''.join(( outpath, '.ol.it*' )))):
-        match = _ITERATION.search(path)
-        if match:
-            found.setdefault(int(match.group(1)), path)
-
-    return sorted(found.items())
-
-
-def _read_dump(path: str) -> list:
-    """Read one iteration's atoms, in whichever of the two formats it is in."""
-
-    return _DUMP_READERS[os.path.splitext(path)[1]](path)
-
-
 def _worked_image(image: np.ndarray | str | os.PathLike | None,
                   outpath: str) -> np.ndarray | None:
     """The image the loop worked on: what the caller gave, or what the run left.
@@ -281,29 +240,6 @@ def _worked_image(image: np.ndarray | str | os.PathLike | None,
                + np.asarray(fits.getdata(residuals_path), dtype = float)
 
 
-def _shape_from_dumps(dumps: list[tuple[int, str]]) -> tuple[int, int]:
-    """The smallest frame every atom of a run fits in.
-
-    What the restored image is drawn on when no image says how big the frame
-    was. It is a lower bound on the run's own frame — an atom-free border is
-    invisible to it — and it is the only shape the dumps themselves state, so
-    it is the honest one to draw a partial frame at.
-
-    Reads every dump, which :func:`rebuild_animation` then reads again to
-    draw. That second pass is the price of not holding a whole run's atoms in
-    memory at once, and it is paid only on the partial path — a run that left
-    its final images states its own shape and never comes here.
-    """
-
-    x_size = y_size = 1
-    for _, path in dumps:
-        for o in _read_dump(path):
-            x_size = max(x_size, int(o.bbox[2]))
-            y_size = max(y_size, int(o.bbox[3]))
-
-    return (x_size, y_size)
-
-
 def rebuild_animation(outpath: str,
                       image: np.ndarray | str | os.PathLike | None = None,
                       framerate: int = 3, show_progress: bool = True) -> int:
@@ -315,7 +251,7 @@ def rebuild_animation(outpath: str,
     ``<outpath>.run.mp4``.
 
     The run does not have to have finished. A run that was killed has its atom
-    dumps and nothing else, which is enough for two of the four panels; see
+    store and nothing else, which is enough for two of the four panels; see
     Notes.
 
     Parameters
@@ -342,13 +278,13 @@ def rebuild_animation(outpath: str,
     Raises
     ------
     FileNotFoundError
-        If the run left no atom dumps at ``outpath``. There is then nothing
+        If the run left no atom store at ``outpath``. There is then nothing
         to replay.
 
     Notes
     -----
     Two of the four panels — the restored image and the atom of the iteration
-    — are computed from the atom dumps alone, so they are drawn for any run
+    — are computed from the atom store alone, so they are drawn for any run
     that got through one iteration. The other two need the image the loop
     worked on, and an interrupted run does not leave one: the final images are
     written when the loop ends, and #66 deliberately left no other fallback on
@@ -362,22 +298,22 @@ def rebuild_animation(outpath: str,
     """
 
 
-    dumps = iteration_dumps(outpath)
-    if not dumps:
-        raise FileNotFoundError(
-            "no atom dumps found for run '%s': expected '%s.ol.itNNN.pkl' or "
-            "'.hdf5'" % (outpath, outpath)
-        )
+    iterations = []
+    if os.path.isfile(outpath + STORE_SUFFIX):
+        iterations = [int(it) for it in np.unique(read_atom_index(outpath)['iteration'])]
+    if not iterations:
+        raise FileNotFoundError("no atom store found for run '%s': expected '%s%s' "
+                                "with at least one iteration" % (outpath, outpath, STORE_SUFFIX))
 
     image = _worked_image(image, outpath)
-    shape = _shape_from_dumps(dumps) if image is None else image.shape
+    shape = read_frame_shape(outpath)
 
     res = None if image is None else np.copy(image)
     rec = np.zeros(shape)
 
-    for it, path in dumps:
+    for it in iterations:
 
-        ol = _read_dump(path)
+        ol, _ = read_image_atoms(outpath, iteration = it)
 
         atom = np.zeros(shape)
         for o in ol:
@@ -391,7 +327,7 @@ def rebuild_animation(outpath: str,
 
         if show_progress:
             log.info('Drawing frame %03d of %03d (%d atoms)'
-                     %(it, dumps[-1][0], len(ol)))
+                     %(it, iterations[-1], len(ol)))
 
         plot_frame( level = level, it = it, nobj = len(ol), \
                                   original_image = image, \
@@ -402,4 +338,4 @@ def rebuild_animation(outpath: str,
 
     make_gif( framerate = framerate, outpath = outpath )
 
-    return len(dumps)
+    return len(iterations)

@@ -229,6 +229,8 @@ def fake_run(work_dir: Path, n_iterations: int = 3, size: int = 16) -> str:
     writes at the end — which is everything
     :func:`dawis.viz.rebuild_animation` reads.
     """
+    from types import SimpleNamespace
+
     from astropy.io import fits
 
     rng = np.random.default_rng(46)
@@ -236,20 +238,22 @@ def fake_run(work_dir: Path, n_iterations: int = 3, size: int = 16) -> str:
     outpath = str(work_dir / "run")
 
     restored = np.zeros((size, size))
-    for it in range(1, n_iterations + 1):
-        atom = dawis.Atom(
-            image=np.full((4, 4), float(it)),
-            det_err_image=np.zeros((4, 4)),
-            bbox=(it, it, it + 4, it + 4),
-            level=it,
-            eccentricity=0.5,
-            filter="BSPL",
-            flag_convergence=True,
-            sum_wr=1.0,
-            norm_wr=1.0,
-        )
-        restored[it : it + 4, it : it + 4] += atom.image
-        dawis.write_ol_to_pickle([atom], f"{outpath}.ol.it{it:03d}.pkl")
+    with dawis.AtomStore(f"{outpath}.atoms.hdf5", (size, size)) as store:
+        for it in range(1, n_iterations + 1):
+            atom = dawis.Atom(
+                image=np.full((4, 4), float(it)),
+                det_err_image=np.zeros((4, 4)),
+                bbox=(it, it, it + 4, it + 4),
+                level=it,
+                eccentricity=0.5,
+                filter="BSPL",
+                flag_convergence=True,
+                sum_wr=1.0,
+                norm_wr=1.0,
+            )
+            restored[it : it + 4, it : it + 4] += atom.image
+            # A tree with nothing on it: the animation reads no tree column.
+            store.append(it, [atom], [SimpleNamespace()])
 
     fits.PrimaryHDU(restored).writeto(f"{outpath}.restored.fits")
     fits.PrimaryHDU(image - restored).writeto(f"{outpath}.residuals.fits")
@@ -270,24 +274,23 @@ def test_rebuild_animation_draws_one_frame_per_iteration(tmp_path):
     ]
 
 
-def test_iteration_dumps_are_ordered_and_deduplicated(tmp_path):
-    """A resumed run can hold both formats; the same iteration is one frame."""
-    outpath = fake_run(tmp_path, n_iterations=2)
-    (tmp_path / "run.ol.it002.hdf5").touch()
+def test_rebuild_animation_needs_the_atom_store(tmp_path):
+    """Without the atom store there is nothing to replay, and it says so.
 
-    dumps = viz.animation.iteration_dumps(outpath)
-
-    assert [it for it, _ in dumps] == [1, 2]
-
-
-def test_rebuild_animation_needs_the_atom_dumps(tmp_path):
-    """Without the atom dumps there is nothing to replay, and it says so.
-
-    The dumps are now the *only* thing it insists on: #66 dropped the
+    The store is now the *only* thing it insists on: #66 dropped the
     requirement that the run also left its two final images.
     """
-    with pytest.raises(FileNotFoundError, match="no atom dumps"):
+    with pytest.raises(FileNotFoundError, match="no atom store"):
         viz.rebuild_animation(str(tmp_path / "nothing"))
+
+
+def test_rebuild_animation_needs_an_iteration_in_the_store(tmp_path):
+    """A run killed in its first iteration leaves an empty store."""
+    outpath = str(tmp_path / "run")
+    dawis.AtomStore(f"{outpath}.atoms.hdf5", (8, 8)).__exit__()
+
+    with pytest.raises(FileNotFoundError, match="at least one iteration"):
+        viz.rebuild_animation(outpath)
 
 
 def test_rebuild_convergence_plot_reads_the_trace(tmp_path):

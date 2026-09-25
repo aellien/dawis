@@ -50,7 +50,7 @@ import numpy as np
 
 # dawis is not installed; run it from this checkout.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from dawis.io.store import _load_hdf5_attribute, pkl_to_hdf5, read_ol_from_hdf5  # noqa: E402
+from dawis.io.legacy import _load_hdf5_attribute, pkl_to_hdf5, read_ol_from_hdf5  # noqa: E402
 
 INDEX_DTYPE = np.dtype([
     ('iteration', 'i4'), ('atom_id', 'i4'), ('level', 'i4'),

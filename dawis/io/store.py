@@ -1,450 +1,275 @@
-"""The object store: what one iteration leaves on disk.
+"""The atom store: every atom a run restored, in one HDF5 file (#122).
 
-The pipeline writes two things per iteration — the atoms it restored and the
-interscale trees they came from — and reads them back to resume. This module
-is that store, in its current HDF5 form.
+A run writes ``<outdir>/<name>.atoms.hdf5``, and resumes from it. The layout
+is the one #120 ruled, after #118 timed a selection built from it 21–29× faster
+than from the per-iteration files it replaces:
 
-The writer is deliberately generic. :func:`object_recursive_save_to_hdf5`
-walks an object's ``__dict__`` and mirrors it into an HDF5 group: arrays and
-scalars become datasets, a nested object or a list of objects becomes a
-subgroup. Nothing here names an attribute of an atom or a tree, so the store
-does not have to be edited when one of them gains a field.
+- ``image`` and ``det_err_image``: every atom's pixels, raveled in C order and
+  concatenated into one 1-D float64 array each;
+- ``index``: one row per atom — the iteration, the atom's place in it, the
+  offset and length of its pixels, every scalar of the :class:`Atom`, the
+  scalars of the tree it was restored from under a ``tree_`` prefix, and four
+  of that tree's interscale maximum under a ``maximum_`` prefix
+  (:data:`INDEX_DTYPE`);
+- the attribute ``shape``: the frame the atoms sit in.
 
-The readers are not generic, because reading has to know what class to build.
-:func:`read_ol_from_hdf5` and :func:`read_itl_from_hdf5` each rebuild their
-own type from an empty instance. An atom and a tree are made the way a
-pickle makes them, with ``cls.__new__(cls)`` and no constructor call, because
-both constructors compute from arguments the file does not hold; a
-:class:`~dawis.detection.regions.region` is built with its defaults. Those
-three imports are the only edges this module has to the other
-blocks, and they run one way: no block imports :mod:`dawis.io`.
+A tree's regions and its ``det_err_array`` are not written. The regions are
+read only during a run, and the noise vector is already inside every atom's
+``det_err_image``.
 
-The round trip is lossy in one respect worth knowing. The writer stores a
-scalar as a length-1 array, so every reader squeezes on the way back; a
-genuine length-1 array therefore returns as a scalar.
+Only the run's main process writes, once per iteration: pixels, then index
+rows, then a flush. An iteration counts as written once its index rows are on
+disk, so a run killed half way through leaves pixels past the last row and
+nothing else wrong; :class:`AtomStore` cuts them off when it resumes. Plain
+HDF5, not SWMR: a killed writer left both readable in #120's kill test, and
+SWMR needs ``h5clear``, which pip's h5py does not ship.
 
-:func:`read_image_atoms` is the run-level entry: it globs a whole run's
-per-iteration files and returns every atom with the tree that produced it. It
-reads the legacy pickle format as well as HDF5, through
-:mod:`dawis.io.legacy`.
-
-Phase B replaces this with a first-class ``ObjectStore``; through Phase A the
-on-disk format is unchanged, which is what makes the goldens diagnostic.
+Pre-1.0 runs, per-iteration ``.ol.itNNN``/``.itl.itNNN`` files, are read
+through :mod:`dawis.io.legacy`.
 """
 
 from __future__ import annotations
 
-import gc
-import glob
-import logging
+import os
+from typing import TYPE_CHECKING
 
 import h5py
 import numpy as np
 
-from dawis.detection import region
-from dawis.io.legacy import read_itl_from_pickle, read_ol_from_pickle
 from dawis.restoration import Atom
-from dawis.trees import InterscaleTree
 
-log = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from dawis.trees import InterscaleTree
+
+#: What the store's file is called, after the run's path stem.
+STORE_SUFFIX = '.atoms.hdf5'
+
+#: One pixel chunk, in values: 8 MB, as #118 timed it.
+_CHUNK = 1 << 20
+
+#: Atom fields that are text, all from closed sets far shorter than the width.
+_TEXT = ('filter', 'algorithm', 'synthesis_operator')
+
+#: Scalars copied from the tree and from its interscale maximum.
+_TREE_FIELDS = ('x_size', 'y_size', 'n_regions', 'span_levels', 'extent',
+                'eccentricity', 'lowb', 'highb', 'clip')
+_MAXIMUM_FIELDS = ('level', 'x_max', 'y_max', 'norm_max_intensity')
+
+#: One index row. Missing values are NaN in float columns, -1 in integer ones.
+INDEX_DTYPE = np.dtype([
+    ('iteration', 'i4'), ('atom_id', 'i4'), ('offset', 'i8'), ('length', 'i8'),
+    ('bbox', 'i4', (4,)), ('level', 'i4'), ('eccentricity', 'f8'),
+    ('filter', 'S32'), ('flag_convergence', '?'), ('sum_wr', 'f8'),
+    ('norm_wr', 'f8'), ('algorithm', 'S32'), ('synthesis_operator', 'S32'),
+    ('tree_bbox', 'i4', (4,)), ('tree_x_size', 'i4'), ('tree_y_size', 'i4'),
+    ('tree_n_regions', 'i4'), ('tree_span_levels', 'i4'), ('tree_extent', 'f8'),
+    ('tree_eccentricity', 'f8'), ('tree_lowb', 'f8'), ('tree_highb', 'f8'),
+    ('tree_clip', 'i4'),
+    ('maximum_level', 'i4'), ('maximum_x_max', 'i4'), ('maximum_y_max', 'i4'),
+    ('maximum_norm_max_intensity', 'f8'),
+])
 
 
-def _load_hdf5_attribute(dataset: h5py.Dataset) -> object:
-    """Read one stored attribute back, as the type it was written as.
+def _missing(column: str):
+    return np.nan if INDEX_DTYPE[column].kind == 'f' else -1
 
-    The one door every HDF5 group loader in this module reads a dataset
-    through, so that the two concessions the format asks for are made once
-    rather than three times. Private, unlike the three loaders it serves: it
-    is how they read, not a way to read a run.
+
+def _index_rows(iteration: int, offset: int, atoms: list[Atom],
+                trees: list[InterscaleTree]) -> np.ndarray:
+    """The index rows of one iteration's atoms, starting at pixel ``offset``."""
+
+    rows = np.zeros(len(atoms), dtype = INDEX_DTYPE)
+    for j, (atom, tree) in enumerate(zip(atoms, trees)):
+        row = rows[j]
+        row['iteration'], row['atom_id'] = iteration, j
+        row['offset'], row['length'] = offset, atom.image.size
+        offset += atom.image.size
+        for name in ('bbox', 'level', 'eccentricity', 'flag_convergence',
+                     'sum_wr', 'norm_wr') + _TEXT:
+            row[name] = getattr(atom, name)
+        values = [('tree_bbox', getattr(tree, 'bbox', None))]
+        values += [('tree_' + name, getattr(tree, name, None)) for name in _TREE_FIELDS]
+        maximum = getattr(tree, 'interscale_maximum', None)
+        values += [('maximum_' + name, getattr(maximum, name, None))
+                   for name in _MAXIMUM_FIELDS]
+        for column, value in values:
+            row[column] = _missing(column) if value is None else value
+    return rows
+
+
+def _rebuild(f: h5py.File, rows: np.ndarray) -> list[Atom]:
+    """The atoms of ``rows``, which must sit in one run of pixels, in order."""
+
+    if not len(rows):
+        return []
+    start = int(rows['offset'][0])
+    stop = int(rows['offset'][-1] + rows['length'][-1])
+    image = f['image'][start:stop]
+    det_err = f['det_err_image'][start:stop]
+
+    atoms = []
+    for row in rows:
+        x0, y0, x1, y1 = (int(v) for v in row['bbox'])
+        pixels = slice(int(row['offset']) - start,
+                       int(row['offset'] + row['length']) - start)
+        atoms.append(Atom(
+            image = image[pixels].reshape(x1 - x0, y1 - y0),
+            det_err_image = det_err[pixels].reshape(x1 - x0, y1 - y0),
+            bbox = (x0, y0, x1, y1),
+            level = int(row['level']),
+            eccentricity = float(row['eccentricity']),
+            filter = row['filter'].decode(),
+            flag_convergence = bool(row['flag_convergence']),
+            sum_wr = float(row['sum_wr']),
+            norm_wr = float(row['norm_wr']),
+            algorithm = row['algorithm'].decode(),
+            synthesis_operator = row['synthesis_operator'].decode(),
+        ))
+    return atoms
+
+
+class AtomStore:
+    """The writer of a run's atom store, and what a resumed run reads from.
 
     Parameters
     ----------
-    dataset : h5py.Dataset
-        A dataset written by :func:`object_recursive_save_to_hdf5`.
-
-    Returns
-    -------
-    object
-        The stored value: an array as an array, a number as a scalar, and a
-        string as :class:`str`.
+    path : str or os.PathLike
+        The store's file, ``<outdir>/<name>.atoms.hdf5``.
+    shape : tuple of int
+        The frame the atoms sit in, recorded as the ``shape`` attribute.
+    resume : bool, optional
+        Keep what the file holds and cut off any pixels past its last index
+        row. Default False replaces the file, as a run without resume always
+        has.
 
     Notes
     -----
-    Two concessions. The writer stores a scalar as a length-1 array, so this
-    squeezes; a genuine length-1 array therefore comes back as a scalar, which
-    is the round trip's one lossy corner and predates this function.
-
-    And h5py hands a stored string back as :class:`bytes`, so
-    ``atom.filter`` read out of HDF5 used to be ``b'BSPL'`` where the same atom
-    read out of a pickle was ``'BSPL'`` — one attribute with two types
-    depending on which file it came from. Decoding here makes the two agree
-    (#66). The goldens are recorded from pickles, where the filter was already
-    text, so nothing recorded can move.
+    Used as a context manager; the file is closed on exit.
     """
 
-    value = np.squeeze(dataset[()])
+    def __init__(self, path: str | os.PathLike, shape: tuple[int, int],
+                 resume: bool = False):
 
-    # `S` is numpy's fixed-width bytes kind, which is what a stored string
-    # squeezes to: h5py hands one back as `bytes` and `np.squeeze` wraps that
-    # in a 0-d array. So the test is on the array, not on `bytes` itself.
-    if isinstance(value, np.ndarray) and value.dtype.kind == 'S':
-        text = value.astype(str)
-        return text.item() if text.ndim == 0 else text
+        if resume and os.path.exists(path):
+            self._file = h5py.File(path, 'a')
+            stored = tuple(int(v) for v in self._file.attrs['shape'])
+            if stored != tuple(shape):
+                self._file.close()
+                raise ValueError('cannot resume: the store holds a %s frame, the image is %s'
+                                 %(stored, tuple(shape)))
+            index = self._file['index']
+            last = index[len(index) - 1] if len(index) else None
+            end = 0 if last is None else int(last['offset'] + last['length'])
+            for name in ('image', 'det_err_image'):
+                self._file[name].resize((end,))
+            self._file.flush()
+            return
 
-    return value
+        self._file = h5py.File(path, 'w')
+        self._file.attrs['shape'] = shape
+        for name in ('image', 'det_err_image'):
+            self._file.create_dataset(name, (0,), maxshape = (None,), dtype = 'f8',
+                                      chunks = (_CHUNK,))
+        self._file.create_dataset('index', (0,), maxshape = (None,),
+                                  dtype = INDEX_DTYPE, chunks = (1024,))
+
+    def __enter__(self) -> AtomStore:
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self._file.close()
+
+    def iterations(self) -> set[int]:
+        """The iterations whose atoms are in the store."""
+        return set(int(it) for it in self._file['index']['iteration'])
+
+    def read(self, iteration: int) -> list[Atom]:
+        """One iteration's atoms, in the order they were written."""
+        index = self._file['index'][()]
+        return _rebuild(self._file, index[index['iteration'] == iteration])
+
+    def append(self, iteration: int, atoms: list[Atom],
+               trees: list[InterscaleTree]) -> None:
+        """Write one iteration's atoms and the tree each was restored from.
+
+        Raises
+        ------
+        ValueError
+            If there are not as many trees as atoms. Tree ``j`` is atom
+            ``j``'s, so a count that differs means the pairing is lost.
+        """
+
+        if len(atoms) != len(trees):
+            raise ValueError('iteration %d has %d atoms but %d trees'
+                             %(iteration, len(atoms), len(trees)))
+        if not atoms:
+            return
+
+        for atom in atoms:
+            x0, y0, x1, y1 = atom.bbox
+            if atom.image.shape != (x1 - x0, y1 - y0):
+                raise ValueError('an atom image of shape %s does not fill its bbox %s'
+                                 %(atom.image.shape, atom.bbox))
+
+        f = self._file
+        offset = f['image'].shape[0]
+        n = sum(atom.image.size for atom in atoms)
+        for name in ('image', 'det_err_image'):
+            f[name].resize((offset + n,))
+            f[name][offset:] = np.concatenate([getattr(atom, name).ravel()
+                                               for atom in atoms])
+
+        rows = _index_rows(iteration, offset, atoms, trees)
+        index = f['index']
+        index.resize((len(index) + len(rows),))
+        index[-len(rows):] = rows
+        f.flush()
 
 
-def object_recursive_save_to_hdf5(o: object, h5grp: h5py.Group) -> None:
-    """Recursively save a Python object to an HDF5 group.
+def read_frame_shape(outpath: str) -> tuple[int, int]:
+    """The frame a run's atoms sit in, as the store recorded it."""
 
-    Every attribute of ``o`` becomes a dataset if h5py accepts it directly,
-    and a subgroup otherwise — one subgroup per nested object, or one
-    ``r%d`` subgroup per element of a list of objects.
+    with h5py.File(outpath + STORE_SUFFIX, 'r') as f:
+        return tuple(int(v) for v in f.attrs['shape'])
 
-    Parameters
-    ----------
-    o : object
-        The object to save. Read through its ``__dict__``.
-    h5grp : h5py.Group
-        The group to save into.
 
-    Notes
-    -----
-    Recursion stops at depth two: a nested object's own nested attributes are
-    written as arrays, and an attribute that is neither array-like, a list nor
-    an object is logged and dropped rather than raising.
+def read_atom_index(outpath: str) -> np.ndarray:
+    """A run's index rows alone, one per atom, without a pixel read.
+
+    What a selection filters on before it reads any atom; see
+    :data:`INDEX_DTYPE` for the columns.
     """
 
-    for attr, val in o.__dict__.items():
-                
-        # Test if standard data structure
-        try:
-            h5grp.create_dataset(attr, data = val)
-            
-        # If not standard, should be a list of objects or an object
-        except TypeError:
-            
-            # Create subgroup
-            sub_h5grp = h5grp.create_group(attr)
-            
-            # recursive call
-            # If data structure is a list of objects
-            if isinstance(val, list):
-                
-                for i, sub_val in enumerate(val):
-                    sub_sub_h5grp = sub_h5grp.create_group('r%d'%i)
-                    object_recursive_save_to_hdf5(sub_val, sub_sub_h5grp)
-                    
-        
-            # If data structure is an object
-            elif hasattr(val, '__dict__'):
-                
-                for sub_attr, sub_val in val.__dict__.items():
-                    # Test if standard data structure
-                    try:
-                        
-                        if isinstance(sub_val, np.ndarray):
-                            sub_h5grp.create_dataset(sub_attr, data = sub_val)
-                        else:
-                            sub_h5grp.create_dataset(sub_attr, data = np.array([sub_val]))
-
-                    # If not standard, should be a list of objects, or an object
-                    except TypeError:
-                        object_recursive_save_to_hdf5(sub_val, sub_h5grp)       
-            else:
-                log.info('Unknown data structure for %s. NOT SAVING TO HDF5 FILE.' %(attr))
-
-
-def write_itl_to_hdf5(itl: list[InterscaleTree], filename: str) -> None:
-    """Write a list of interscale trees to an HDF5 file.
-
-    Parameters
-    ----------
-    itl : list of InterscaleTree
-        The trees of one iteration. Tree ``i`` becomes group ``it{i}``.
-    filename : str
-        Path to write to. Any existing file is replaced.
-    """
-    with h5py.File(filename, "w") as f:
-        gc.collect()
-        for i, o in enumerate(itl):
-            grp = f.create_group(f'it{i}')
-            object_recursive_save_to_hdf5(o, grp)
-
-
-def read_itl_from_hdf5(filename: str) -> list[InterscaleTree]:
-    """Read a list of interscale trees back from an HDF5 file.
-
-    Parameters
-    ----------
-    filename : str
-        Path written by :func:`write_itl_to_hdf5`.
-
-    Returns
-    -------
-    list of InterscaleTree
-        The trees, in the order h5py yields the groups, which is
-        alphabetical: ``it10`` precedes ``it2``.
-    """
-    itl = []
-    with h5py.File(filename, "r") as f:
-        gc.collect()
-        for grp_name in f.keys():
-            grp = f[grp_name]
-            it = load_interscale_tree_from_hdf5_group(grp)
-            itl.append(it)
-    return itl
-
-
-def load_interscale_tree_from_hdf5_group(grp: h5py.Group) -> InterscaleTree:
-    """Rebuild one interscale tree from an HDF5 group.
-
-    Parameters
-    ----------
-    grp : h5py.Group
-        A group written by :func:`object_recursive_save_to_hdf5`.
-
-    Returns
-    -------
-    InterscaleTree
-        An empty tree with the stored attributes set on it.
-
-    Notes
-    -----
-    Only ``region_list`` and ``interscale_maximum`` are restored among the
-    subgroups; any other subgroup is skipped.
-    """
-    it = InterscaleTree.__new__(InterscaleTree)
-    for attr_name in grp.keys():
-        attr = grp[attr_name]
-        
-        # If dataset --> standard attribute
-        if isinstance(attr, h5py.Dataset):
-            setattr(it, attr_name, _load_hdf5_attribute(attr))
-            
-        # If group --> a list of regions, or a region
-        elif isinstance(attr, h5py.Group):
-            
-            if attr_name == 'region_list':  
-                rl = []
-                for rnum in attr.keys():
-                    rgrp = grp['region_list'][rnum]
-                    r = load_region_from_hdf5_group(rgrp)
-                    rl.append(r)
-                setattr(it, attr_name, rl)
-                
-            elif attr_name == 'interscale_maximum':
-                interscale_maximum = load_region_from_hdf5_group(attr)
-                setattr(it, attr_name, interscale_maximum)
-    return it
-
-
-def load_region_from_hdf5_group(grp: h5py.Group) -> region:
-    """Rebuild one region from an HDF5 group.
-
-    Parameters
-    ----------
-    grp : h5py.Group
-        A group holding one region's attributes as datasets.
-
-    Returns
-    -------
-    region
-        A default region with the stored attributes set on it.
-    """
-    r = region()
-    for attr_name in grp.keys():
-        attr = grp[attr_name]
-        setattr(r, attr_name, _load_hdf5_attribute(attr))
-    return r
-
-
-def write_ol_to_hdf5(object_list: list[Atom], filename: str) -> None:
-    """Write a list of atoms to an HDF5 file.
-
-    Parameters
-    ----------
-    object_list : list of Atom
-        The atoms of one iteration. Atom ``i`` becomes group ``o{i}``.
-    filename : str
-        Path to write to. Any existing file is replaced.
-    """
-    with h5py.File(filename, "w") as f:
-        gc.collect()
-        for i, o in enumerate(object_list):
-            grp = f.create_group(f'o{i}')
-            object_recursive_save_to_hdf5(o, grp)
-
-
-def read_ol_from_hdf5(filename: str) -> list[Atom]:
-    """Read a list of atoms back from an HDF5 file.
-
-    Parameters
-    ----------
-    filename : str
-        Path written by :func:`write_ol_to_hdf5`.
-
-    Returns
-    -------
-    list of Atom
-        The atoms, in the order h5py yields the groups, which is
-        alphabetical: ``o10`` precedes ``o2``.
-    """
-    ol = []
-    with h5py.File(filename, "r") as f:
-        gc.collect()
-        for grp_name in f.keys():
-            grp = f[grp_name]
-            o = load_atom_from_hdf5_group(grp)
-            ol.append(o)
-    return ol
-
-
-def load_atom_from_hdf5_group(grp: h5py.Group) -> Atom:
-    """Rebuild one atom from an HDF5 group.
-
-    Parameters
-    ----------
-    grp : h5py.Group
-        A group holding one atom's attributes as datasets.
-
-    Returns
-    -------
-    Atom
-        An empty atom with the stored attributes set on it.
-
-    Notes
-    -----
-    An atom written before #66 holds no ``algorithm`` and no
-    ``synthesis_operator`` dataset, so the empty instance keeps the class
-    attributes :class:`~dawis.restoration.synthesis.Atom` declares and both
-    read ``'UNKNOWN'`` rather than raising.
-    """
-    o = Atom.__new__(Atom)
-    for attr_name in grp.keys():
-        
-        attr = grp[attr_name]
-        setattr(o, attr_name, _load_hdf5_attribute(attr))
-    return o
-
-
-def pkl_to_hdf5(pkl_ol: str, pkl_itl: str) -> None:
-    """Convert one iteration's legacy pickle files to the HDF5 store.
-
-    Parameters
-    ----------
-    pkl_ol : str
-        Path to an atom list written by
-        :func:`~dawis.io.legacy.write_ol_to_pickle`.
-    pkl_itl : str
-        Path to the matching tree list written by
-        :func:`~dawis.io.legacy.write_itl_to_pickle`.
-
-    Notes
-    -----
-    The outputs are the same paths with the last three characters replaced by
-    ``hdf5``, so both arguments must end in ``.pkl``.
-    """
-    
-    ol = read_ol_from_pickle(pkl_ol)
-    itl = read_itl_from_pickle(pkl_itl)
-    write_ol_to_hdf5(ol, pkl_ol[:-3] + 'hdf5')
-    write_itl_to_hdf5(itl, pkl_itl[:-3] + 'hdf5')
+    with h5py.File(outpath + STORE_SUFFIX, 'r') as f:
+        return f['index'][()]
 
 
 def read_image_atoms(
-    nfp: str,
-    file_format: str = 'hdf5',
-    filter_it: str | None = None,
-    verbose: bool = True,
-) -> tuple[list[Atom], list[InterscaleTree]]:
-    """Read a whole run's atoms back off disk, with the tree behind each one.
+    outpath: str,
+    iteration: int | None = None,
+) -> tuple[list[Atom], np.ndarray]:
+    """Read a run's atoms back off its store, with their index rows.
 
     Parameters
     ----------
-    nfp : str
-        Path prefix the run was written under — everything before
-        ``.ol.itNNN``.
-    file_format : {'hdf5', 'pkl'}, optional
-        Which format to read. Default is ``'hdf5'``; ``'pkl'`` reads a legacy
-        run through :mod:`dawis.io.legacy`.
-    filter_it : str or None, optional
-        Read one iteration only, as the zero-padded string it appears as in
-        the filename, e.g. ``'003'``. Default None reads every iteration.
-    verbose : bool, optional
-        Log the two glob patterns and print a progress counter. Default True.
+    outpath : str
+        Path stem of the run, ``<outdir>/<name>``; the store is
+        ``<outpath>.atoms.hdf5``.
+    iteration : int or None, optional
+        Read one iteration only. Default None reads every atom, which holds
+        all of a run's pixels in memory at once.
 
     Returns
     -------
-    tol : list of Atom
-        Every atom of the run, iterations concatenated in filename order.
-    titl : list of InterscaleTree
-        The tree each atom was restored from, at the same index.
-
-    Notes
-    -----
-    The two file lists are sorted as strings and then zipped, so iteration
-    ``10`` precedes iteration ``2`` and a run missing one of the two files for
-    some iteration pairs atoms with the wrong trees rather than raising.
+    atoms : list of Atom
+        The atoms, in the order the run wrote them.
+    index : numpy.ndarray
+        Their index rows, a structured array of :data:`INDEX_DTYPE`: row ``j``
+        is atom ``j``'s, and carries the scalars of the tree it came from.
     """
 
-    if file_format == 'pkl':
-        
-        if filter_it == None:
-            opath = nfp + '*ol.it*.pkl'
-            itpath = nfp + '*itl.it*.pkl'
-        else:
-            opath = nfp + '*ol.it' + filter_it  + '.pkl'
-            itpath = nfp + '*itl.it' + filter_it + '.pkl'
-            
-    elif file_format == 'hdf5':
-        
-        if filter_it == None:
-            opath = nfp + '*ol.it*.hdf5'
-            itpath = nfp + '*itl.it*.hdf5'
-        else:
-            opath = nfp + '*ol.it' + filter_it  + '.hdf5'
-            itpath = nfp + '*itl.it' + filter_it + '.hdf5'
-
-    # Object lists
-    opathl = glob.glob(opath)
-    opathl.sort()
-
-    # Interscale tree lists
-    itpathl = glob.glob(itpath)
-    itpathl.sort()
-
-    tol = []
-    titl = []
-
-    if verbose:
-        log.info('Reading %s.'%(opath))
-        log.info('Reading %s.'%(itpath))
-
-    for i, ( op, itlp ) in enumerate( zip( opathl, itpathl )):
-        
-        if verbose :
-            log.debug('Iteration %d' %(i))
-            
-        if file_format == 'pkl':
-            ol = read_ol_from_pickle( op )
-            itl = read_itl_from_pickle( itlp )
-
-        elif file_format == 'hdf5':
-            ol = read_ol_from_hdf5( op)
-            itl = read_itl_from_hdf5(itlp)
-            
-        for j, o in enumerate(ol):
-
-            tol.append(o)
-            titl.append(itl[j])
-
-    return tol, titl
-
-
-if __name__ == '__main__':
-
-    import sys
-    filename_ol = sys.argv[1] # .pkl
-    filename_itl = sys.argv[2] # .pkl
-    pkl_to_hdf5(filename_ol, filename_itl)
+    with h5py.File(outpath + STORE_SUFFIX, 'r') as f:
+        index = f['index'][()]
+        if iteration is not None:
+            index = index[index['iteration'] == iteration]
+        return _rebuild(f, index), index

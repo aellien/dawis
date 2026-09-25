@@ -370,8 +370,29 @@ class GoldenRun:
 
     @property
     def atom_dumps(self) -> list[Path]:
-        """The per-iteration atom pickles, in iteration order."""
+        """The per-iteration atom pickles a pre-1.0 tree writes, in order."""
         return sorted(self.stem.parent.glob(f"{self.stem.name}.ol.it*.pkl"))
+
+    @property
+    def atom_store(self) -> Path:
+        """The atom store a 1.0 tree writes instead of the pickles (#122)."""
+        return Path(f"{self.stem}.atoms.hdf5")
+
+    def atoms(self, dawis):
+        """Every atom the run wrote, as ``(iteration, index, atom)``, in order.
+
+        From the store when the run left one, else from the pickles, so a
+        recording on a legacy tree and a 1.0 run read the same way.
+        """
+        if self.atom_store.exists():
+            atoms, rows = dawis.read_image_atoms(str(self.stem))
+            yield from zip(rows["iteration"].tolist(), rows["atom_id"].tolist(),
+                           atoms)
+            return
+        for dump in self.atom_dumps:
+            iteration = int(dump.name.split(".ol.it")[1][:3])
+            for index, atom in enumerate(dawis.read_ol_from_pickle(str(dump))):
+                yield iteration, index, atom
 
 
 def run_golden(dawis, image: np.ndarray, work_dir: Path, infile: str,
@@ -493,28 +514,26 @@ def atom_catalogue(dawis, run: GoldenRun) -> list[dict]:
     survives the carve — rather than what one function returned.
     """
     rows = []
-    for dump in run.atom_dumps:
-        iteration = int(dump.name.split(".ol.it")[1][:3])
-        for index, atom in enumerate(dawis.read_ol_from_pickle(str(dump))):
-            rows.append({
-                "iteration": iteration,
-                "index": index,
-                "level": int(atom.level),
-                "bbox_0": int(atom.bbox[0]),
-                "bbox_1": int(atom.bbox[1]),
-                "bbox_2": int(atom.bbox[2]),
-                "bbox_3": int(atom.bbox[3]),
-                "eccentricity": float(atom.eccentricity),
-                "filter": str(atom.filter),
-                "algorithm": str(atom.algorithm),
-                "synthesis_operator": str(atom.synthesis_operator),
-                "flag_convergence": int(bool(atom.flag_convergence)),
-                "sum_wr": float(atom.sum_wr),
-                "norm_wr": float(atom.norm_wr),
-                "flux": float(np.sum(atom.image)),
-                "peak": float(np.max(atom.image)),
-                "det_err_flux": float(np.sum(atom.det_err_image)),
-            })
+    for iteration, index, atom in run.atoms(dawis):
+        rows.append({
+            "iteration": iteration,
+            "index": index,
+            "level": int(atom.level),
+            "bbox_0": int(atom.bbox[0]),
+            "bbox_1": int(atom.bbox[1]),
+            "bbox_2": int(atom.bbox[2]),
+            "bbox_3": int(atom.bbox[3]),
+            "eccentricity": float(atom.eccentricity),
+            "filter": str(atom.filter),
+            "algorithm": str(atom.algorithm),
+            "synthesis_operator": str(atom.synthesis_operator),
+            "flag_convergence": int(bool(atom.flag_convergence)),
+            "sum_wr": float(atom.sum_wr),
+            "norm_wr": float(atom.norm_wr),
+            "flux": float(np.sum(atom.image)),
+            "peak": float(np.max(atom.image)),
+            "det_err_flux": float(np.sum(atom.det_err_image)),
+        })
     return rows
 
 
@@ -551,18 +570,17 @@ def atom_catalogue_with_digests(dawis, run: GoldenRun) -> list[dict]:
     Digesting the bytes closes that gap without touching the golden tables,
     whose columns are recorded on disk and cannot gain one.
 
-    Both this and :func:`atom_catalogue` walk ``run.atom_dumps`` in the same
+    Both this and :func:`atom_catalogue` walk ``run.atoms`` in the same
     order, which is what lets the rows be zipped rather than joined.
     """
     rows = atom_catalogue(dawis, run)
 
     digests = []
-    for dump in run.atom_dumps:
-        for atom in dawis.read_ol_from_pickle(str(dump)):
-            digests.append({
-                "image_sha256": _digest_of_array(atom.image),
-                "det_err_image_sha256": _digest_of_array(atom.det_err_image),
-            })
+    for _, _, atom in run.atoms(dawis):
+        digests.append({
+            "image_sha256": _digest_of_array(atom.image),
+            "det_err_image_sha256": _digest_of_array(atom.det_err_image),
+        })
 
     return [dict(row, **digest)
             for row, digest in zip(rows, digests, strict=True)]

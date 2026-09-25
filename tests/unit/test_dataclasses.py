@@ -17,7 +17,7 @@ import pytest
 
 from dawis.cubes import CoarseCube, Cube, LabelCube, SupportCube, WaveletCube
 from dawis.detection import region
-from dawis.io.store import (
+from dawis.io.legacy import (
     read_itl_from_hdf5,
     read_ol_from_hdf5,
     write_itl_to_hdf5,

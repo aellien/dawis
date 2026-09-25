@@ -64,8 +64,7 @@ Files a run writes, all hanging off ``<outdir>/<name>``:
 
 =========================== ================================================
 ``.log.txt``                the run log
-``.ol.itNNN.pkl``/``.hdf5`` the atoms of one iteration
-``.itl.itNNN.pkl``/``.hdf5`` the interscale trees they were restored from
+``.atoms.hdf5``             every atom, with the scalars of its tree
 ``.residuals.fits``         what the loop could not explain
 ``.restored.fits``          the sum of every atom
 ``.deterror.fits``          the accumulated detection error
@@ -75,7 +74,7 @@ Files a run writes, all hanging off ``<outdir>/<name>``:
 
 Every one of those but the trace is written when the loop ends. The trace is
 written as the loop goes, one flushed line per iteration, so a run that is
-killed still leaves a readable one (#66) — that and the atom and tree dumps
+killed still leaves a readable one (#66) — that and the atom store
 are all an interrupted run leaves, which is why
 :func:`dawis.viz.rebuild_animation` takes the image it worked on from its
 caller rather than looking for a file.
@@ -84,14 +83,16 @@ caller rather than looking for a file.
 filename, so a run driven from ``ngc1275.fits`` writes ``ngc1275.restored.fits``
 exactly as it always did.
 
-The atom dumps are also how a run resumes: an iteration whose atoms are
-already on disk is read back rather than recomputed. That is resume by file
-existence, which is what DAWIS has always done and what Phase B replaces with
-a real object store.
+The atom store, :mod:`dawis.io.store`, is also how a run resumes: an
+iteration whose atoms are already in it is read back rather than recomputed.
+It is written once per iteration and only counts an iteration whose index rows
+reached the disk, so a run killed mid-write resumes from the last whole one
+(#122).
 """
 
 from __future__ import annotations
 
+import glob
 import logging
 import os
 from dataclasses import replace
@@ -103,15 +104,8 @@ from dawis.config import Config, make_rng, resolve_seed
 from dawis.convergence import CONVERGENCE_HEADER, ConvergenceMonitor
 from dawis.detection import make_regions_full_props, ms_detect_and_deblend
 from dawis.exceptions import ConfigError, DawisDimensionError
-from dawis.io import (
-    read_image,
-    read_ol_from_hdf5,
-    read_ol_from_pickle,
-    write_itl_to_hdf5,
-    write_itl_to_pickle,
-    write_ol_to_hdf5,
-    write_ol_to_pickle,
-)
+from dawis.io import AtomStore, read_image
+from dawis.io.store import STORE_SUFFIX
 from dawis.logs import run_logging
 from dawis.parallel import observed_threads, parallel_backend
 from dawis.restoration import (
@@ -136,12 +130,6 @@ DEFAULT_RUN_NAME = 'dawis'
 #: Extension :func:`run_fits` accepts, and the length of it that is stripped to
 #: make the run's name.
 FITS_EXTENSION = '.fits'
-
-
-def _dump_path(outpath: str, kind: str, it: int, extension: str) -> str:
-    """Path of one iteration's dump, in the one place the naming is decided."""
-
-    return '%s.%s.it%03d.%s' % (outpath, kind, it, extension)
 
 
 def _write_fits(path: str, image, header = None) -> None:
@@ -425,7 +413,16 @@ def run(image, config: Config | None = None, *, outdir: str = '.',
             # appending would invent a merge problem. This is the one
             # writer-side exception to taking the drawing off the loop (#46),
             # and it is a text append rather than an image.
-            with open( ''.join(( outpath, '.cpar.txt' )), 'w') as conv:
+            # A pre-1.0 run left per-iteration dumps, which 1.0 cannot resume
+            # from (#122). Say so rather than recompute them silently.
+            if config.resume and not os.path.exists(outpath + STORE_SUFFIX) \
+                    and glob.glob(outpath + '.ol.it*'):
+                log.warning('Found pre-1.0 atom dumps at %s.ol.it* but no %s: they '
+                            'cannot be resumed, every iteration is recomputed'
+                            %(outpath, STORE_SUFFIX))
+
+            with open( ''.join(( outpath, '.cpar.txt' )), 'w') as conv, \
+                 AtomStore(outpath + STORE_SUFFIX, im.shape, resume = config.resume) as store:
 
                 conv.write('%s\n' %(CONVERGENCE_HEADER))
                 conv.flush()
@@ -444,19 +441,12 @@ def run(image, config: Config | None = None, *, outdir: str = '.',
                                                    iptd_sigma = config.iptd_sigma, rng = rng)
 
                         # Check if resume run
-                        pickle_dump = _dump_path(outpath, 'ol', it, 'pkl')
-                        hdf5_dump = _dump_path(outpath, 'ol', it, 'hdf5')
-                        resumed = True
+                        resumed = it in store.iterations()
 
-                        if config.resume and os.path.exists(pickle_dump):
+                        if resumed:
 
-                            log.info('Found %s.\nResuming iteration' %(pickle_dump))
-                            ol = read_ol_from_pickle(pickle_dump)
-
-                        elif config.resume and os.path.exists(hdf5_dump):
-
-                            log.info('Found %s --> resuming iteration' %(hdf5_dump))
-                            ol = read_ol_from_hdf5(hdf5_dump)
+                            log.info('Iteration %d found in the atom store --> resuming it' %(it))
+                            ol = store.read(it)
 
                         else:
 
@@ -537,16 +527,10 @@ def run(image, config: Config | None = None, *, outdir: str = '.',
                         conv.flush()
 
                         # The atoms and the trees of this iteration. An iteration
-                        # that was read back off disk is already dumped, by the run
-                        # that computed it.
+                        # that was read back off the store is already in it, put
+                        # there by the run that computed it.
                         if not resumed:
-
-                            if config.outfile_format == 'hdf5':
-                                write_itl_to_hdf5( itl, _dump_path(outpath, 'itl', it, 'hdf5') )
-                                write_ol_to_hdf5( ol, hdf5_dump )
-                            elif config.outfile_format == 'pickle':
-                                write_itl_to_pickle( itl, _dump_path(outpath, 'itl', it, 'pkl') )
-                                write_ol_to_pickle( ol, pickle_dump )
+                            store.append(it, ol, itl)
 
                         log.info('[ %s ]End of iteration (time: %s)\n\n'%(datetime.now(), datetime.now() - start_time_it ))
                         it += 1

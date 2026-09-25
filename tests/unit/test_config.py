@@ -47,7 +47,6 @@ from dawis.config import (
     CG_STEP_SIZES,
     DEFAULT_CG_MAX_ITER,
     MINIMIZERS,
-    OUTPUT_FORMATS,
     PARALLEL_BACKENDS,
     SEED_BITS,
     SYNTHESIS_FILTERS,
@@ -83,7 +82,6 @@ def test_the_default_configuration_is_the_published_one():
     assert config.seed is None
     assert config.cg_max_iter == DEFAULT_CG_MAX_ITER
     assert config.conditions == 'loop'
-    assert config.outfile_format == 'pickle'
     assert config.n_workers == 1
     assert config.backend is None
     assert config.n_threads == 1
@@ -180,7 +178,6 @@ def test_the_configuration_cannot_be_changed_after_it_is_checked():
     ('ecc_sep', -0.1),
     ('ecc_sep', 1.5),
     ('conditions', 'wrap'),
-    ('outfile_format', 'csv'),
     ('step_size', 'FLETCHER'),
     ('line_direction', 'published'),
     ('backend', 'dask'),
@@ -238,11 +235,6 @@ def test_a_condition_neither_of_them_accepts_is_refused_by_both():
 
     with pytest.raises(DawisValueError):
         dawis.boundary_conditions(np.zeros(4), 4, conditions = 'wrap')
-
-
-@pytest.mark.parametrize('output_format', OUTPUT_FORMATS)
-def test_every_supported_output_format_is_accepted(output_format):
-    assert Config(outfile_format = output_format).outfile_format == output_format
 
 
 @pytest.mark.parametrize('backend', PARALLEL_BACKENDS)

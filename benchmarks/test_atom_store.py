@@ -7,7 +7,7 @@ suite because the code it checks is a throwaway (#119).
 import numpy as np
 
 import atom_store
-from dawis.io.store import write_ol_to_hdf5
+from dawis.io.legacy import write_ol_to_hdf5
 from dawis.restoration import Atom
 
 
