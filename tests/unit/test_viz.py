@@ -293,6 +293,40 @@ def test_rebuild_animation_needs_an_iteration_in_the_store(tmp_path):
         viz.rebuild_animation(outpath)
 
 
+def test_rebuild_animation_refuses_an_image_of_another_frame(tmp_path):
+    """A supplied image has to be the frame the store's atoms sit in (#124).
+
+    Every atom's bbox addresses the store's frame, so an image of another size
+    is not the one the loop worked on. Before the guard the frames were built
+    at the store's shape while the residuals kept the caller's, and the
+    subtraction died on a bare numpy broadcast error naming neither the run
+    nor the two shapes.
+    """
+    outpath = fake_run(tmp_path, size=16)
+
+    with pytest.raises(ValueError, match=r"image supplied is \(32, 32\)"):
+        viz.rebuild_animation(outpath, image=np.zeros((32, 32)),
+                              show_progress=False)
+
+
+def test_rebuild_animation_says_when_the_run_s_own_images_mismatch(tmp_path):
+    """The mismatch is as likely in the fallback, and the message says which.
+
+    With no ``image`` the frame comes off the run's own two final images, so a
+    stale pair beside the store fails the same guard — and telling the caller
+    to fix an argument they never passed would send them the wrong way.
+    """
+    from astropy.io import fits
+
+    outpath = fake_run(tmp_path, size=16)
+    for name in ("restored", "residuals"):
+        (tmp_path / f"run.{name}.fits").unlink()
+        fits.PrimaryHDU(np.zeros((32, 32))).writeto(tmp_path / f"run.{name}.fits")
+
+    with pytest.raises(ValueError, match=r"restored\.fits"):
+        viz.rebuild_animation(outpath, show_progress=False)
+
+
 def test_rebuild_convergence_plot_reads_the_trace(tmp_path):
     """The convergence figure the pipeline used to draw, drawn afterwards."""
     outpath = str(tmp_path / "run")

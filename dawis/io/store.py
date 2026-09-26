@@ -142,6 +142,13 @@ class AtomStore:
         row. Default False replaces the file, as a run without resume always
         has.
 
+    Raises
+    ------
+    ValueError
+        On resume, if the file holds a different frame than ``shape``, is not a
+        finished store at all, or cannot be opened as HDF5. Nothing is left
+        open in any of the three, so a run can start over on it.
+
     Notes
     -----
     Used as a context manager; the file is closed on exit.
@@ -151,7 +158,23 @@ class AtomStore:
                  resume: bool = False):
 
         if resume and os.path.exists(path):
-            self._file = h5py.File(path, 'a')
+            # Creating the file, its `shape` and its three datasets are four
+            # writes, so a run killed among them leaves a file holding some of
+            # them and no atom. Named rather than left to a bare KeyError off
+            # whichever one is missing first — or, when the kill landed inside
+            # HDF5's own file creation, to an OSError naming a byte address.
+            try:
+                self._file = h5py.File(path, 'a')
+            except OSError as unreadable:
+                raise ValueError('cannot resume: %s is not a readable HDF5 file — the '
+                                 'run that made it died while it was being created'
+                                 % path) from unreadable
+            if ('shape' not in self._file.attrs
+                    or any(name not in self._file
+                           for name in ('image', 'det_err_image', 'index'))):
+                self._file.close()
+                raise ValueError('cannot resume: %s is not a finished atom store — '
+                                 'the run that made it died before it wrote one' % path)
             stored = tuple(int(v) for v in self._file.attrs['shape'])
             if stored != tuple(shape):
                 self._file.close()

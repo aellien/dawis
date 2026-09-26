@@ -130,6 +130,71 @@ def test_resume_refuses_a_different_frame(tmp_path):
         AtomStore(path, (64, 64), resume=True)
 
 
+def test_resume_names_the_store_it_cannot_read(tmp_path):
+    """A store killed before its datasets existed is not a store (#124).
+
+    Creating the file, writing the ``shape`` attribute and creating the three
+    datasets are four writes, not one, so a kill in between leaves a file that
+    exists and holds none of them. Reading ``attrs['shape']`` off it raised a
+    bare ``KeyError`` naming the attribute, and left the file open — so the
+    run could not even start over on it.
+    """
+    path = tmp_path / 'run.atoms.hdf5'
+    h5py.File(path, 'w').close()
+
+    with pytest.raises(ValueError, match='run.atoms.hdf5'):
+        AtomStore(path, SHAPE, resume=True)
+
+    with AtomStore(path, SHAPE) as store:
+        assert store.iterations() == set()
+
+
+def test_resume_names_a_store_hdf5_cannot_open_at_all(tmp_path):
+    """The kill can land inside HDF5's own file creation, not only after it.
+
+    ``h5py.File(path, 'a')`` then raises before any guard here can look inside,
+    with an ``OSError`` naming a byte address and not the store.
+    """
+    path = tmp_path / 'run.atoms.hdf5'
+    path.write_bytes(b'\x89HDF\r\n\x1a\n' + bytes(512))
+
+    with pytest.raises(ValueError, match='run.atoms.hdf5'):
+        AtomStore(path, SHAPE, resume=True)
+
+
+def test_the_goldens_read_one_iteration_at_a_time(tmp_path, monkeypatch):
+    """``GoldenRun.atoms`` streams rather than reading a whole run (#124).
+
+    ``read_image_atoms`` with no ``iteration`` holds every pixel of the run in
+    memory at once — its own docstring warns so — and
+    ``atom_catalogue_with_digests`` walked the atoms twice, so a Tier 2
+    comparison paid for that twice. The pickle path it replaced read one
+    iteration at a time. The spy pins both halves: one call per iteration,
+    ``iteration`` always given, and one walk rather than two.
+    """
+    import dawis
+    import goldenrun
+
+    outpath = str(tmp_path / 'run')
+    two_iterations(outpath + '.atoms.hdf5')
+
+    calls = []
+    read = dawis.read_image_atoms
+
+    def spy(path, iteration=None):
+        calls.append(iteration)
+        return read(path, iteration=iteration)
+
+    monkeypatch.setattr(dawis, 'read_image_atoms', spy)
+
+    rows = goldenrun.atom_catalogue_with_digests(
+        dawis, goldenrun.GoldenRun(Path(outpath)))
+
+    assert calls == [1, 2]
+    assert [(row['iteration'], row['index']) for row in rows] == [(1, 0), (1, 1), (2, 0)]
+    assert all(row['image_sha256'] for row in rows)
+
+
 def test_without_resume_the_file_is_replaced(tmp_path):
     path = tmp_path / 'run.atoms.hdf5'
     two_iterations(path)

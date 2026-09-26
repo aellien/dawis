@@ -421,8 +421,11 @@ def run(image, config: Config | None = None, *, outdir: str = '.',
                             'cannot be resumed, every iteration is recomputed'
                             %(outpath, STORE_SUFFIX))
 
-            with open( ''.join(( outpath, '.cpar.txt' )), 'w') as conv, \
-                 AtomStore(outpath + STORE_SUFFIX, im.shape, resume = config.resume) as store:
+            # The store first: a `with` opens left to right, and opening the
+            # trace 'w' truncates it — so a resume that the store refuses would
+            # destroy the killed run's trace on its way to the error.
+            with AtomStore(outpath + STORE_SUFFIX, im.shape, resume = config.resume) as store, \
+                 open( ''.join(( outpath, '.cpar.txt' )), 'w') as conv:
 
                 conv.write('%s\n' %(CONVERGENCE_HEADER))
                 conv.flush()

@@ -280,6 +280,12 @@ def rebuild_animation(outpath: str,
     FileNotFoundError
         If the run left no atom store at ``outpath``. There is then nothing
         to replay.
+    ValueError
+        If the image to replay against is not the frame the store's atoms sit
+        in — ``image``, or the run's own final images when ``image`` is None.
+        Every atom's bounding box addresses that frame, so an image of another
+        size is not the one the loop worked on. The message says which of the
+        two was read.
 
     Notes
     -----
@@ -305,8 +311,15 @@ def rebuild_animation(outpath: str,
         raise FileNotFoundError("no atom store found for run '%s': expected '%s%s' "
                                 "with at least one iteration" % (outpath, outpath, STORE_SUFFIX))
 
+    # Named before _worked_image, which falls back to the run's own two images:
+    # past it there is no telling which of the two the caller has to go and fix.
+    source = ('image supplied' if image is not None else
+              "run's own .restored.fits and .residuals.fits")
     image = _worked_image(image, outpath)
     shape = read_frame_shape(outpath)
+    if image is not None and image.shape != shape:
+        raise ValueError("cannot replay run '%s': the %s is %s and the store's atoms "
+                         "sit in a %s frame" %(outpath, source, image.shape, shape))
 
     res = None if image is None else np.copy(image)
     rec = np.zeros(shape)

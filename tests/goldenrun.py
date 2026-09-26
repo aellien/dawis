@@ -383,11 +383,26 @@ class GoldenRun:
 
         From the store when the run left one, else from the pickles, so a
         recording on a legacy tree and a 1.0 run read the same way.
+
+        One iteration is read at a time, as the pickles are: ``read_image_atoms``
+        with no ``iteration`` holds every pixel of the run in memory at once,
+        which its own docstring warns about.
+
+        That trades memory for opens — one per iteration, each re-reading the
+        whole index, which carries no pixels. Worth it at the sizes the goldens
+        run; :meth:`dawis.io.store.AtomStore.read` is the one-open reader if a
+        compare ever shows up in a profile.
         """
         if self.atom_store.exists():
-            atoms, rows = dawis.read_image_atoms(str(self.stem))
-            yield from zip(rows["iteration"].tolist(), rows["atom_id"].tolist(),
-                           atoms)
+            index = dawis.read_atom_index(str(self.stem))
+            # dict.fromkeys, not np.unique: the iterations come out in the order
+            # the run wrote them rather than sorted, which is what every caller
+            # zips against.
+            for iteration in dict.fromkeys(index["iteration"].tolist()):
+                atoms, rows = dawis.read_image_atoms(str(self.stem),
+                                                     iteration=iteration)
+                yield from zip(rows["iteration"].tolist(),
+                               rows["atom_id"].tolist(), atoms)
             return
         for dump in self.atom_dumps:
             iteration = int(dump.name.split(".ol.it")[1][:3])
@@ -506,6 +521,29 @@ ATOM_COLUMNS = (
 )
 
 
+def _catalogue_row(iteration: int, index: int, atom) -> dict:
+    """One catalogue row, off one atom. :data:`ATOM_COLUMNS` names its keys."""
+    return {
+        "iteration": iteration,
+        "index": index,
+        "level": int(atom.level),
+        "bbox_0": int(atom.bbox[0]),
+        "bbox_1": int(atom.bbox[1]),
+        "bbox_2": int(atom.bbox[2]),
+        "bbox_3": int(atom.bbox[3]),
+        "eccentricity": float(atom.eccentricity),
+        "filter": str(atom.filter),
+        "algorithm": str(atom.algorithm),
+        "synthesis_operator": str(atom.synthesis_operator),
+        "flag_convergence": int(bool(atom.flag_convergence)),
+        "sum_wr": float(atom.sum_wr),
+        "norm_wr": float(atom.norm_wr),
+        "flux": float(np.sum(atom.image)),
+        "peak": float(np.max(atom.image)),
+        "det_err_flux": float(np.sum(atom.det_err_image)),
+    }
+
+
 def atom_catalogue(dawis, run: GoldenRun) -> list[dict]:
     """Read every atom the run wrote, in the order the run wrote them.
 
@@ -513,28 +551,8 @@ def atom_catalogue(dawis, run: GoldenRun) -> list[dict]:
     kept in memory, so this asserts what a run *produces* — which is what
     survives the carve — rather than what one function returned.
     """
-    rows = []
-    for iteration, index, atom in run.atoms(dawis):
-        rows.append({
-            "iteration": iteration,
-            "index": index,
-            "level": int(atom.level),
-            "bbox_0": int(atom.bbox[0]),
-            "bbox_1": int(atom.bbox[1]),
-            "bbox_2": int(atom.bbox[2]),
-            "bbox_3": int(atom.bbox[3]),
-            "eccentricity": float(atom.eccentricity),
-            "filter": str(atom.filter),
-            "algorithm": str(atom.algorithm),
-            "synthesis_operator": str(atom.synthesis_operator),
-            "flag_convergence": int(bool(atom.flag_convergence)),
-            "sum_wr": float(atom.sum_wr),
-            "norm_wr": float(atom.norm_wr),
-            "flux": float(np.sum(atom.image)),
-            "peak": float(np.max(atom.image)),
-            "det_err_flux": float(np.sum(atom.det_err_image)),
-        })
-    return rows
+    return [_catalogue_row(iteration, index, atom)
+            for iteration, index, atom in run.atoms(dawis)]
 
 
 def _digest_of_array(array) -> str:
@@ -570,20 +588,13 @@ def atom_catalogue_with_digests(dawis, run: GoldenRun) -> list[dict]:
     Digesting the bytes closes that gap without touching the golden tables,
     whose columns are recorded on disk and cannot gain one.
 
-    Both this and :func:`atom_catalogue` walk ``run.atoms`` in the same
-    order, which is what lets the rows be zipped rather than joined.
+    One walk of ``run.atoms``, not two: the rows and the digests are built off
+    the same atom, so a Tier 2 comparison reads the run once (#124).
     """
-    rows = atom_catalogue(dawis, run)
-
-    digests = []
-    for _, _, atom in run.atoms(dawis):
-        digests.append({
-            "image_sha256": _digest_of_array(atom.image),
-            "det_err_image_sha256": _digest_of_array(atom.det_err_image),
-        })
-
-    return [dict(row, **digest)
-            for row, digest in zip(rows, digests, strict=True)]
+    return [dict(_catalogue_row(iteration, index, atom),
+                 image_sha256=_digest_of_array(atom.image),
+                 det_err_image_sha256=_digest_of_array(atom.det_err_image))
+            for iteration, index, atom in run.atoms(dawis)]
 
 
 #: Per-iteration columns of the golden convergence table, in the order the
