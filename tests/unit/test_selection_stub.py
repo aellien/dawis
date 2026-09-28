@@ -53,17 +53,17 @@ def test_selection_docstring_points_at_the_specs():
 
 def test_selection_holds_only_what_has_landed():
     """#125 added the protocol, #126 the criteria, cascade and units frame,
-    #127 ``SourceModel`` and its images.
-
-    ``to_table()`` and the error methods are #128's, and not here yet.
+    #127 ``SourceModel`` and its images, #128 ``to_table()`` and the error
+    methods.
     """
     modules = sorted(m.name for m in (PACKAGE_ROOT / 'selection').glob('*.py'))
-    assert modules == ['__init__.py', 'cascade.py', 'criteria.py', 'source_model.py',
-                       'units.py']
+    assert modules == ['__init__.py', 'cascade.py', 'catalog.py', 'criteria.py',
+                       'source_model.py', 'units.py']
     assert dawis.selection.__all__ == [
         'Cascade', 'Criterion', 'Distance', 'Eccentricity', 'InMask', 'Kurtosis',
         'Level', 'MissingColumn', 'Size', 'SourceModel', 'Units', 'atom_position',
-        'mask_sort', 'source_models', 'split',
+        'bootstrap', 'mask_sort', 'resample_borderline', 'source_models', 'split',
+        'to_table',
     ]
     for name in dawis.selection.__all__:
         assert getattr(dawis.selection, name, None) is not None, name

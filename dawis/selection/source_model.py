@@ -18,6 +18,17 @@ import numpy as np
 
 from dawis.io.store import read_synthesised_image
 from dawis.selection.cascade import UNCLASSIFIED
+from dawis.selection.criteria import MissingColumn
+
+
+def require_columns(rows: np.ndarray, columns: tuple[str, ...]) -> None:
+    """Refuse, by name, index rows from a store written without ``columns``."""
+
+    missing = [c for c in columns if c not in (rows.dtype.names or ())]
+    if missing:
+        raise MissingColumn('this reads %s, which this atom store does not carry: it was '
+                            'written before the index gained the columns measured off the '
+                            'pixels, so re-run to measure it' % ', '.join(missing))
 
 
 @dataclass(eq = False)
@@ -45,6 +56,22 @@ class SourceModel:
     def det_err_image(self) -> np.ndarray:
         """The sum of the group's atoms' detection error images."""
         return read_synthesised_image(self.outpath, self.rows, det_err = True)
+
+    def flux(self, floor: float | None = None) -> float:
+        """The sum of the group's image.
+
+        Read off the index, with no pixel read, unless a ``floor`` is given:
+        then only the image's pixels at or above it count, as CFIS counted them
+        (``make_synthesis_sdssrm_xcs.py:170``). The floor is an argument and
+        never state, so a flux cannot depend on something set elsewhere (#17,
+        point 12).
+        """
+
+        if floor is None:
+            require_columns(self.rows, ('flux',))
+            return float(self.rows['flux'].sum())
+        image = self.image()
+        return float(image[image >= floor].sum())
 
 
 def source_models(groups: Mapping[str, np.ndarray], outpath: str,

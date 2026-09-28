@@ -26,7 +26,10 @@ Post-processing step that filters and groups atoms — by scale, position, morph
 An astrophysical structure modelled as a set of whole atoms — the product of atom selection, and the level at which catalog-style measurements (positions, fluxes) become meaningful. An atom belongs to at most one source model, and carries no weight: an atom is in or out.
 
 ### Bootstrap error
-The uncertainty on a quantity measured on a group of atoms (a flux, a fraction): the standard deviation of that quantity over N resamplings of the group's atoms, drawn with replacement. Optionally the resamplings also draw from the *borderline* atoms — those one level below a level cut.
+The uncertainty on a quantity measured on a group of atoms: the standard deviation of that quantity over N resamplings of the group's atoms, each of size N and drawn **with replacement**. The default error on any source-model measurement.
+
+### Borderline resampling
+The alternative uncertainty on a group of atoms, and the one the CFIS papers actually used: draw samples of *variable* size, uniform in `[(1-spread)N, (1+spread)N]`, **without** replacement, swapping in a random count of **borderline** atoms — those one level below a level cut and inside the mask of interest — and report the median with the 5th and 95th percentiles. Not a bootstrap, and named separately so it cannot be mistaken for one.
 
 ### Atom store
 Where a run keeps its atoms on disk: a table of atom properties plus the atoms' pixels. The pre-1.0 store is one pickle or HDF5 file per iteration, one group per atom.

@@ -26,7 +26,7 @@ What belongs here, once specced:
 * the selection API — object store in, source models out;
 * the criteria, automatic and scripted, and how existing external selection
   scripts map onto them;
-* ``SourceModel`` itself and its ``to_table()`` catalog export.
+* ``SourceModel`` itself and the ``to_table()`` catalog of a set of them.
 
 The API and the criteria are specced on **#17**. The interactive interface
 that drives them — where a user builds or corrects a source model by hand —
@@ -53,10 +53,14 @@ a name, index rows and the run's path, synthesising an image and a
 ``det_err`` image on demand — and warns if hand-built groups share an atom.
 The unclassified group is no source model: it synthesises to an image through
 :func:`dawis.read_synthesised_image` and nothing more (#127).
-``to_table()`` and the error methods are #128's.
+The catalog is :func:`to_table`, one row per source model, and a flux's
+error comes two ways: :func:`bootstrap`, the default, and
+:func:`resample_borderline`, the CFIS scheme, which is not a bootstrap. A flux
+floor is an argument to each, never state on the model (#128).
 """
 
 from dawis.selection.cascade import Cascade, mask_sort
+from dawis.selection.catalog import bootstrap, resample_borderline, to_table
 from dawis.selection.criteria import (
     Criterion,
     Distance,
@@ -85,7 +89,10 @@ __all__ = [
     'SourceModel',
     'Units',
     'atom_position',
+    'bootstrap',
     'mask_sort',
+    'resample_borderline',
     'source_models',
     'split',
+    'to_table',
 ]
