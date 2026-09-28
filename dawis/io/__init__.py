@@ -64,6 +64,7 @@ from dawis.io.store import (
     read_atom_index,
     read_frame_shape,
     read_image_atoms,
+    read_synthesised_image,
 )
 
 __all__ = [
@@ -77,6 +78,7 @@ __all__ = [
     'read_atom_index',
     'read_frame_shape',
     'read_image_atoms',
+    'read_synthesised_image',
     'read_itl_from_hdf5',
     'read_itl_from_pickle',
     'read_legacy_run',

@@ -48,8 +48,12 @@ rule list where the first match claims the atom and the leftovers are
 pixels and levels, or in kpc through a :class:`Units` frame the user supplies,
 because the store keeps no pixel scale (#126).
 
-``SourceModel`` and its images are #127's; ``to_table()`` and the error
-methods are #128's.
+:func:`source_models` turns those groups into :class:`SourceModel` objects —
+a name, index rows and the run's path, synthesising an image and a
+``det_err`` image on demand — and warns if hand-built groups share an atom.
+The unclassified group is no source model: it synthesises to an image through
+:func:`dawis.read_synthesised_image` and nothing more (#127).
+``to_table()`` and the error methods are #128's.
 """
 
 from dawis.selection.cascade import Cascade, mask_sort
@@ -65,6 +69,7 @@ from dawis.selection.criteria import (
     atom_position,
     split,
 )
+from dawis.selection.source_model import SourceModel, source_models
 from dawis.selection.units import Units
 
 __all__ = [
@@ -77,8 +82,10 @@ __all__ = [
     'Level',
     'MissingColumn',
     'Size',
+    'SourceModel',
     'Units',
     'atom_position',
     'mask_sort',
+    'source_models',
     'split',
 ]

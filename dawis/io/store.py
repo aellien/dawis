@@ -345,6 +345,42 @@ def read_atom_index(outpath: str) -> np.ndarray:
         return _warn_if_written_before_the_computed_columns(f['index'][()])
 
 
+def read_synthesised_image(outpath: str, rows: np.ndarray,
+                           det_err: bool = False) -> np.ndarray:
+    """The frame the atoms of ``rows`` add up to, read off the store (#127).
+
+    Each atom is added inside its bounding box, so overlapping atoms
+    accumulate, as :class:`~dawis.restoration.Reconstruction` accumulates them
+    during the run. Only the pixels of ``rows`` are read.
+
+    Parameters
+    ----------
+    outpath : str
+        Path stem of the run; the store is ``<outpath>.atoms.hdf5``.
+    rows : numpy.ndarray
+        Index rows of this store, from :func:`read_atom_index`, in any order.
+    det_err : bool, optional
+        Sum the atoms' ``det_err_image`` rather than their image.
+
+    Returns
+    -------
+    numpy.ndarray
+        On the store's frame; zeros where no atom of ``rows`` lies.
+    """
+
+    with h5py.File(outpath + STORE_SUFFIX, 'r') as f:
+        frame = np.zeros(tuple(int(v) for v in f.attrs['shape']))
+        pixels = f['det_err_image' if det_err else 'image']
+        # ponytail: one read per atom, as benchmarks/atom_store.py timed at
+        # 1.6 s over 50 220 atoms; read spans of adjacent rows if that is slow.
+        for row in rows:
+            x0, y0, x1, y1 = (int(v) for v in row['bbox'])
+            start = int(row['offset'])
+            frame[x0:x1, y0:y1] += pixels[start:start + int(row['length'])].reshape(
+                x1 - x0, y1 - y0)
+    return frame
+
+
 def read_image_atoms(
     outpath: str,
     iteration: int | None = None,
