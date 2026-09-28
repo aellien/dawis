@@ -11,6 +11,7 @@ pipeline that writes this file and no per-iteration dump.
 from __future__ import annotations
 
 import sys
+import warnings
 from pathlib import Path
 
 import h5py
@@ -24,7 +25,14 @@ from test_dataclasses import a_tree  # noqa: E402
 from tinyrun import TINY_NAME, TINY_PARAMS, run_quiet, tiny_image  # noqa: E402
 
 from dawis.config import Config  # noqa: E402
-from dawis.io.store import AtomStore, read_frame_shape, read_image_atoms  # noqa: E402
+from dawis.io.store import (  # noqa: E402
+    COMPUTED_COLUMNS,
+    INDEX_DTYPE,
+    AtomStore,
+    read_atom_index,
+    read_frame_shape,
+    read_image_atoms,
+)
 from dawis.restoration import Atom  # noqa: E402
 
 SHAPE = (32, 32)
@@ -229,3 +237,130 @@ def test_a_resumed_run_reads_its_iterations_back(tmp_path):
     _, after = read_image_atoms(again.outpath)
     np.testing.assert_array_equal(after, before)
     np.testing.assert_array_equal(again.restored, first.restored)
+
+
+# --- the four columns measured off the pixels (#125) ------------------------
+
+
+def test_the_index_carries_flux_the_centroid_and_the_kurtosis(tmp_path):
+    """The columns a selection on flux, position or kurtosis reads.
+
+    Checked against the same arithmetic done here on the atom's own pixels,
+    with the bounding box's origin added back, because a centroid recorded in
+    box coordinates would land every mask sort a few pixels off and nothing
+    would crash.
+    """
+    from scipy.stats import kurtosis
+
+    outpath = str(tmp_path / 'run')
+    two_iterations(outpath + '.atoms.hdf5')
+    atom = an_atom(0.)
+    image = atom.image
+    x0, y0 = atom.bbox[0], atom.bbox[1]
+
+    _, index = read_image_atoms(outpath)
+    row = index[0]
+
+    assert row['flux'] == pytest.approx(image.sum())
+    assert row['centroid_x'] == pytest.approx(
+        x0 + (np.arange(image.shape[0]) @ image.sum(axis=1)) / image.sum())
+    assert row['centroid_y'] == pytest.approx(
+        y0 + (np.arange(image.shape[1]) @ image.sum(axis=0)) / image.sum())
+    assert row['kurtosis'] == pytest.approx(kurtosis(image, axis=None, fisher=True))
+    assert x0 <= row['centroid_x'] <= atom.bbox[2]
+    assert y0 <= row['centroid_y'] <= atom.bbox[3]
+
+
+def test_a_centroid_that_cannot_be_computed_is_nan(tmp_path):
+    """An atom whose flux is not positive has no flux-weighted centroid.
+
+    NaN rather than the box centre: the fallback is the selection's to make
+    and to say it made (``CONTEXT.md``, atom position), and a store that
+    quietly wrote a box centre would hide which atoms it was guessing for.
+    """
+    path = tmp_path / 'run.atoms.hdf5'
+    negative = an_atom(0.)
+    negative.image[:] = -1.
+    with AtomStore(str(path), SHAPE) as store:
+        store.append(1, [negative], [a_tree()])
+
+    _, index = read_image_atoms(str(tmp_path / 'run'))
+
+    assert index[0]['flux'] == pytest.approx(-negative.image.size)
+    assert np.isnan(index[0]['centroid_x'])
+    assert np.isnan(index[0]['centroid_y'])
+
+
+def test_a_flat_atom_gets_no_kurtosis_and_no_warning(tmp_path):
+    """Kurtosis is undefined on pixels that are all one value.
+
+    scipy returns NaN there and warns about catastrophic cancellation. A run
+    writes every atom it makes, so left alone that warning fires per atom on a
+    run with flat ones; the store writes the NaN itself instead.
+    """
+    path = tmp_path / 'run.atoms.hdf5'
+    flat = an_atom(0.)
+    flat.image[:] = 3.
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        with AtomStore(str(path), SHAPE) as store:
+            store.append(1, [flat], [a_tree()])
+
+    _, index = read_image_atoms(str(tmp_path / 'run'))
+
+    assert np.isnan(index[0]['kurtosis'])
+    assert index[0]['flux'] == pytest.approx(3. * flat.image.size)
+
+
+def an_old_store(path) -> None:
+    """A store written before #125: the index dtype without its four columns."""
+    old = np.dtype([(name, INDEX_DTYPE[name]) for name in INDEX_DTYPE.names
+                    if name not in COMPUTED_COLUMNS])
+    with h5py.File(path, 'w') as f:
+        f.attrs['shape'] = SHAPE
+        for name in ('image', 'det_err_image'):
+            f.create_dataset(name, (0,), maxshape=(None,), dtype='f8')
+        f.create_dataset('index', (0,), maxshape=(None,), dtype=old)
+
+
+def test_a_store_written_before_the_computed_columns_warns(tmp_path):
+    """It warns and reads: level and size cuts still run on such a store."""
+    outpath = str(tmp_path / 'run')
+    an_old_store(outpath + '.atoms.hdf5')
+
+    with pytest.warns(UserWarning, match='flux, centroid_x, centroid_y, kurtosis'):
+        index = read_atom_index(outpath)
+    with pytest.warns(UserWarning, match='written before'):
+        read_image_atoms(outpath)
+
+    assert 'level' in index.dtype.names
+    assert 'flux' not in index.dtype.names
+
+
+def test_resuming_a_store_of_another_layout_is_refused(tmp_path):
+    """HDF5 drops the fields two dtypes do not share, and says nothing.
+
+    So a run resumed on a store written before the computed columns would
+    write every further atom without them, and end half measured with no way
+    to tell which half. Refused by name, like a frame that does not match, and
+    the file is not left open behind the error.
+    """
+    path = tmp_path / 'run.atoms.hdf5'
+    an_old_store(path)
+
+    with pytest.raises(ValueError, match='different layout'):
+        AtomStore(str(path), SHAPE, resume=True)
+
+    AtomStore(str(path), SHAPE).__exit__()
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        assert len(read_atom_index(str(tmp_path / 'run'))) == 0
+
+
+def test_a_store_with_the_columns_warns_about_nothing(tmp_path):
+    outpath = str(tmp_path / 'run')
+    two_iterations(outpath + '.atoms.hdf5')
+
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        assert len(read_atom_index(outpath)) == 3

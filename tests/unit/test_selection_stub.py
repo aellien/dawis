@@ -1,13 +1,14 @@
 """Tier 0 — the reserved ``dawis.selection`` namespace (#48).
 
 Atom selection is the step that turns atoms into source models (#4). Its
-criteria and API are specced on #17 and its interactive interface on #18, so
-nothing is implemented yet; what exists is the namespace and the docstring
-that says what belongs in it.
+criteria and API are specced on #17 and its interactive interface on #18. The
+namespace is no longer empty — #125 put the criterion protocol in it — but
+what it holds is still only what a landed ticket built.
 
-Two things are checked. First, that the reserved namespace is importable and
-still says where the spec lives — a stub whose pointer has rotted is worse
-than no stub. Second, that every subpackage under ``dawis`` is declared in
+Two things are checked. First, that the namespace is importable, still says
+where the spec lives — a stub whose pointer has rotted is worse than no stub
+— and exports what it claims to. Second, that every subpackage under ``dawis``
+is declared in
 ``pyproject.toml``: setuptools is configured with an explicit package list
 here, so a subpackage missing from it exists in the source tree and vanishes
 from the installed wheel. That check is not specific to this ticket, but this
@@ -16,7 +17,6 @@ is the ticket that adds the eighth entry to that list.
 
 from __future__ import annotations
 
-import ast
 import tomllib
 from pathlib import Path
 
@@ -51,14 +51,13 @@ def test_selection_docstring_points_at_the_specs():
     assert '#18' in doc, 'the interactive interface spec'
 
 
-def test_selection_holds_no_implementation():
+def test_selection_holds_only_what_has_landed():
+    """#125 added the criterion protocol; #126 and #127 add the rest."""
     modules = sorted(m.name for m in (PACKAGE_ROOT / 'selection').glob('*.py'))
-    assert modules == ['__init__.py']
-    source = (PACKAGE_ROOT / 'selection' / '__init__.py').read_text()
-    body = ast.parse(source).body
-    assert len(body) == 1, 'the stub holds its docstring and nothing else'
-    assert isinstance(body[0], ast.Expr)
-    assert isinstance(body[0].value, ast.Constant)
+    assert modules == ['__init__.py', 'criteria.py']
+    assert dawis.selection.__all__ == ['Criterion', 'split']
+    for name in dawis.selection.__all__:
+        assert getattr(dawis.selection, name, None) is not None, name
 
 
 def test_every_source_package_is_declared_in_pyproject():

@@ -1,9 +1,10 @@
-"""Selection: turning atoms into source models. Reserved, not yet built.
+"""Selection: turning atoms into source models.
 
-The seventh block of the target layout (#4), and the only one carved empty.
-Nothing is moved here, because nothing in the flat package does this job: atom
-selection is a *new* concept, and reserving its namespace now is what makes
-the concept visible in the layout instead of living only in the RFC.
+The seventh block of the target layout (#4), carved empty and now being
+filled. Nothing was moved here, because nothing in the flat package does this
+job: atom selection is a *new* concept, and reserving its namespace ahead of
+the work is what made the concept visible in the layout instead of living only
+in the RFC.
 
 The distinction it rests on is the one #4 drew. An **atom** is the output unit
 of synthesis: one interscale tree reconstructed into an image-domain footprint
@@ -32,6 +33,13 @@ that drives them — where a user builds or corrects a source model by hand —
 is specced separately on **#18**, and its framework question includes whether
 it ships in this package at all.
 
-Until #17 lands, this package holds no implementation, and no other module
-imports it.
+#17 has landed. What is built so far is the protocol the rest is written
+against: a **selection criterion** is a vectorised predicate over a run's atom
+index, composed by ``&``, ``|``, ``~`` and :func:`split`, and it reads index
+columns rather than pixels (#125). The criteria themselves, the cascade and
+the units frame are #126's; ``SourceModel`` is #127's.
 """
+
+from dawis.selection.criteria import Criterion, split
+
+__all__ = ['Criterion', 'split']

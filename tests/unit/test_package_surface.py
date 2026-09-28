@@ -54,8 +54,9 @@ SHIMS = {
     'wavelet_transforms',
 }
 
-#: The blocks of #4. ``selection`` is reserved and empty; ``viz`` is real but
-#: deliberately not imported by the package.
+#: The blocks of #4. ``selection`` holds the criterion protocol of #125 and
+#: nothing else yet; ``viz`` is real but deliberately not imported by the
+#: package.
 BLOCKS = {
     'detection',
     'io',

@@ -7,10 +7,11 @@ than from the per-iteration files it replaces:
 - ``image`` and ``det_err_image``: every atom's pixels, raveled in C order and
   concatenated into one 1-D float64 array each;
 - ``index``: one row per atom — the iteration, the atom's place in it, the
-  offset and length of its pixels, every scalar of the :class:`Atom`, the
-  scalars of the tree it was restored from under a ``tree_`` prefix, and four
-  of that tree's interscale maximum under a ``maximum_`` prefix
-  (:data:`INDEX_DTYPE`);
+  offset and length of its pixels, every scalar of the :class:`Atom`, four
+  scalars measured off its pixels as they are written
+  (:data:`COMPUTED_COLUMNS`), the scalars of the tree it was restored from
+  under a ``tree_`` prefix, and four of that tree's interscale maximum under a
+  ``maximum_`` prefix (:data:`INDEX_DTYPE`);
 - the attribute ``shape``: the frame the atoms sit in.
 
 A tree's regions and its ``det_err_array`` are not written. The regions are
@@ -31,6 +32,7 @@ through :mod:`dawis.io.legacy`.
 from __future__ import annotations
 
 import os
+import warnings
 from typing import TYPE_CHECKING
 
 import h5py
@@ -67,7 +69,67 @@ INDEX_DTYPE = np.dtype([
     ('tree_clip', 'i4'),
     ('maximum_level', 'i4'), ('maximum_x_max', 'i4'), ('maximum_y_max', 'i4'),
     ('maximum_norm_max_intensity', 'f8'),
+    ('flux', 'f8'), ('centroid_x', 'f8'), ('centroid_y', 'f8'),
+    ('kurtosis', 'f8'),
 ])
+
+#: The index columns measured off an atom's pixels rather than copied off an
+#: object, added by #125 so that a selection on flux, on atom position or on
+#: kurtosis reads no pixels. The pipeline already holds the pixels when it
+#: writes the row, so they cost four scalars; a store written before #125 does
+#: not carry them, which :func:`read_atom_index` warns about.
+COMPUTED_COLUMNS = ('flux', 'centroid_x', 'centroid_y', 'kurtosis')
+
+
+def _computed(atom: Atom) -> tuple[float, float, float, float]:
+    """An atom's flux, its flux-weighted centroid, and its excess kurtosis.
+
+    The centroid is in frame coordinates — the bounding box's origin is added
+    back — along the axes of :attr:`Atom.bbox`, so ``centroid_x`` runs down
+    ``image``'s first axis. It is NaN when the flux is not positive, which is
+    where an atom position falls back to the centre of the bounding box
+    (``CONTEXT.md``, *Atom position*).
+
+    Kurtosis is the **excess** kurtosis over every pixel of the bounding box —
+    ``scipy.stats.kurtosis(..., fisher = True)``'s definition, which is what
+    the CFIS artefact cut measured (``make_synthesis_sdssrm_xcs.py:505``), and
+    what a unit test pins it against. Written out rather than called: this
+    runs once per atom inside the write, and scipy's per-call overhead costs
+    about a millisecond on a small atom, which is a minute over a run of
+    50 000 of them. It is NaN where it is not defined — an atom whose pixels
+    are all one value, a one-pixel atom — rather than a warning per atom.
+    """
+
+    image = atom.image
+    flux = float(image.sum())
+    if flux > 0.:
+        x0, y0 = int(atom.bbox[0]), int(atom.bbox[1])
+        centroid_x = x0 + float(np.arange(image.shape[0]) @ image.sum(axis = 1)) / flux
+        centroid_y = y0 + float(np.arange(image.shape[1]) @ image.sum(axis = 0)) / flux
+    else:
+        centroid_x = centroid_y = np.nan
+    squared = (image - image.mean()) ** 2
+    variance = float(squared.mean())
+    excess = (float((squared * squared).mean()) / variance ** 2 - 3.
+              if variance > 0. else np.nan)
+    return flux, centroid_x, centroid_y, excess
+
+
+def _warn_if_written_before_the_computed_columns(index: np.ndarray) -> np.ndarray:
+    """Warn, once per read, if the index predates :data:`COMPUTED_COLUMNS`.
+
+    A warning and not an error: level, size and bbox-centre cuts run on such a
+    store exactly as they always did. Only a criterion that reads a missing
+    column raises, and numpy raises it by name.
+    """
+
+    missing = [name for name in COMPUTED_COLUMNS
+               if name not in (index.dtype.names or ())]
+    if missing:
+        warnings.warn('this atom store was written before the index carried %s, so a '
+                      'selection on flux, atom position or kurtosis will fail on it; '
+                      're-run to get them' % ', '.join(missing), stacklevel = 3)
+    return index
 
 
 def _missing(column: str):
@@ -94,6 +156,8 @@ def _index_rows(iteration: int, offset: int, atoms: list[Atom],
                    for name in _MAXIMUM_FIELDS]
         for column, value in values:
             row[column] = _missing(column) if value is None else value
+        for column, value in zip(COMPUTED_COLUMNS, _computed(atom)):
+            row[column] = value
     return rows
 
 
@@ -145,9 +209,10 @@ class AtomStore:
     Raises
     ------
     ValueError
-        On resume, if the file holds a different frame than ``shape``, is not a
-        finished store at all, or cannot be opened as HDF5. Nothing is left
-        open in any of the three, so a run can start over on it.
+        On resume, if the file holds a different frame than ``shape``, its
+        index has a different layout than this DAWIS writes, is not a finished
+        store at all, or cannot be opened as HDF5. Nothing is left open in any
+        of the four, so a run can start over on it.
 
     Notes
     -----
@@ -181,6 +246,19 @@ class AtomStore:
                 raise ValueError('cannot resume: the store holds a %s frame, the image is %s'
                                  %(stored, tuple(shape)))
             index = self._file['index']
+            # HDF5 matches a row's fields by name and quietly drops the rest,
+            # so resuming a store whose index predates #125 would write atoms
+            # with no flux, centroid or kurtosis and say nothing — a run half
+            # measured, and no way to tell which half. Refused, like the frame.
+            if index.dtype.names != INDEX_DTYPE.names:
+                missing = [name for name in INDEX_DTYPE.names
+                           if name not in (index.dtype.names or ())]
+                self._file.close()
+                raise ValueError('cannot resume: the store\'s index has a different layout '
+                                 'than this DAWIS writes (%s), and the columns it does not '
+                                 'share would be dropped without a word; start the run over'
+                                 % ('it is missing ' + ', '.join(missing) if missing
+                                    else 'its columns are in another order'))
             last = index[len(index) - 1] if len(index) else None
             end = 0 if last is None else int(last['offset'] + last['length'])
             for name in ('image', 'det_err_image'):
@@ -264,7 +342,7 @@ def read_atom_index(outpath: str) -> np.ndarray:
     """
 
     with h5py.File(outpath + STORE_SUFFIX, 'r') as f:
-        return f['index'][()]
+        return _warn_if_written_before_the_computed_columns(f['index'][()])
 
 
 def read_image_atoms(
@@ -292,7 +370,7 @@ def read_image_atoms(
     """
 
     with h5py.File(outpath + STORE_SUFFIX, 'r') as f:
-        index = f['index'][()]
+        index = _warn_if_written_before_the_computed_columns(f['index'][()])
         if iteration is not None:
             index = index[index['iteration'] == iteration]
         return _rebuild(f, index), index

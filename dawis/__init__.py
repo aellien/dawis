@@ -10,7 +10,7 @@ The layout is one subpackage per block::
     dawis.detection     thresholds, labels, regions
     dawis.trees         interscale trees
     dawis.restoration   atom synthesis, inpainting
-    dawis.selection     atoms into source models (reserved, #17)
+    dawis.selection     atoms into source models (#17, building)
     dawis.pipelines     the compositions users run
     dawis.io            FITS, the object store, the legacy pickle format
     dawis.viz           every line of matplotlib
