@@ -25,6 +25,21 @@ Post-processing step that filters and groups atoms — by scale, position, morph
 ### Source model
 An astrophysical structure modelled as a combination of selected atoms — the product of atom selection, and the level at which catalog-style measurements (positions, fluxes) become meaningful.
 
+### Selection criterion
+A test that keeps or drops an atom on one of its properties — wavelet level, bounding-box size, distance from a point, position inside a mask, kurtosis, eccentricity. It is a predicate over the **whole** atom index at once, returning one boolean per atom, so a selection reads no pixels at all: every property it tests lives in the store's index. Thresholds are given in pixels and levels, or in kpc at a redshift the user supplies. Criteria combine with and, or and not. Any callable of that shape is a criterion, so users add their own without changing DAWIS.
+
+### Atom position
+The point a position or mask criterion tests: the atom's flux-weighted centroid by default, the centre of its bounding box on request or where the centroid cannot be computed. It is computed by the pipeline and written into the atom store's index, not recomputed at selection time. A mask lookup rounds it to the nearest integer pixel.
+
+### Cascade
+An ordered list of (selection criterion, source-model name) rules. Each atom walks the list from the top and the first matching rule claims it, so the order is part of the selection and two orderings of the same criteria give different source models. Atoms no rule claims are unclassified. The other way to compose criteria is a direct split, which separates one group from the rest without any ordering.
+
+### Mask sort
+The selection step that assigns each atom to exactly one group by testing its atom position against user-supplied masks, with every atom no mask claims going to an `unclassified` group. The general form of the ICL / BCG / satellites split, and a **named convenience over a cascade of mask criteria** rather than a mechanism of its own.
+
+### Unclassified atoms
+The atoms a selection scheme claimed for no source model. They are how a selection is judged — what it missed is visible in them — and that judgement is by eye, so they synthesise to an image and carry no measurements and no catalog row.
+
 ### Residual
 The running difference between the input image and the sum of all atoms so far; the pipeline iterates on it until convergence.
 

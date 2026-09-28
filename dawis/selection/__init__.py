@@ -33,13 +33,52 @@ that drives them — where a user builds or corrects a source model by hand —
 is specced separately on **#18**, and its framework question includes whether
 it ships in this package at all.
 
-#17 has landed. What is built so far is the protocol the rest is written
-against: a **selection criterion** is a vectorised predicate over a run's atom
+#17 has landed, and what is built is the vocabulary a selection is written
+in. A **selection criterion** is a vectorised predicate over a run's atom
 index, composed by ``&``, ``|``, ``~`` and :func:`split`, and it reads index
-columns rather than pixels (#125). The criteria themselves, the cascade and
-the units frame are #126's; ``SourceModel`` is #127's.
+columns rather than pixels (#125). Six of them ship — :class:`Level`,
+:class:`Size`, :class:`Distance`, :class:`InMask`, :class:`Kurtosis`,
+:class:`Eccentricity` — and a user's own ``def`` is one too, which is most of
+what "users build their own pipelines" requires.
+
+Criteria compose two ways, and both partition by construction. :func:`split`
+separates one group from the rest, order-free. :class:`Cascade` is an ordered
+rule list where the first match claims the atom and the leftovers are
+``unclassified``; :func:`mask_sort` is a wrapper over it. Thresholds are in
+pixels and levels, or in kpc through a :class:`Units` frame the user supplies,
+because the store keeps no pixel scale (#126).
+
+``SourceModel`` and its images are #127's; ``to_table()`` and the error
+methods are #128's.
 """
 
-from dawis.selection.criteria import Criterion, split
+from dawis.selection.cascade import Cascade, mask_sort
+from dawis.selection.criteria import (
+    Criterion,
+    Distance,
+    Eccentricity,
+    InMask,
+    Kurtosis,
+    Level,
+    MissingColumn,
+    Size,
+    atom_position,
+    split,
+)
+from dawis.selection.units import Units
 
-__all__ = ['Criterion', 'split']
+__all__ = [
+    'Cascade',
+    'Criterion',
+    'Distance',
+    'Eccentricity',
+    'InMask',
+    'Kurtosis',
+    'Level',
+    'MissingColumn',
+    'Size',
+    'Units',
+    'atom_position',
+    'mask_sort',
+    'split',
+]
